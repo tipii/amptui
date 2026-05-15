@@ -1,0 +1,5 @@
+# Copy to $XDG_CONFIG_HOME/plexamp-tui/config.toml (usually ~/.config/plexamp-tui/config.toml)
+# Both values can also be supplied via PLEXAMP_SERVER_URL / PLEXAMP_TOKEN env vars.
+
+server_url = "http://192.168.1.10:32400"
+token = "your-X-Plex-Token-here"

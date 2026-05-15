@@ -1,0 +1,5 @@
+/plexamp-tui
+/dist/
+*.out
+*.test
+config.toml
