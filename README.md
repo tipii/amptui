@@ -14,8 +14,9 @@ Early development. Working today:
 - [x] Connect to a Plex server (manual token auth)
 - [x] Browse: libraries → artists → albums → tracks
 - [x] Play a track via mpv (pause/resume, seek)
-- [x] Play queue: add track/album, auto-advance, queue view
-- [ ] Queue: next/prev skip, reorder, remove
+- [x] Play queue: add track/album, auto-advance, queue modal
+- [x] Queue: next/prev skip, reorder, delete, jump-to-play
+- [x] In-app keybindings modal (`?`)
 - [ ] Search
 - [ ] Scrobble / mark played
 
@@ -61,18 +62,31 @@ Finding your token: see Plex's guide,
 
 ## Keybindings
 
-| Key                   | Action                                    |
-| --------------------- | ----------------------------------------- |
-| `enter` / `→` / `l`   | Open selected item / play track            |
-| `esc` / `←` / `h`     | Go back                                    |
-| `↑` / `↓` / `j` / `k` | Move selection                             |
-| `space`               | Pause / resume                             |
-| `,` / `.`             | Seek −10s / +10s                           |
-| `q`                   | Add highlighted track to the queue         |
-| `Q`                   | Add the whole album to the queue           |
-| `o`                   | Open / close the queue view                |
-| `/`                   | Filter the current list                    |
-| `ctrl+c` / `ctrl+q`   | Quit                                       |
+Press `?` in the app for an in-TUI keybindings modal.
+
+| Key                   | Action                                       |
+| --------------------- | -------------------------------------------- |
+| `enter` / `→` / `l`   | Open selected item / play track              |
+| `esc` / `←` / `h`     | Go back                                      |
+| `↑` / `↓` / `j` / `k` | Move selection                               |
+| `/`                   | Filter the current list                      |
+| `space`               | Pause / resume                               |
+| `n` / `p`             | Next / previous in queue                     |
+| `,` / `.`             | Seek −10s / +10s                             |
+| `q` / `Q`             | Add highlighted track / whole album to queue |
+| `o`                   | Open / close the queue modal                 |
+| `?`                   | Open / close the keybindings modal           |
+| `ctrl+c` / `ctrl+q`   | Quit                                         |
+
+**Inside the queue modal:**
+
+| Key       | Action                                       |
+| --------- | -------------------------------------------- |
+| `j` / `k` | Move cursor                                  |
+| `J` / `K` | Reorder highlighted track down / up          |
+| `d`       | Delete highlighted track                     |
+| `enter`   | Jump playback to highlighted track           |
+| `o` / `esc` | Close                                      |
 
 ## Project layout
 

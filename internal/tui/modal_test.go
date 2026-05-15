@@ -65,3 +65,51 @@ func TestQueueModalEmpty(t *testing.T) {
 		t.Errorf("expected empty-queue hint in the view")
 	}
 }
+
+func TestHelpModalRenders(t *testing.T) {
+	m := newQueueModel(t)
+	m.showQueue = false
+	m.showHelp = true
+
+	out := m.View().Content
+	if !strings.Contains(out, "Keybindings") {
+		t.Errorf("expected the help modal title in the view")
+	}
+	if !strings.Contains(out, "Soundtracks") {
+		t.Errorf("expected the background list to show through the overlay")
+	}
+	t.Log("\n" + out)
+}
+
+// TestMoveQueueItem covers reordering the currently-playing track.
+func TestMoveQueueItem(t *testing.T) {
+	m := newQueueModel(t)
+	// queue = [I'm a Ram, Tired of Being Alone, Driving Wheel]; idx 1 plays.
+	m.queueList.Select(1)
+	m.moveQueueItem(1)
+
+	if got := m.queue[2].Title; got != "Tired of Being Alone" {
+		t.Errorf("moved track should be at idx 2, got %q", got)
+	}
+	if m.queueIdx != 2 {
+		t.Errorf("queueIdx must follow the playing track, got %d", m.queueIdx)
+	}
+}
+
+// TestDeleteQueueItemBeforePlaying covers deleting a non-playing track that
+// sits before the playing one — queueIdx must decrement.
+func TestDeleteQueueItemBeforePlaying(t *testing.T) {
+	m := newQueueModel(t)
+	m.queueList.Select(0) // cursor on "I'm a Ram" (not playing)
+	m.deleteQueueItem()
+
+	if len(m.queue) != 2 {
+		t.Fatalf("expected 2 tracks left, got %d", len(m.queue))
+	}
+	if got := m.queue[0].Title; got != "Tired of Being Alone" {
+		t.Errorf("expected playing track to shift to idx 0, got %q", got)
+	}
+	if m.queueIdx != 0 {
+		t.Errorf("queueIdx should now be 0, got %d", m.queueIdx)
+	}
+}

@@ -1,0 +1,140 @@
+package tui
+
+import (
+	"time"
+
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+)
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.list.SetSize(msg.Width, m.listHeight())
+		// The queue list lives inside the modal box: subtract the border
+		// (2), horizontal padding (2), and one row for the box title.
+		mw, mh := m.modalSize()
+		m.queueList.SetSize(mw-4, mh-3)
+		return m, nil
+
+	case tea.KeyPressMsg:
+		// The help modal owns input while it is open.
+		if m.showHelp {
+			switch msg.String() {
+			case "ctrl+c", "ctrl+q":
+				return m, tea.Quit
+			case "?", "esc":
+				m.showHelp = false
+			}
+			return m, nil
+		}
+		// The queue modal owns input while it is open.
+		if m.showQueue {
+			switch msg.String() {
+			case "ctrl+c", "ctrl+q":
+				return m, tea.Quit
+			case "o", "esc":
+				m.showQueue = false
+				return m, nil
+			case "J":
+				m.moveQueueItem(1)
+				return m, nil
+			case "K":
+				m.moveQueueItem(-1)
+				return m, nil
+			case "d":
+				m.deleteQueueItem()
+				return m, nil
+			case "enter":
+				m.playQueueItem()
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.queueList, cmd = m.queueList.Update(msg)
+			return m, cmd
+		}
+		// Let the list own keys while it is filtering (typing a query).
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+		switch msg.String() {
+		case "ctrl+c", "ctrl+q":
+			return m, tea.Quit
+		case "?":
+			m.showHelp = true
+			return m, nil
+		case "enter", "l", "right":
+			return m.drillDown()
+		case "esc", "backspace", "h", "left":
+			return m.goBack()
+		case "q":
+			return m.enqueueSelectedTrack(), nil
+		case "Q":
+			return m.enqueueSelectedAlbum(), nil
+		case "o":
+			m.openQueue()
+			return m, nil
+		case "n":
+			m.playNext()
+			return m, nil
+		case "p":
+			m.playPrev()
+			return m, nil
+		case "space":
+			if m.player != nil {
+				_ = m.player.TogglePause()
+			}
+			return m, nil
+		case ",":
+			if m.player != nil {
+				_ = m.player.Seek(-10 * time.Second)
+			}
+			return m, nil
+		case ".":
+			if m.player != nil {
+				_ = m.player.Seek(10 * time.Second)
+			}
+			return m, nil
+		}
+
+	case artistsMsg:
+		m.applyItems(levelArtists, []list.Item(msg))
+		return m, nil
+	case albumsMsg:
+		m.applyItems(levelAlbums, []list.Item(msg))
+		return m, nil
+	case tracksMsg:
+		m.applyItems(levelTracks, []list.Item(msg))
+		return m, nil
+	case errMsg:
+		m.loading = false
+		m.err = msg.err
+		// Undo the crumb we optimistically pushed before fetching.
+		if n := len(m.crumbs); n > 0 {
+			m.crumbs = m.crumbs[:n-1]
+		}
+		return m, nil
+
+	case tickMsg:
+		m = m.advanceIfFinished()
+		if m.showQueue {
+			// Keep the modal's current-track marker in sync with playback,
+			// preserving the user's scroll position.
+			idx := m.queueList.Index()
+			m.rebuildQueueList()
+			m.queueList.Select(idx)
+		}
+		return m, tick()
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
