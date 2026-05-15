@@ -50,7 +50,7 @@ func New() (*Player, error) {
 	}
 
 	socketPath := filepath.Join(os.TempDir(),
-		fmt.Sprintf("plexamp-tui-mpv-%d.sock", os.Getpid()))
+		fmt.Sprintf("amptui-mpv-%d.sock", os.Getpid()))
 	_ = os.Remove(socketPath) // stale socket from a crashed prior run
 
 	cmd := exec.Command("mpv",
@@ -77,7 +77,7 @@ func New() (*Player, error) {
 	p.observe(1, "time-pos")
 	p.observe(2, "duration")
 	p.observe(3, "pause")
-	p.observe(4, "core-idle")
+	p.observe(4, "idle-active")
 	return p, nil
 }
 
@@ -98,7 +98,16 @@ func dialWithRetry(path string, timeout time.Duration) (net.Conn, error) {
 
 // Load starts playback of url, replacing whatever is currently playing.
 func (p *Player) Load(url string) error {
-	return p.command("loadfile", url, "replace")
+	if err := p.command("loadfile", url, "replace"); err != nil {
+		return err
+	}
+	// Reset state optimistically; mpv's property observers repopulate it
+	// within a moment. This closes the window where State().Idle would
+	// still read true from the previous track right after a load.
+	p.stateMu.Lock()
+	p.state = State{}
+	p.stateMu.Unlock()
+	return nil
 }
 
 // TogglePause flips the paused state.
@@ -201,7 +210,7 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 		if json.Unmarshal(data, &paused) == nil {
 			p.state.Paused = paused
 		}
-	case "core-idle":
+	case "idle-active":
 		var idle bool
 		if json.Unmarshal(data, &idle) == nil {
 			p.state.Idle = idle

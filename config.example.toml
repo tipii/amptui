@@ -1,5 +1,9 @@
-# Copy to $XDG_CONFIG_HOME/plexamp-tui/config.toml (usually ~/.config/plexamp-tui/config.toml)
-# Both values can also be supplied via PLEXAMP_SERVER_URL / PLEXAMP_TOKEN env vars.
+# Copy to $XDG_CONFIG_HOME/amptui/config.toml (usually ~/.config/amptui/config.toml)
+# Both values can also be supplied via AMPTUI_SERVER_URL / AMPTUI_TOKEN env vars.
 
 server_url = "http://192.168.1.10:32400"
 token = "your-X-Plex-Token-here"
+
+# Optional: open straight into this music library instead of the picker.
+# Matched against a library's section key or title (case-insensitive).
+# default_library = "Music"

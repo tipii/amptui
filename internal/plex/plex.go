@@ -20,7 +20,7 @@ import (
 
 // clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to track
 // this app as a distinct device; keep it stable across runs.
-const clientIdentifier = "plexamp-tui"
+const clientIdentifier = "amptui"
 
 // Client is a thin wrapper around the plexgo SDK plus a raw HTTP escape hatch.
 type Client struct {
@@ -36,7 +36,7 @@ func New(serverURL, token string) *Client {
 		plexgo.WithServerURL(serverURL),
 		plexgo.WithSecurity(token),
 		plexgo.WithClientIdentifier(clientIdentifier),
-		plexgo.WithProduct("plexamp-tui"),
+		plexgo.WithProduct("amptui"),
 	)
 	return &Client{
 		api:       api,

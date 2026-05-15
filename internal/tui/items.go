@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"github.com/theopalhol/plexamp-tui/internal/plex"
+	"github.com/theopalhol/amptui/internal/plex"
 )
 
 // Each list row implements bubbles/list.Item. Title is the primary line,
@@ -32,7 +32,26 @@ func (i albumItem) Description() string {
 }
 func (i albumItem) FilterValue() string { return i.album.Title }
 
-type trackItem struct{ track plex.Track }
+// albumActionItem is the "Play album" row shown above an album's track list.
+type albumActionItem struct{ tracks []plex.Track }
+
+func (i albumActionItem) Title() string { return "▶  Play album" }
+func (i albumActionItem) Description() string {
+	if len(i.tracks) == 1 {
+		return "1 track"
+	}
+	return fmt.Sprintf("%d tracks", len(i.tracks))
+}
+func (i albumActionItem) FilterValue() string { return "Play album" }
+
+type trackItem struct {
+	track plex.Track
+	// tracks is the full album track list (shared backing array); pos is
+	// this track's index within it. Together they let "enter" play from
+	// this track to the end of the album.
+	tracks []plex.Track
+	pos    int
+}
 
 func (i trackItem) Title() string {
 	return fmt.Sprintf("%2d. %s", i.track.Index, i.track.Title)
@@ -43,3 +62,21 @@ func (i trackItem) Description() string {
 		int(d.Minutes()), int(d.Seconds())%60)
 }
 func (i trackItem) FilterValue() string { return i.track.Title }
+
+// queueItem is a row in the queue modal. current marks the playing track.
+type queueItem struct {
+	track   plex.Track
+	current bool
+}
+
+func (i queueItem) Title() string {
+	marker := "   "
+	if i.current {
+		marker = "▶  "
+	}
+	return marker + i.track.Title
+}
+func (i queueItem) Description() string {
+	return "   " + i.track.Artist + " · " + i.track.Album
+}
+func (i queueItem) FilterValue() string { return i.track.Title }

@@ -1,4 +1,4 @@
-# plexamp-tui
+# amptui
 
 A terminal UI Plex client focused exclusively on music — browse your library,
 queue tracks, and play them, all from the keyboard.
@@ -14,7 +14,8 @@ Early development. Working today:
 - [x] Connect to a Plex server (manual token auth)
 - [x] Browse: libraries → artists → albums → tracks
 - [x] Play a track via mpv (pause/resume, seek)
-- [ ] Play queue (next/prev, auto-advance)
+- [x] Play queue: add track/album, auto-advance, queue view
+- [ ] Queue: next/prev skip, reorder, remove
 - [ ] Search
 - [ ] Scrobble / mark played
 
@@ -27,27 +28,32 @@ Early development. Working today:
 ## Build
 
 ```bash
-go build -o plexamp-tui ./cmd/plexamp-tui
-./plexamp-tui
+go build -o amptui ./cmd/amptui
+./amptui
 ```
 
-Or run directly: `go run ./cmd/plexamp-tui`
+Or run directly: `go run ./cmd/amptui`
 
 ## Configuration
 
-Create `~/.config/plexamp-tui/config.toml` (see `config.example.toml`):
+Create `~/.config/amptui/config.toml` (see `config.example.toml`):
 
 ```toml
 server_url = "http://192.168.1.10:32400"
 token = "your-X-Plex-Token-here"
+
+# Optional: skip the library picker and open straight into this library.
+# Matched against a library's section key or title (case-insensitive).
+default_library = "Music"
 ```
 
-Both values can also be supplied via environment variables, which override the
+All values can also be supplied via environment variables, which override the
 config file:
 
 ```bash
-export PLEXAMP_SERVER_URL="http://192.168.1.10:32400"
-export PLEXAMP_TOKEN="your-X-Plex-Token-here"
+export AMPTUI_SERVER_URL="http://192.168.1.10:32400"
+export AMPTUI_TOKEN="your-X-Plex-Token-here"
+export AMPTUI_DEFAULT_LIBRARY="Music"
 ```
 
 Finding your token: see Plex's guide,
@@ -55,20 +61,23 @@ Finding your token: see Plex's guide,
 
 ## Keybindings
 
-| Key                | Action                          |
-| ------------------ | ------------------------------- |
-| `enter` / `→` / `l` | Open selected item / play track |
-| `esc` / `←` / `h`   | Go back                         |
-| `↑` / `↓` / `j` / `k` | Move selection                |
-| `space`            | Pause / resume                  |
-| `,` / `.`          | Seek −10s / +10s                |
-| `/`                | Filter the current list         |
-| `q` / `ctrl+c`     | Quit                            |
+| Key                   | Action                                    |
+| --------------------- | ----------------------------------------- |
+| `enter` / `→` / `l`   | Open selected item / play track            |
+| `esc` / `←` / `h`     | Go back                                    |
+| `↑` / `↓` / `j` / `k` | Move selection                             |
+| `space`               | Pause / resume                             |
+| `,` / `.`             | Seek −10s / +10s                           |
+| `q`                   | Add highlighted track to the queue         |
+| `Q`                   | Add the whole album to the queue           |
+| `o`                   | Open / close the queue view                |
+| `/`                   | Filter the current list                    |
+| `ctrl+c` / `ctrl+q`   | Quit                                       |
 
 ## Project layout
 
 ```
-cmd/plexamp-tui/   entrypoint: config → connect → launch UI
+cmd/amptui/        entrypoint: config → connect → launch UI
 internal/config/   TOML + env config loading
 internal/plex/     Plex API client (plexgo SDK + raw-HTTP fallback)
 internal/player/   mpv subprocess driven over its JSON IPC socket
