@@ -29,11 +29,12 @@ Early development. Working today:
 ## Build
 
 ```bash
-go build -o amptui ./cmd/amptui
-./amptui
+make build   # produces ./amptui
+make run     # build-and-run via `go run`
+make         # list all targets (build / run / test / vet / tidy / clean)
 ```
 
-Or run directly: `go run ./cmd/amptui`
+Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`.
 
 ## Configuration
 
