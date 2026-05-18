@@ -97,11 +97,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.list.FilterState() == list.Filtering {
 			break
 		}
+		// Grid cursor navigation (only meaningful at the Artists level).
+		if m.gridView && m.supportsGrid() {
+			switch msg.String() {
+			case "up", "k":
+				m.moveGridCursor(-1, 0)
+				return m, nil
+			case "down", "j":
+				m.moveGridCursor(1, 0)
+				return m, nil
+			case "left":
+				m.moveGridCursor(0, -1)
+				return m, nil
+			case "right":
+				m.moveGridCursor(0, 1)
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "ctrl+q":
 			return m, tea.Quit
 		case "?":
 			m.showHelp = true
+			return m, nil
+		case "tab":
+			m.toggleGrid()
 			return m, nil
 		case "enter", "l", "right":
 			return m.drillDown()
@@ -116,6 +136,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "s":
 			return m, m.openSearch()
+		case "R":
+			if m.librarySyncing || len(m.libs) == 0 {
+				return m, nil
+			}
+			active := m.libs[0]
+			if m.startupLibrary != nil {
+				active = *m.startupLibrary
+			}
+			m.librarySyncing = true
+			m.libraryErr = nil
+			return m, syncLibrary(m.client, active)
 		case "n":
 			m.playNext()
 			return m, nil
@@ -139,37 +170,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case artistsMsg:
-		m.applyItems(levelArtists, []list.Item(msg))
-		return m, nil
-	case albumsMsg:
-		m.applyItems(levelAlbums, []list.Item(msg))
-		return m, nil
-	case tracksMsg:
-		m.applyItems(levelTracks, []list.Item(msg))
-		return m, nil
-	case errMsg:
-		m.loading = false
-		m.err = msg.err
-		// Undo the crumb we optimistically pushed before fetching.
-		if n := len(m.crumbs); n > 0 {
-			m.crumbs = m.crumbs[:n-1]
-		}
-		return m, nil
 
-	case indexReadyMsg:
-		m.index = msg.idx
-		m.indexLoading = false
-		m.indexErr = nil
-		// If the user already typed in the search modal while indexing was
-		// in flight, surface their results now.
+	case libraryReadyMsg:
+		m.library = msg.lib
+		m.librarySyncing = false
+		m.libraryErr = nil
+		// If the user already typed in the search modal while sync was in
+		// flight, surface their results now.
 		if m.showSearch {
 			m.runSearch()
 		}
+		// Honor the startup library — auto-navigate into its artists once
+		// the cache is ready and we haven't already drilled in.
+		if m.startupLibrary != nil && m.level == levelLibraries {
+			m.applyItems(levelArtists, m.artistItems())
+		} else {
+			// Manual refresh (R) — re-render the current level in place
+			// with the fresh library data so counts and titles are updated.
+			m.refreshCurrentLevel()
+		}
 		return m, nil
-	case indexErrMsg:
-		m.indexLoading = false
-		m.indexErr = msg.err
+	case libraryErrMsg:
+		m.librarySyncing = false
+		m.libraryErr = msg.err
 		return m, nil
 
 	case tickMsg:

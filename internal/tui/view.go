@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/index"
+	"github.com/theopalhol/amptui/internal/library"
 )
 
 func (m Model) View() tea.View {
@@ -43,7 +43,11 @@ func (m Model) browserView() string {
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.list.View())
+	if m.gridView && m.supportsGrid() {
+		b.WriteString(m.gridBodyView())
+	} else {
+		b.WriteString(m.list.View())
+	}
 	b.WriteString("\n")
 
 	b.WriteString(m.nowPlayingLine())
@@ -65,21 +69,21 @@ func (m Model) browserView() string {
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
 		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · space pause · n/p skip · o queue · ctrl+q quit")
+			"? keys · s search · enter open · tab grid · o queue · R refresh · ctrl+q quit")
 	}
 	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
 }
 
 // footerLine assembles the bottom row, right-aligning a non-blocking
-// indexing indicator when the background loader is running.
+// syncing indicator when the background library loader is running.
 func (m Model) footerLine(left string) string {
 	right := ""
 	switch {
-	case m.indexLoading:
-		right = helpStyle.Render(m.spinner.View() + "indexing library")
-	case m.indexErr != nil:
-		right = errStyle.Render("index error: " + m.indexErr.Error())
+	case m.librarySyncing:
+		right = helpStyle.Render(m.spinner.View() + "syncing library")
+	case m.libraryErr != nil:
+		right = errStyle.Render("library error: " + m.libraryErr.Error())
 	}
 	if right == "" {
 		return left
@@ -146,10 +150,12 @@ func (m Model) crumbLine() string {
 	return strings.Join(parts, " / ") + " /"
 }
 
-// listHeight reserves rows for the header (2), spacer (1), now-playing (1),
-// and footer (1).
+// listHeight is the height in rows of the body region (browser/grid). The
+// view above and below it consumes: header (1), blank spacer (1),
+// now-playing line (1), and footer (1) — 4 rows total — so the body fills
+// everything in between.
 func (m Model) listHeight() int {
-	h := m.height - 5
+	h := m.height - 4
 	if h < 1 {
 		return 1
 	}
@@ -192,10 +198,10 @@ func (m Model) searchModalBox() string {
 
 	var body string
 	switch {
-	case m.index == nil && m.indexErr != nil:
-		body = errStyle.Render("index error: " + m.indexErr.Error())
-	case m.index == nil:
-		body = helpStyle.Render(m.spinner.View() + "indexing library… results will appear here when ready")
+	case m.library == nil && m.libraryErr != nil:
+		body = errStyle.Render("library error: " + m.libraryErr.Error())
+	case m.library == nil:
+		body = helpStyle.Render(m.spinner.View() + "syncing library… results will appear here when ready")
 	case m.searchInput.Value() == "":
 		body = helpStyle.Render("type to search · tab cycles filter")
 	case len(m.searchResults) == 0:
@@ -256,15 +262,15 @@ func (m Model) searchResultsView(innerWidth int) string {
 	return b.String()
 }
 
-func formatSearchEntry(e index.Entry, maxWidth int) string {
+func formatSearchEntry(e library.Entry, maxWidth int) string {
 	kind := helpStyle.Render(padRight(e.Kind.String(), 6))
 	var rest string
 	switch e.Kind {
-	case index.KindArtist:
+	case library.KindArtist:
 		rest = e.Title
-	case index.KindAlbum:
+	case library.KindAlbum:
 		rest = e.Title + helpStyle.Render(" · "+e.Artist)
-	case index.KindTrack:
+	case library.KindTrack:
 		rest = e.Title + helpStyle.Render(" · "+e.Album+" · "+e.Artist)
 	}
 	line := kind + " " + rest
@@ -311,6 +317,7 @@ func helpBodyContent() string {
 		"  enter / → / l    open · play track",
 		"  esc / ← / h      go back",
 		"  j / k / ↑ / ↓    move selection",
+		"  tab              toggle list / grid (Artists, Albums)",
 		"  /                filter list",
 		"",
 		helpStyle.Render("Playback"),
@@ -330,6 +337,7 @@ func helpBodyContent() string {
 		"",
 		helpStyle.Render("App"),
 		"  ?                this help (j/k or pgup/pgdn to scroll)",
+		"  R                re-sync library cache from Plex",
 		"  ctrl+c / ctrl+q  quit",
 	}
 	return strings.Join(lines, "\n")

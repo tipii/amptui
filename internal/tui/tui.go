@@ -22,7 +22,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/index"
+	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/player"
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -62,18 +62,26 @@ type Model struct {
 	showHelp   bool
 	showSearch bool
 
+	// gridView swaps the Artists level from the default vertical list to a
+	// responsive grid. gridCursor is the linear index of the highlighted
+	// cell, kept in sync with m.list.Index() on toggle. gridScrollTop is
+	// the top-most visible card row; it only moves when the cursor crosses
+	// a viewport edge so navigation feels free within the visible area.
+	gridView      bool
+	gridCursor    int
+	gridScrollTop int
+
 	// Search-modal state.
 	searchInput   textinput.Model
-	searchResults []index.Entry
+	searchResults []library.Entry
 	searchCursor  int
 	searchFilter  int // index into searchFilters / searchFilterNames
 
-	// index is the fuzzy-search index for the active library; nil until the
-	// background loader resolves. indexLoading drives the status-bar
-	// indicator.
-	index        *index.Index
-	indexErr     error
-	indexLoading bool
+	// library is the cache for the active section; nil until the background
+	// loader resolves. librarySyncing drives the status-bar indicator.
+	library        *library.Library
+	libraryErr     error
+	librarySyncing bool
 
 	// startupLibrary, if set, is fetched on Init so the UI opens straight
 	// into that library instead of the picker.
@@ -136,7 +144,7 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 		spinner:      sp,
 		searchInput:  si,
 		level:        levelLibraries,
-		indexLoading: true, // Init kicks off the background index build
+		librarySyncing: true, // Init kicks off the background library sync
 	}
 
 	if defaultLib != nil {
@@ -165,18 +173,16 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
-	if m.startupLibrary != nil {
-		cmds = append(cmds, m.fetchArtists(m.startupLibrary.Key))
-	}
-	// Kick off the search index in the background. For now the active
-	// library is the default (or the first one); multi-library search is a
-	// follow-up.
+	// Kick off the library sync in the background. For now the active
+	// section is the default (or the first one); multi-library is a
+	// follow-up. The libraryReadyMsg handler auto-navigates into the
+	// startup library's artists when the cache is ready.
 	if len(m.libs) > 0 {
 		active := m.libs[0]
 		if m.startupLibrary != nil {
 			active = *m.startupLibrary
 		}
-		cmds = append(cmds, loadOrBuildIndex(m.client, active))
+		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
 	}
 	return tea.Batch(cmds...)
 }
