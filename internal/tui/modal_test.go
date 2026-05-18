@@ -336,6 +336,71 @@ func TestArtistGridRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// TestSearchModalAcceptsLetterKeys guards against the regression where the
+// shared KeyMap bound vim letters (h/j/k/l) as aliases for navigation, so
+// typing them into the search field got swallowed instead of inserted.
+func TestSearchModalAcceptsLetterKeys(t *testing.T) {
+	m := newQueueModel(t)
+	m.showQueue = false
+	m.library = &library.Library{}
+	m.librarySyncing = false
+	_ = m.openSearch()
+	m.showSearch = true
+
+	// Type "look" — every one of these letters previously matched a
+	// navigation binding (l = Enter alias, k = Up alias, etc.).
+	for _, r := range "look" {
+		upd, _ := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = upd.(Model)
+	}
+	if got := m.searchInput.Value(); got != "look" {
+		t.Errorf("expected search query 'look', got %q", got)
+	}
+	if !m.showSearch {
+		t.Error("search modal should still be open — l must not trigger Enter")
+	}
+}
+
+// TestSettingsEditAcceptsLetterKeys guards the same regression in the
+// settings edit flow: typing 'l' or 'h' into an Input must not commit
+// (they're aliases for Enter/Back via the navigation KeyMap).
+func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	m := New(cfg, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	for _, f := range m.settingsFields {
+		if c := f.Init(); c != nil {
+			if msg := c(); msg != nil {
+				upd, _ := m.Update(msg)
+				m = upd.(Model)
+			}
+		}
+	}
+
+	// Cursor on ServerURL (index 0), press enter to start editing.
+	m.screen = screenSettings
+	m.settingsCursor = 0
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+	if !m.settingsEditing {
+		t.Fatal("expected to be in edit mode after enter")
+	}
+
+	// Type "http". 'h' previously matched Back (aliased to h).
+	for _, r := range "http" {
+		upd, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = upd.(Model)
+	}
+	if !m.settingsEditing {
+		t.Error("settings should still be in edit mode — h must not trigger Back")
+	}
+	if got := m.settingsValues.ServerURL; got != "http" {
+		t.Errorf("expected ServerURL value 'http', got %q", got)
+	}
+}
+
 // TestDeleteQueueItemBeforePlaying covers deleting a non-playing track that
 // sits before the playing one — queueIdx must decrement.
 func TestDeleteQueueItemBeforePlaying(t *testing.T) {
