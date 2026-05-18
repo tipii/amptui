@@ -30,6 +30,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// The search modal owns input while it is open. Most keys are
+		// forwarded to the textinput so the user can type their query.
+		if m.showSearch {
+			switch msg.String() {
+			case "ctrl+c", "ctrl+q":
+				return m, tea.Quit
+			case "esc":
+				m.closeSearch()
+				return m, nil
+			case "tab":
+				m.cycleSearchFilter()
+				return m, nil
+			case "up":
+				m.moveSearchCursor(-1)
+				return m, nil
+			case "down":
+				m.moveSearchCursor(1)
+				return m, nil
+			case "enter":
+				return m.activateSearchResult()
+			case "alt+enter":
+				m.enqueueSearchResult()
+				return m, nil
+			}
+			prev := m.searchInput.Value()
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			if m.searchInput.Value() != prev {
+				m.runSearch()
+			}
+			return m, cmd
+		}
 		// The queue modal owns input while it is open.
 		if m.showQueue {
 			switch msg.String() {
@@ -76,6 +108,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			m.openQueue()
 			return m, nil
+		case "s":
+			return m, m.openSearch()
 		case "n":
 			m.playNext()
 			return m, nil
@@ -115,6 +149,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if n := len(m.crumbs); n > 0 {
 			m.crumbs = m.crumbs[:n-1]
 		}
+		return m, nil
+
+	case indexReadyMsg:
+		m.index = msg.idx
+		m.indexLoading = false
+		m.indexErr = nil
+		// If the user already typed in the search modal while indexing was
+		// in flight, surface their results now.
+		if m.showSearch {
+			m.runSearch()
+		}
+		return m, nil
+	case indexErrMsg:
+		m.indexLoading = false
+		m.indexErr = msg.err
 		return m, nil
 
 	case tickMsg:

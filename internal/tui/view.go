@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/theopalhol/amptui/internal/index"
 )
 
 func (m Model) View() tea.View {
@@ -21,6 +23,8 @@ func (m Model) View() tea.View {
 	switch {
 	case m.showHelp:
 		v.SetContent(m.overlayBox(background, m.helpModalBox()))
+	case m.showSearch:
+		v.SetContent(m.overlayBox(background, m.searchModalBox()))
 	case m.showQueue:
 		v.SetContent(m.overlayBox(background, m.queueModalBox()))
 	default:
@@ -45,21 +49,46 @@ func (m Model) browserView() string {
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
 
+	var footerLeft string
 	switch {
 	case m.showHelp:
-		b.WriteString(helpStyle.Render("? / esc close"))
+		footerLeft = helpStyle.Render("? / esc close")
+	case m.showSearch:
+		footerLeft = helpStyle.Render(
+			"tab filter · ↑/↓ select · enter open/play · alt+enter queue · esc close")
 	case m.showQueue:
-		b.WriteString(helpStyle.Render(
-			"j/k move · J/K reorder · d delete · enter play · o/esc close"))
+		footerLeft = helpStyle.Render(
+			"j/k move · J/K reorder · d delete · enter play · o/esc close")
 	case m.loading:
-		b.WriteString(m.spinner.View() + "loading…")
+		footerLeft = m.spinner.View() + "loading…"
 	case m.err != nil:
-		b.WriteString(errStyle.Render("error: " + m.err.Error()))
+		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
-		b.WriteString(helpStyle.Render(
-			"? keys · enter open · esc back · space pause · n/p skip · o queue · ctrl+q quit"))
+		footerLeft = helpStyle.Render(
+			"? keys · s search · enter open · space pause · n/p skip · o queue · ctrl+q quit")
 	}
+	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
+}
+
+// footerLine assembles the bottom row, right-aligning a non-blocking
+// indexing indicator when the background loader is running.
+func (m Model) footerLine(left string) string {
+	right := ""
+	switch {
+	case m.indexLoading:
+		right = helpStyle.Render(m.spinner.View() + "indexing library")
+	case m.indexErr != nil:
+		right = errStyle.Render("index error: " + m.indexErr.Error())
+	}
+	if right == "" {
+		return left
+	}
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // overlayBox composites box, centered, on top of background. The background
@@ -159,6 +188,111 @@ func (m Model) queueModalBox() string {
 	return modalStyle.Width(w - 2).Render(title + "\n" + body)
 }
 
+// searchModalBox renders the fuzzy-finder modal: a filter tab bar, the text
+// input, and the ranked results.
+func (m Model) searchModalBox() string {
+	w, _ := m.modalSize()
+
+	title := headerStyle.Render("Search") + "   " + m.searchFilterBar()
+	input := m.searchInput.View()
+
+	var body string
+	switch {
+	case m.index == nil && m.indexErr != nil:
+		body = errStyle.Render("index error: " + m.indexErr.Error())
+	case m.index == nil:
+		body = helpStyle.Render(m.spinner.View() + "indexing library… results will appear here when ready")
+	case m.searchInput.Value() == "":
+		body = helpStyle.Render("type to search · tab cycles filter")
+	case len(m.searchResults) == 0:
+		body = helpStyle.Render("no matches")
+	default:
+		body = m.searchResultsView(w - 4)
+	}
+
+	return modalStyle.Width(w - 2).Render(title + "\n" + input + "\n\n" + body)
+}
+
+// searchFilterBar renders the [All] Artists Albums Songs tabs with the
+// current filter highlighted.
+func (m Model) searchFilterBar() string {
+	parts := make([]string, len(searchFilterNames))
+	for i, name := range searchFilterNames {
+		if i == m.searchFilter {
+			parts[i] = headerStyle.Render("[" + name + "]")
+		} else {
+			parts[i] = helpStyle.Render(name)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// searchResultsView formats the ranked results, marking the cursor row.
+func (m Model) searchResultsView(innerWidth int) string {
+	// Visible window: enough rows to fill the modal body, scrolled to keep
+	// the cursor in view.
+	_, mh := m.modalSize()
+	// modal inner height available for results: outer-h minus border(2),
+	// title row(1), input row(1), spacer(1).
+	avail := mh - 5
+	if avail < 1 {
+		avail = 1
+	}
+	start := 0
+	if m.searchCursor >= avail {
+		start = m.searchCursor - avail + 1
+	}
+	end := start + avail
+	if end > len(m.searchResults) {
+		end = len(m.searchResults)
+	}
+
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		e := m.searchResults[i]
+		cursor := "  "
+		if i == m.searchCursor {
+			cursor = npStyle.Render("▶ ")
+		}
+		b.WriteString(cursor + formatSearchEntry(e, innerWidth-2))
+		if i < end-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func formatSearchEntry(e index.Entry, maxWidth int) string {
+	kind := helpStyle.Render(padRight(e.Kind.String(), 6))
+	var rest string
+	switch e.Kind {
+	case index.KindArtist:
+		rest = e.Title
+	case index.KindAlbum:
+		rest = e.Title + helpStyle.Render(" · "+e.Artist)
+	case index.KindTrack:
+		rest = e.Title + helpStyle.Render(" · "+e.Album+" · "+e.Artist)
+	}
+	line := kind + " " + rest
+	if lipgloss.Width(line) > maxWidth {
+		// Truncation is approximate — lipgloss-aware truncation is
+		// available via ansi, but a naive rune cut is good enough for the
+		// modal's needs.
+		runes := []rune(line)
+		if len(runes) > maxWidth {
+			line = string(runes[:maxWidth])
+		}
+	}
+	return line
+}
+
+func padRight(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
+}
+
 // helpModalBox renders the keybindings reference as a bordered modal box.
 func (m Model) helpModalBox() string {
 	w, _ := m.modalSize()
@@ -180,6 +314,11 @@ func (m Model) helpModalBox() string {
 		"  q / Q            add track / album to queue",
 		"  o                open / close queue modal",
 		"  in modal: J/K reorder · d delete · enter play",
+		"",
+		helpStyle.Render("Search"),
+		"  s                open fuzzy search",
+		"  in modal: tab cycles filter (All/Artists/Albums/Songs)",
+		"            enter = play/open · alt+enter = queue track",
 		"",
 		helpStyle.Render("App"),
 		"  ?                this help",

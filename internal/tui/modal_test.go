@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/theopalhol/amptui/internal/index"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -94,6 +95,54 @@ func TestMoveQueueItem(t *testing.T) {
 	if m.queueIdx != 2 {
 		t.Errorf("queueIdx must follow the playing track, got %d", m.queueIdx)
 	}
+}
+
+// TestSearchModalRenders verifies the search modal composites with a
+// non-empty result list, including the kind filter bar and the cursor row.
+func TestSearchModalRenders(t *testing.T) {
+	m := newQueueModel(t)
+	m.showQueue = false
+
+	// Inject a small in-memory index, open the modal, and seed a query.
+	m.index = &index.Index{Entries: []index.Entry{
+		{Kind: index.KindArtist, Title: "Al Green", RatingKey: "ar1"},
+		{Kind: index.KindAlbum, Title: "Gets Next to You", RatingKey: "al1", Artist: "Al Green"},
+		{Kind: index.KindTrack, Title: "I'm a Ram", RatingKey: "t1", Album: "Gets Next to You", Artist: "Al Green"},
+	}}
+	m.indexLoading = false
+	_ = m.openSearch()
+	m.searchInput.SetValue("al green")
+	m.runSearch()
+	m.showSearch = true
+
+	out := m.View().Content
+	if !strings.Contains(out, "Search") {
+		t.Errorf("expected search modal title in the view")
+	}
+	if !strings.Contains(out, "[All]") {
+		t.Errorf("expected filter bar with [All] highlighted")
+	}
+	if !strings.Contains(out, "Al Green") {
+		t.Errorf("expected the Al Green artist row in the results")
+	}
+	if !strings.Contains(out, "Soundtracks") {
+		t.Errorf("expected the background browser list to show through")
+	}
+	t.Log("\n" + out)
+}
+
+// TestStatusBarIndexingIndicator verifies the right-aligned indexing
+// indicator appears in the footer while the loader is running.
+func TestStatusBarIndexingIndicator(t *testing.T) {
+	m := newQueueModel(t)
+	m.showQueue = false
+	m.indexLoading = true
+
+	out := m.View().Content
+	if !strings.Contains(out, "indexing library") {
+		t.Errorf("expected 'indexing library' indicator in the footer")
+	}
+	t.Log("\n" + out)
 }
 
 // TestDeleteQueueItemBeforePlaying covers deleting a non-playing track that
