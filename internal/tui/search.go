@@ -177,15 +177,24 @@ func (m Model) jumpToAlbum(ratingKey string) (tea.Model, tea.Cmd) {
 }
 
 // pushLibrariesCrumb pushes a synthetic Libraries crumb built from m.libs,
-// used by search jumps so esc has somewhere coherent to land.
+// used by search jumps so esc has somewhere coherent to land. The
+// breadcrumb label is the active library's title — the one the index/
+// search was built against — so the trail reads naturally.
 func (m *Model) pushLibrariesCrumb() {
 	items := make([]list.Item, len(m.libs))
 	for i, l := range m.libs {
 		items[i] = libraryItem{lib: l}
 	}
+	title := "Libraries"
+	switch {
+	case m.startupLibrary != nil:
+		title = m.startupLibrary.Title
+	case len(m.libs) > 0:
+		title = m.libs[0].Title
+	}
 	m.crumbs = append(m.crumbs, crumb{
 		level: levelLibraries,
-		title: "Libraries",
+		title: title,
 		items: items,
 		index: 0,
 	})

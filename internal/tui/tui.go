@@ -152,7 +152,7 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 		}
 		m.crumbs = append(m.crumbs, crumb{
 			level: levelLibraries,
-			title: "Libraries",
+			title: defaultLib.Title,
 			items: items,
 			index: idx,
 		})
