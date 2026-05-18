@@ -76,6 +76,9 @@ type MusicLibrary struct {
 	Key   string
 	Title string
 	UUID  string
+	// ContentChangedAt is Plex's monotonic counter for the section's content
+	// version — use it to invalidate a local cache when it changes.
+	ContentChangedAt int64
 }
 
 // MusicLibraries returns the server's music library sections.
@@ -83,10 +86,11 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
 	var body struct {
 		MediaContainer struct {
 			Directory []struct {
-				Key   string `json:"key"`
-				Type  string `json:"type"`
-				Title string `json:"title"`
-				UUID  string `json:"uuid"`
+				Key              string `json:"key"`
+				Type             string `json:"type"`
+				Title            string `json:"title"`
+				UUID             string `json:"uuid"`
+				ContentChangedAt int64  `json:"contentChangedAt"`
 			} `json:"Directory"`
 		} `json:"MediaContainer"`
 	}
@@ -99,7 +103,12 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
 		if d.Type != "artist" {
 			continue
 		}
-		libs = append(libs, MusicLibrary{Key: d.Key, Title: d.Title, UUID: d.UUID})
+		libs = append(libs, MusicLibrary{
+			Key:              d.Key,
+			Title:            d.Title,
+			UUID:             d.UUID,
+			ContentChangedAt: d.ContentChangedAt,
+		})
 	}
 	return libs, nil
 }
