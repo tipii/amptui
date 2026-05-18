@@ -61,21 +61,14 @@ func (m Model) browserView() string {
 
 	var footerLeft string
 	switch {
-	case m.showHelp:
-		footerLeft = helpStyle.Render("j/k or pgup/pgdn scroll · ? / esc close")
-	case m.showSearch:
-		footerLeft = helpStyle.Render(
-			"tab filter · ↑/↓ select · enter open/play · alt+enter queue · esc close")
-	case m.showQueue:
-		footerLeft = helpStyle.Render(
-			"j/k move · J/K reorder · d delete · enter play · o/esc close")
 	case m.loading:
 		footerLeft = m.spinner.View() + "loading…"
 	case m.err != nil:
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
-		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · tab grid · o queue · , settings · ctrl+q quit")
+		// Auto-render from the active KeyMap context so the help line
+		// stays in sync with bindings without hand-maintained strings.
+		footerLeft = m.helpModel.View(m.currentHelp())
 	}
 	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
@@ -316,40 +309,20 @@ func (m Model) modalFrame(content string) string {
 	return modalStyle.Width(w - 2).Height(h - 2).Render(content)
 }
 
-// helpBodyContent is the static text shown inside the help viewport.
-func helpBodyContent() string {
-	lines := []string{
-		helpStyle.Render("Browse"),
-		"  enter / → / l    open · play track",
-		"  esc / ← / h      go back",
-		"  j / k / ↑ / ↓    move selection",
-		"  tab              toggle list / grid (Artists, Albums)",
-		"  /                filter list",
-		"",
-		helpStyle.Render("Playback"),
-		"  space            pause / resume",
-		"  n / p            next / previous in queue",
-		"  < / >            seek −10s / +10s",
-		"",
-		helpStyle.Render("Queue"),
-		"  q / Q            add track / album to queue",
-		"  o                open / close queue modal",
-		"  in modal: J/K reorder · d delete · enter play",
-		"",
-		helpStyle.Render("Search"),
-		"  s                open fuzzy search",
-		"  in modal: tab cycles filter (All/Artists/Albums/Songs)",
-		"            enter = play/open · alt+enter = queue track",
-		"",
-		helpStyle.Render("Settings"),
-		"  ,                open / close the settings screen",
-		"  in screen: j/k move · enter edit · esc back · R resync",
-		"  in edit:   enter save to config.toml · esc cancel",
-		"",
-		helpStyle.Render("App"),
-		"  ?                this help (j/k or pgup/pgdn to scroll)",
-		"  R                re-sync library cache from Plex",
-		"  ctrl+c / ctrl+q  quit",
+// helpBodyContent renders the help-modal body from KeyMap.helpModalSections,
+// so it stays in sync with the actual bindings. A help.Model in ShowAll
+// mode formats each section's binding rows; we prepend a faint title above.
+func (m Model) helpBodyContent() string {
+	h := m.helpModel
+	h.ShowAll = true
+	var b strings.Builder
+	for i, s := range m.keymap.helpModalSections() {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(helpStyle.Render(s.title))
+		b.WriteString("\n")
+		b.WriteString(h.View(helpView{full: s.bindings}))
 	}
-	return strings.Join(lines, "\n")
+	return b.String()
 }

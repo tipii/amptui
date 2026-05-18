@@ -15,6 +15,7 @@ package tui
 import (
 	"time"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -46,6 +47,12 @@ type Model struct {
 	cfg    config.Config
 	client *plex.Client
 	player *player.Player // may be nil if mpv is unavailable
+
+	// keymap is the single source of truth for keybindings; Update routes
+	// via key.Matches against it and helpModel renders footer/help-modal
+	// text from its Help() output.
+	keymap    KeyMap
+	helpModel help.Model
 
 	// libs is the full list of music libraries on the server, kept around
 	// so search jumps can synthesize a Libraries crumb at any depth.
@@ -159,12 +166,13 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 
 	hv := viewport.New()
 	hv.FillHeight = true
-	hv.SetContent(helpBodyContent())
 
 	m := Model{
 		cfg:            cfg,
 		client:         client,
 		player:         p,
+		keymap:         NewKeyMap(),
+		helpModel:      help.New(),
 		libs:           libs,
 		list:           l,
 		queueList:      ql,
@@ -201,6 +209,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	}
 
 	m.settingsFields = buildSettingsFields(m.settingsValues)
+	m.helpViewport.SetContent(m.helpBodyContent())
 
 	// If the config is missing/invalid (no server URL or token), there's
 	// nothing to browse — open straight into settings so the user can

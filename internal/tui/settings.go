@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -84,29 +85,30 @@ func (m Model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.settingsEditing {
 		return m.handleSettingsEditKey(msg)
 	}
-	switch msg.String() {
-	case "ctrl+c", "ctrl+q":
+	k := m.keymap
+	switch {
+	case key.Matches(msg, k.Quit):
 		return m, tea.Quit
-	case ",", "esc":
+	case key.Matches(msg, k.Settings), key.Matches(msg, k.Back):
 		m.screen = screenBrowser
 		return m, nil
-	case "k", "up":
+	case key.Matches(msg, k.Up):
 		if m.settingsCursor > 0 {
 			m.settingsCursor--
 		}
 		return m, nil
-	case "j", "down":
+	case key.Matches(msg, k.Down):
 		if m.settingsCursor < len(m.settingsFields)-1 {
 			m.settingsCursor++
 		}
 		return m, nil
-	case "enter":
+	case key.Matches(msg, k.Enter):
 		if m.settingsCursor < 0 || m.settingsCursor >= len(m.settingsFields) {
 			return m, nil
 		}
 		m.settingsEditing = true
 		return m, m.settingsFields[m.settingsCursor].Focus()
-	case "R":
+	case key.Matches(msg, k.Refresh):
 		if m.librarySyncing || len(m.libs) == 0 {
 			return m, nil
 		}
@@ -122,24 +124,20 @@ func (m Model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleSettingsEditKey processes a keystroke while a field is focused.
+// Most keys forward to the huh field. enter/esc commit (the bound value is
+// already up-to-date) and exit edit mode.
 func (m Model) handleSettingsEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
+	if key.Matches(msg, m.keymap.Quit) {
 		return m, tea.Quit
 	}
 
-	// Forward to the focused field so it can react (typing, arrow nav for
-	// selects, etc.).
 	field := m.settingsFields[m.settingsCursor]
 	updated, cmd := field.Update(msg)
 	if f, ok := updated.(huh.Field); ok {
 		m.settingsFields[m.settingsCursor] = f
 	}
 
-	// enter or esc both end the edit and commit. enter inside a Select is
-	// also what the widget uses to confirm a hovered option — the bound
-	// variable is updated by the time we get here.
-	if s := msg.String(); s == "enter" || s == "esc" {
+	if key.Matches(msg, m.keymap.Enter) || key.Matches(msg, m.keymap.Back) {
 		blurCmd := m.settingsFields[m.settingsCursor].Blur()
 		m.settingsEditing = false
 		m.applyAndSaveSettings()
@@ -229,13 +227,7 @@ func (m Model) settingsView() string {
 	out.WriteString(m.nowPlayingLine())
 	out.WriteString("\n")
 
-	var footer string
-	if m.settingsEditing {
-		footer = "type to edit · enter / esc save & exit · ctrl+c quit"
-	} else {
-		footer = "j/k move · enter edit · esc back · R resync · ctrl+q quit"
-	}
-	out.WriteString(m.footerLine(helpStyle.Render(footer)))
+	out.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
 	return out.String()
 }
 
