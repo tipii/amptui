@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/theopalhol/amptui/internal/plex"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -42,38 +44,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.helpViewport, cmd = m.helpViewport.Update(msg)
 			return m, cmd
 		}
-		// The search modal owns input while it is open. Navigation uses the
-		// Input* bindings (arrows / enter / esc only) so vim-letter aliases
-		// don't get swallowed when the user types them into the query.
-		if m.showSearch {
-			switch {
-			case key.Matches(msg, k.Quit):
-				return m, tea.Quit
-			case key.Matches(msg, k.InputBack):
-				m.closeSearch()
-				return m, nil
-			case key.Matches(msg, k.CycleFilter):
-				m.cycleSearchFilter()
-				return m, nil
-			case key.Matches(msg, k.InputUp):
-				m.moveSearchCursor(-1)
-				return m, nil
-			case key.Matches(msg, k.InputDown):
-				m.moveSearchCursor(1)
-				return m, nil
-			case key.Matches(msg, k.InputEnter):
-				return m.activateSearchResult()
-			case key.Matches(msg, k.EnqueueFromSearch):
-				m.enqueueSearchResult()
-				return m, nil
-			}
-			prev := m.searchInput.Value()
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			if m.searchInput.Value() != prev {
-				m.runSearch()
-			}
-			return m, cmd
+		// The search modal owns input while it is open. The sub-model
+		// drives navigation + typing; outcomes (close, play, enqueue,
+		// jump) need parent state so we apply them here.
+		if m.search.IsOpen() {
+			return m.routeSearchKey(msg)
 		}
 		// The queue modal owns input while it is open.
 		if m.showQueue {
@@ -146,7 +121,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openQueue()
 			return m, nil
 		case key.Matches(msg, k.OpenSearch):
-			return m, m.openSearch()
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Open()
+			return m, cmd
 		case key.Matches(msg, k.Settings):
 			m.screen = screenSettings
 			return m, nil
@@ -188,8 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.library = msg.lib
 		m.librarySyncing = false
 		m.libraryErr = nil
-		if m.showSearch {
-			m.runSearch()
+		if m.search.IsOpen() {
+			m.search.RunQuery(m.library)
 		}
 		if m.startupLibrary != nil && m.level == levelLibraries {
 			m.applyItems(levelArtists, m.artistItems())
@@ -265,6 +242,42 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
+	}
+	return m, cmd
+}
+
+// routeSearchKey dispatches a key to the search sub-model and acts on
+// the resulting outcome. Outcomes that touch parent state — the playback
+// queue, the browser crumbs — are applied here so the sub-model stays
+// decoupled from playback and navigation.
+func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var (
+		cmd     tea.Cmd
+		outcome searchOutcome
+	)
+	m.search, cmd, outcome = m.search.HandleKey(msg, m.keymap, m.library)
+	switch outcome {
+	case searchOutcomeClose:
+		m.search = m.search.Close()
+	case searchOutcomePlayTrack:
+		if e := m.search.SelectedEntry(); e != nil {
+			t := entryToTrack(*e)
+			m.search = m.search.Close()
+			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			return model, tea.Batch(cmd, pcmd)
+		}
+	case searchOutcomeEnqueueTrack:
+		if e := m.search.SelectedEntry(); e != nil {
+			m.enqueue(entryToTrack(*e))
+		}
+	case searchOutcomeJumpArtist:
+		if e := m.search.SelectedEntry(); e != nil {
+			return m.jumpToArtist(e.RatingKey), cmd
+		}
+	case searchOutcomeJumpAlbum:
+		if e := m.search.SelectedEntry(); e != nil {
+			return m.jumpToAlbum(e.RatingKey), cmd
+		}
 	}
 	return m, cmd
 }

@@ -132,10 +132,11 @@ func TestSearchModalRenders(t *testing.T) {
 		{Kind: library.KindTrack, Title: "I'm a Ram", RatingKey: "t1", Album: "Gets Next to You", Artist: "Al Green"},
 	}}
 	m.librarySyncing = false
-	_ = m.openSearch()
-	m.searchInput.SetValue("al green")
-	m.runSearch()
-	m.showSearch = true
+	var openCmd tea.Cmd
+	m.search, openCmd = m.search.Open()
+	_ = openCmd
+	m.search.input.SetValue("al green")
+	m.search.RunQuery(m.library)
 
 	out := m.View().Content
 	if !strings.Contains(out, "Search") {
@@ -344,8 +345,9 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 	m.showQueue = false
 	m.library = &library.Library{}
 	m.librarySyncing = false
-	_ = m.openSearch()
-	m.showSearch = true
+	var openCmd tea.Cmd
+	m.search, openCmd = m.search.Open()
+	_ = openCmd
 
 	// Type "look" — every one of these letters previously matched a
 	// navigation binding (l = Enter alias, k = Up alias, etc.).
@@ -353,10 +355,10 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 		upd, _ := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m = upd.(Model)
 	}
-	if got := m.searchInput.Value(); got != "look" {
+	if got := m.search.input.Value(); got != "look" {
 		t.Errorf("expected search query 'look', got %q", got)
 	}
-	if !m.showSearch {
+	if !m.search.IsOpen() {
 		t.Error("search modal should still be open — l must not trigger Enter")
 	}
 }

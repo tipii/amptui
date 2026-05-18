@@ -29,7 +29,7 @@ func (m Model) View() tea.View {
 	switch {
 	case m.showHelp:
 		v.SetContent(m.overlayBox(background, m.helpModalBox()))
-	case m.showSearch:
+	case m.search.IsOpen():
 		v.SetContent(m.overlayBox(background, m.searchModalBox()))
 	case m.showQueue:
 		v.SetContent(m.overlayBox(background, m.queueModalBox()))
@@ -207,78 +207,16 @@ func (m Model) queueModalBox() string {
 	return m.modalFrame(title + "\n" + body)
 }
 
-// searchModalBox renders the fuzzy-finder modal: a filter tab bar, the text
-// input, and the ranked results.
+// searchModalBox wraps the sub-model's body in the shared modal frame.
+// The width / results-height arithmetic stays here because it depends on
+// the parent's modalSize layout.
 func (m Model) searchModalBox() string {
-	w, _ := m.modalSize()
-
-	title := headerStyle.Render("Search") + "   " + m.searchFilterBar()
-	input := m.searchInput.View()
-
-	var body string
-	switch {
-	case m.library == nil && m.libraryErr != nil:
-		body = errStyle.Render("library error: " + m.libraryErr.Error())
-	case m.library == nil:
-		body = helpStyle.Render(m.spinner.View() + "syncing library… results will appear here when ready")
-	case m.searchInput.Value() == "":
-		body = helpStyle.Render("type to search · tab cycles filter")
-	case len(m.searchResults) == 0:
-		body = helpStyle.Render("no matches")
-	default:
-		body = m.searchResultsView(w - 4)
-	}
-
-	return m.modalFrame(title + "\n" + input + "\n\n" + body)
-}
-
-// searchFilterBar renders the [All] Artists Albums Songs tabs with the
-// current filter highlighted.
-func (m Model) searchFilterBar() string {
-	parts := make([]string, len(searchFilterNames))
-	for i, name := range searchFilterNames {
-		if i == m.searchFilter {
-			parts[i] = headerStyle.Render("[" + name + "]")
-		} else {
-			parts[i] = helpStyle.Render(name)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// searchResultsView formats the ranked results, marking the cursor row.
-func (m Model) searchResultsView(innerWidth int) string {
-	// Visible window: enough rows to fill the modal body, scrolled to keep
-	// the cursor in view.
-	_, mh := m.modalSize()
-	// modal inner height available for results: outer-h minus border(2),
-	// title row(1), input row(1), spacer(1).
-	avail := mh - 5
-	if avail < 1 {
-		avail = 1
-	}
-	start := 0
-	if m.searchCursor >= avail {
-		start = m.searchCursor - avail + 1
-	}
-	end := start + avail
-	if end > len(m.searchResults) {
-		end = len(m.searchResults)
-	}
-
-	var b strings.Builder
-	for i := start; i < end; i++ {
-		e := m.searchResults[i]
-		cursor := "  "
-		if i == m.searchCursor {
-			cursor = npStyle.Render("▶ ")
-		}
-		b.WriteString(cursor + formatSearchEntry(e, innerWidth-2))
-		if i < end-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
+	w, mh := m.modalSize()
+	// Inner height available for results: outer-h minus border(2), title
+	// row(1), input row(1), spacer(1).
+	resultsH := mh - 5
+	body := m.search.View(w-4, resultsH, m.library, m.libraryErr, m.spinner)
+	return m.modalFrame(body)
 }
 
 func formatSearchEntry(e library.Entry, maxWidth int) string {

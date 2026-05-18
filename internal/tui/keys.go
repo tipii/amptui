@@ -194,7 +194,7 @@ func (m Model) currentHelp() helpView {
 	switch {
 	case m.showHelp:
 		return k.helpModalHelp()
-	case m.showSearch:
+	case m.search.IsOpen():
 		return k.searchModalHelp()
 	case m.showQueue:
 		return k.queueModalHelp()

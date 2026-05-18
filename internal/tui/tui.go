@@ -18,7 +18,6 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -80,11 +79,14 @@ type Model struct {
 	queue    []plex.Track
 	queueIdx int
 
-	// showQueue / showHelp / showSearch are true while their modal is
-	// open; an open modal owns input.
-	showQueue  bool
-	showHelp   bool
-	showSearch bool
+	// showQueue / showHelp are true while their modal is open; an open
+	// modal owns input. The search modal's open state lives on m.search.
+	showQueue bool
+	showHelp  bool
+
+	// search is the fuzzy-finder sub-model; the parent forwards keys via
+	// routeSearchKey and applies its outcomes.
+	search searchModel
 
 	// gridArtists / gridAlbums hold the current grid-vs-list preference for
 	// each level. They start from cfg.DefaultViewArtist / DefaultViewAlbum
@@ -94,12 +96,6 @@ type Model struct {
 	gridAlbums    bool
 	gridCursor    int
 	gridScrollTop int
-
-	// Search-modal state.
-	searchInput   textinput.Model
-	searchResults []library.Entry
-	searchCursor  int
-	searchFilter  int // index into searchFilters / searchFilterNames
 
 	// library is the cache for the active section; nil until the background
 	// loader resolves. librarySyncing drives the status-bar indicator.
@@ -139,11 +135,6 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
-	si := textinput.New()
-	si.Placeholder = "search artists, albums, tracks…"
-	si.Prompt = "> "
-
-
 	hv := viewport.New()
 	hv.FillHeight = true
 
@@ -158,7 +149,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		queueList:      ql,
 		helpViewport:   hv,
 		spinner:        sp,
-		searchInput:    si,
+		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
