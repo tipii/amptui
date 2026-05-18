@@ -19,12 +19,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueList.SetSize(mw-4, mh-3)
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
-		// huh form needs WindowSizeMsg too so it can size itself.
-		if m.settingsForm != nil {
-			if f, _, ok := forwardToForm(m.settingsForm, msg); ok {
-				m.settingsForm = f
-			}
-		}
+		// huh fields need WindowSizeMsg too so they can size themselves.
+		m.forwardToAllSettingsFields(msg)
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -225,19 +221,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Forward any unhandled non-key message to the settings form so its
-	// internal state (focus, group init) advances even when we're not on
-	// the settings screen. The form is built once in New() and lives
-	// through the whole app lifetime.
-	var formCmd tea.Cmd
-	if _, isKey := msg.(tea.KeyPressMsg); !isKey && m.settingsForm != nil {
-		if f, c, ok := forwardToForm(m.settingsForm, msg); ok {
-			m.settingsForm = f
-			formCmd = c
-		}
+	// Forward any unhandled non-key message to all settings fields so their
+	// internal state advances (cursor blink, focus cmds from Init, etc.).
+	var fieldsCmd tea.Cmd
+	if _, isKey := msg.(tea.KeyPressMsg); !isKey {
+		fieldsCmd = m.forwardToAllSettingsFields(msg)
 	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, tea.Batch(cmd, formCmd)
+	return m, tea.Batch(cmd, fieldsCmd)
 }

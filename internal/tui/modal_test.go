@@ -1,17 +1,37 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
+
+// TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp
+// directories so any test that ends up calling config.Save() or
+// library.Save() can NEVER clobber the user's real config or cache file.
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "amptui-test-*")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.MkdirAll(filepath.Join(tmp, "config"), 0o755)
+	_ = os.MkdirAll(filepath.Join(tmp, "cache"), 0o755)
+	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	_ = os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	code := m.Run()
+	_ = os.RemoveAll(tmp)
+	os.Exit(code)
+}
 
 // newQueueModel builds a realistic model: a sized browser list in the
 // background and the queue modal open on top.
@@ -23,7 +43,7 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
 	}
-	m := New(config.Config{}, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -174,6 +194,92 @@ func TestSettingsScreenRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// TestSettingsSelectEdit drives j/k inside an open Select to confirm the
+// per-field edit-mode navigation actually toggles the bound value.
+func TestSettingsSelectEdit(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{
+		ServerURL:         "https://x",
+		Token:             "abcd",
+		DefaultViewArtist: "list",
+	}
+	m := New(cfg, nil, nil, libs, nil)
+	// Bootstrap: window size + flush all fields' Init cmds via
+	// forwardToAllSettingsFields (which Update does for non-key msgs).
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+
+	// Run each field's Init cmd through Update so updateFieldMsg fires.
+	for _, f := range m.settingsFields {
+		if c := f.Init(); c != nil {
+			if msg := c(); msg != nil {
+				upd, _ := m.Update(msg)
+				m = upd.(Model)
+			}
+		}
+	}
+
+	// Enter settings, move cursor to the "Default view (Artists)" field
+	// (index 3 in our slice), press enter to edit.
+	m.screen = screenSettings
+	m.settingsCursor = 3
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+	if !m.settingsEditing {
+		t.Fatal("expected to be in edit mode after enter")
+	}
+
+	// Press 'j' to move to the next option ("grid").
+	upd, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = upd.(Model)
+
+	// Press enter to commit + exit edit mode.
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+	if m.settingsEditing {
+		t.Errorf("expected edit mode to exit after enter")
+	}
+	if got := m.cfg.DefaultViewArtist; got != "grid" {
+		t.Errorf("DefaultViewArtist should be 'grid', got %q", got)
+	}
+	if !m.gridArtists {
+		t.Errorf("gridArtists should be true after committing 'grid'")
+	}
+}
+
+// TestSelectStandaloneResponds probes huh.Select directly to confirm it
+// reacts to j/k navigation when used as a standalone field (no Form).
+func TestSelectStandaloneResponds(t *testing.T) {
+	var v string = "list"
+	field := huh.NewSelect[string]().
+		Options(huh.NewOption("list", "list"), huh.NewOption("grid", "grid")).
+		Value(&v).WithKeyMap(huh.NewDefaultKeyMap())
+	sel := field.(*huh.Select[string])
+	// Init + flush
+	if cmd := sel.Init(); cmd != nil {
+		if msg := cmd(); msg != nil {
+			updated, _ := sel.Update(msg)
+			if f, ok := updated.(*huh.Select[string]); ok {
+				sel = f
+			}
+		}
+	}
+	_ = sel.Focus()
+	t.Logf("before j: v=%q", v)
+	upd, _ := sel.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if f, ok := upd.(*huh.Select[string]); ok {
+		sel = f
+	}
+	t.Logf("after j:  v=%q", v)
+	// Try pressing enter to commit
+	upd, _ = sel.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if f, ok := upd.(*huh.Select[string]); ok {
+		sel = f
+	}
+	_ = sel.Blur()
+	t.Logf("after enter+blur: v=%q", v)
+}
+
 // TestStatusBarSyncingIndicator verifies the right-aligned syncing
 // indicator appears in the footer while the library loader is running.
 func TestStatusBarSyncingIndicator(t *testing.T) {
@@ -192,7 +298,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // level produces a multi-column layout and highlights the cursor cell.
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{}, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 

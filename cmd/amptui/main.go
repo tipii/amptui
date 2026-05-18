@@ -24,41 +24,36 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
+	cfg, _ := config.Load()
 
-	client := plex.New(cfg.ServerURL, cfg.Token)
+	// Only try to connect when we have credentials. A missing/invalid
+	// config still launches the TUI so the user can fix it from the
+	// settings screen.
+	var (
+		client     *plex.Client
+		libs       []plex.MusicLibrary
+		defaultLib *plex.MusicLibrary
+	)
+	if cfg.IsValid() {
+		client = plex.New(cfg.ServerURL, cfg.Token)
 
-	// Fetch the music libraries up front so the UI has something to show
-	// immediately; this also surfaces auth/connection errors before we
-	// take over the terminal.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	libs, err := client.MusicLibraries(ctx)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", cfg.ServerURL, err)
-	}
-	if len(libs) == 0 {
-		return fmt.Errorf("no music libraries found on %s", cfg.ServerURL)
-	}
-
-	// If a default library is configured, resolve it so the UI can open
-	// straight into it. A non-matching value is a warning, not fatal.
-	var defaultLib *plex.MusicLibrary
-	if cfg.DefaultLibrary != "" {
-		for i := range libs {
-			if libs[i].Key == cfg.DefaultLibrary ||
-				strings.EqualFold(libs[i].Title, cfg.DefaultLibrary) {
-				defaultLib = &libs[i]
-				break
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		var err error
+		libs, err = client.MusicLibraries(ctx)
+		cancel()
+		if err != nil {
+			fmt.Fprintln(os.Stderr,
+				"warning: could not connect to", cfg.ServerURL, "-", err)
 		}
-		if defaultLib == nil {
-			fmt.Fprintf(os.Stderr,
-				"warning: default_library %q not found, showing library picker\n",
-				cfg.DefaultLibrary)
+
+		if cfg.DefaultLibrary != "" && len(libs) > 0 {
+			for i := range libs {
+				if libs[i].Key == cfg.DefaultLibrary ||
+					strings.EqualFold(libs[i].Title, cfg.DefaultLibrary) {
+					defaultLib = &libs[i]
+					break
+				}
+			}
 		}
 	}
 
@@ -70,7 +65,6 @@ func run() error {
 		defer p.Close()
 	}
 
-	// Alt-screen is set declaratively in the model's View() in v2.
 	prog := tea.NewProgram(tui.New(cfg, client, p, libs, defaultLib))
 	_, err = prog.Run()
 	return err

@@ -53,12 +53,15 @@ type Model struct {
 
 	screen screen
 
-	// Settings-screen state. The huh form owns field navigation and edit
-	// modes; settingsValues holds the bound strings so the form has stable
-	// pointers, and we copy them back to cfg on submit.
-	settingsForm    *huh.Form
-	settingsValues  settingsValues
-	settingsSavedAt time.Time // for the "saved ✓" flash
+	// Settings-screen state. Each field is a standalone huh.Field — we
+	// drive navigation between them with j/k and per-field commit-on-save
+	// ourselves. settingsValues holds stable pointers for the fields to
+	// bind to; on commit we copy back to cfg and Save().
+	settingsFields  []huh.Field
+	settingsValues  *settingsValues
+	settingsCursor  int  // which field is highlighted
+	settingsEditing bool // true while keys are routed into the focused field
+	settingsSavedAt time.Time
 	settingsErr     error
 
 	list         list.Model
@@ -169,6 +172,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		spinner:        sp,
 		searchInput:    si,
 		settingsValues: newSettingsValues(cfg),
+		// settingsFields wired below — needs m.settingsValues' stable pointer.
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 		gridArtists:    cfg.DefaultViewArtist == "grid",
@@ -196,20 +200,27 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		m.startupLibrary = defaultLib
 	}
 
-	m.settingsForm = buildSettingsForm(&m.settingsValues)
+	m.settingsFields = buildSettingsFields(m.settingsValues)
+
+	// If the config is missing/invalid (no server URL or token), there's
+	// nothing to browse — open straight into settings so the user can
+	// enter their credentials inline.
+	if !cfg.IsValid() {
+		m.screen = screenSettings
+		m.librarySyncing = false
+	}
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
-	if m.settingsForm != nil {
-		cmds = append(cmds, m.settingsForm.Init())
+	for _, f := range m.settingsFields {
+		cmds = append(cmds, f.Init())
 	}
-	// Kick off the library sync in the background. For now the active
-	// section is the default (or the first one); multi-library is a
-	// follow-up. The libraryReadyMsg handler auto-navigates into the
-	// startup library's artists when the cache is ready.
-	if len(m.libs) > 0 {
+	// Kick off the library sync in the background only when we actually
+	// have a Plex client and at least one library to sync. Missing config
+	// drops us on the settings screen with no background work to do.
+	if m.client != nil && len(m.libs) > 0 {
 		active := m.libs[0]
 		if m.startupLibrary != nil {
 			active = *m.startupLibrary
