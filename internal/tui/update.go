@@ -97,11 +97,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.list.FilterState() == list.Filtering {
 			break
 		}
+		// Grid cursor navigation (only meaningful at the Artists level).
+		if m.gridView && m.level == levelArtists {
+			switch msg.String() {
+			case "up", "k":
+				m.moveGridCursor(-1, 0)
+				return m, nil
+			case "down", "j":
+				m.moveGridCursor(1, 0)
+				return m, nil
+			case "left":
+				m.moveGridCursor(0, -1)
+				return m, nil
+			case "right":
+				m.moveGridCursor(0, 1)
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "ctrl+q":
 			return m, tea.Quit
 		case "?":
 			m.showHelp = true
+			return m, nil
+		case "tab":
+			m.toggleGrid()
 			return m, nil
 		case "enter", "l", "right":
 			return m.drillDown()

@@ -43,7 +43,11 @@ func (m Model) browserView() string {
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.list.View())
+	if m.gridView && m.level == levelArtists {
+		b.WriteString(m.gridBodyView())
+	} else {
+		b.WriteString(m.list.View())
+	}
 	b.WriteString("\n")
 
 	b.WriteString(m.nowPlayingLine())
@@ -65,7 +69,7 @@ func (m Model) browserView() string {
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
 		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · space pause · n/p skip · o queue · ctrl+q quit")
+			"? keys · s search · enter open · tab grid · o queue · n/p skip · ctrl+q quit")
 	}
 	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
@@ -311,6 +315,7 @@ func helpBodyContent() string {
 		"  enter / → / l    open · play track",
 		"  esc / ← / h      go back",
 		"  j / k / ↑ / ↓    move selection",
+		"  tab              toggle list / grid (at Artists)",
 		"  /                filter list",
 		"",
 		helpStyle.Render("Playback"),

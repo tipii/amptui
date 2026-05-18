@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/theopalhol/amptui/internal/index"
@@ -141,6 +142,47 @@ func TestStatusBarIndexingIndicator(t *testing.T) {
 	out := m.View().Content
 	if !strings.Contains(out, "indexing library") {
 		t.Errorf("expected 'indexing library' indicator in the footer")
+	}
+	t.Log("\n" + out)
+}
+
+// TestArtistGridRenders verifies that toggling grid view at the Artists
+// level produces a multi-column layout and highlights the cursor cell.
+func TestArtistGridRenders(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
+	m = updated.(Model)
+
+	// Populate the artists level as if a fetch had completed.
+	items := []list.Item{
+		artistItem{artist: plex.Artist{RatingKey: "ar1", Title: "Al Green"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar2", Title: "Led Zeppelin"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar3", Title: "Pink Floyd"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar4", Title: "Radiohead"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar5", Title: "The Beatles"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar6", Title: "Mac DeMarco"}},
+		artistItem{artist: plex.Artist{RatingKey: "ar7", Title: "Arctic Monkeys"}},
+	}
+	m.applyItems(levelArtists, items)
+	m.toggleGrid()
+	if !m.gridView {
+		t.Fatal("toggleGrid did not enable grid view")
+	}
+
+	out := m.View().Content
+	// 110 / 25 (cellWidth + gap) = 4 columns. Expect at least two artists on
+	// the same line — assert by checking they share a line.
+	lines := strings.Split(out, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "Al Green") && strings.Contains(line, "Led Zeppelin") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected Al Green and Led Zeppelin to share a row in grid view")
 	}
 	t.Log("\n" + out)
 }

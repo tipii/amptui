@@ -43,7 +43,7 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	if m.loading {
 		return m, nil
 	}
-	sel := m.list.SelectedItem()
+	sel := m.selectedItem()
 	if sel == nil {
 		return m, nil
 	}
@@ -99,7 +99,8 @@ func (m *Model) pushCrumb(title string) {
 	})
 }
 
-// applyItems installs a freshly fetched level into the list.
+// applyItems installs a freshly fetched level into the list. Also resets
+// the grid cursor so it stays in sync with the list selection.
 func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.loading = false
 	m.err = nil
@@ -108,6 +109,20 @@ func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.list.Select(0)
 	m.list.Title = m.titleForLevel(lvl)
 	m.list.SetSize(m.width, m.listHeight())
+	m.gridCursor = 0
+}
+
+// selectedItem returns the highlighted item, accounting for grid mode (the
+// grid keeps its own cursor independent of the bubbles list).
+func (m Model) selectedItem() list.Item {
+	if m.gridView && m.level == levelArtists {
+		items := m.list.Items()
+		if m.gridCursor >= 0 && m.gridCursor < len(items) {
+			return items[m.gridCursor]
+		}
+		return nil
+	}
+	return m.list.SelectedItem()
 }
 
 func (m Model) titleForLevel(lvl level) string {

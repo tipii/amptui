@@ -62,6 +62,12 @@ type Model struct {
 	showHelp   bool
 	showSearch bool
 
+	// gridView swaps the Artists level from the default vertical list to a
+	// responsive grid. gridCursor is the linear index of the highlighted
+	// cell, kept in sync with m.list.Index() on toggle.
+	gridView   bool
+	gridCursor int
+
 	// Search-modal state.
 	searchInput   textinput.Model
 	searchResults []index.Entry
