@@ -131,6 +131,48 @@ func (m Model) titleForLevel(lvl level) string {
 	}
 }
 
+// refreshCurrentLevel re-derives the current view's items from the library
+// — used after a manual refresh so counts/titles update in place. Cursor
+// position is preserved (it's tied to the bubbles list, not items identity).
+// Crumbs aren't regenerated, so go-back may show slightly stale data until
+// the user navigates forward again.
+func (m *Model) refreshCurrentLevel() {
+	if m.library == nil {
+		return
+	}
+	switch m.level {
+	case levelArtists:
+		m.list.SetItems(m.artistItems())
+	case levelAlbums:
+		if key := m.parentRatingKey(); key != "" {
+			m.list.SetItems(m.albumItems(key))
+		}
+	case levelTracks:
+		if key := m.parentRatingKey(); key != "" {
+			m.list.SetItems(m.trackItems(key))
+		}
+	}
+}
+
+// parentRatingKey returns the RatingKey of the item the user drilled into
+// to reach the current level — read off the top crumb's highlighted item.
+func (m Model) parentRatingKey() string {
+	if len(m.crumbs) == 0 {
+		return ""
+	}
+	c := m.crumbs[len(m.crumbs)-1]
+	if c.index < 0 || c.index >= len(c.items) {
+		return ""
+	}
+	switch it := c.items[c.index].(type) {
+	case artistItem:
+		return it.artist.RatingKey
+	case albumItem:
+		return it.album.RatingKey
+	}
+	return ""
+}
+
 // --- library-driven item builders ---
 
 // artistItems builds the list rows for the Artists level from the cache.

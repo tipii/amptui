@@ -79,6 +79,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `o`                   | Open / close the queue modal                 |
 | `s`                   | Open the fuzzy search modal                  |
 | `?`                   | Open / close the keybindings modal           |
+| `R`                   | Re-sync the library cache from Plex          |
 | `ctrl+c` / `ctrl+q`   | Quit                                         |
 
 **Inside the queue modal:**

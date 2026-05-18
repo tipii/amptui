@@ -59,9 +59,15 @@ type Entry struct {
 	PartKey   string        `json:"p,omitempty"`
 }
 
+// CacheSchemaVersion is the on-disk schema version. Bump when adding new
+// derived fields (count maps, etc.) so old caches force a re-sync instead
+// of silently serving stale-shape data.
+const CacheSchemaVersion = 2
+
 // Library is the in-memory cache of a Plex music section, persisted to
 // ~/.cache/amptui/<sectionUUID>.json.
 type Library struct {
+	SchemaVersion    int       `json:"schema_version"`
 	SectionUUID      string    `json:"section_uuid"`
 	ContentChangedAt int64     `json:"content_changed_at"`
 	SyncedAt         time.Time `json:"synced_at"`
@@ -106,6 +112,7 @@ func Sync(ctx context.Context, client *plex.Client, plexLib plex.MusicLibrary) (
 		return nil, fmt.Errorf("fetching library tracks: %w", err)
 	}
 	l := buildFromTracks(tracks)
+	l.SchemaVersion = CacheSchemaVersion
 	l.SectionUUID = plexLib.UUID
 	l.ContentChangedAt = plexLib.ContentChangedAt
 	_ = l.Save() // best effort; an unwritable cache shouldn't block usage
@@ -187,9 +194,10 @@ func buildFromTracks(tracks []plex.Track) *Library {
 }
 
 // IsFresh reports whether this cache still matches the server's current
-// content version for plexLib.
+// content version for plexLib AND was built with the current schema.
 func (l *Library) IsFresh(plexLib plex.MusicLibrary) bool {
 	return l != nil &&
+		l.SchemaVersion == CacheSchemaVersion &&
 		l.SectionUUID == plexLib.UUID &&
 		l.ContentChangedAt == plexLib.ContentChangedAt
 }

@@ -136,6 +136,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "s":
 			return m, m.openSearch()
+		case "R":
+			if m.librarySyncing || len(m.libs) == 0 {
+				return m, nil
+			}
+			active := m.libs[0]
+			if m.startupLibrary != nil {
+				active = *m.startupLibrary
+			}
+			m.librarySyncing = true
+			m.libraryErr = nil
+			return m, syncLibrary(m.client, active)
 		case "n":
 			m.playNext()
 			return m, nil
@@ -173,6 +184,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the cache is ready and we haven't already drilled in.
 		if m.startupLibrary != nil && m.level == levelLibraries {
 			m.applyItems(levelArtists, m.artistItems())
+		} else {
+			// Manual refresh (R) — re-render the current level in place
+			// with the fresh library data so counts and titles are updated.
+			m.refreshCurrentLevel()
 		}
 		return m, nil
 	case libraryErrMsg:

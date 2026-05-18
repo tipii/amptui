@@ -69,7 +69,7 @@ func (m Model) browserView() string {
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
 		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · tab grid · o queue · n/p skip · ctrl+q quit")
+			"? keys · s search · enter open · tab grid · o queue · R refresh · ctrl+q quit")
 	}
 	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
@@ -337,6 +337,7 @@ func helpBodyContent() string {
 		"",
 		helpStyle.Render("App"),
 		"  ?                this help (j/k or pgup/pgdn to scroll)",
+		"  R                re-sync library cache from Plex",
 		"  ctrl+c / ctrl+q  quit",
 	}
 	return strings.Join(lines, "\n")

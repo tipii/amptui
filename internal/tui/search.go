@@ -25,14 +25,26 @@ func loadOrSyncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
 		if l, err := library.Load(plexLib.UUID); err == nil && l.IsFresh(plexLib) {
 			return libraryReadyMsg{lib: l}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), librarySyncTimeout)
-		defer cancel()
-		l, err := library.Sync(ctx, client, plexLib)
-		if err != nil {
-			return libraryErrMsg{err: err}
-		}
-		return libraryReadyMsg{lib: l}
+		return runSync(client, plexLib)
 	}
+}
+
+// syncLibrary forces a re-sync from Plex, bypassing the on-disk cache.
+// Used by the manual refresh key (R).
+func syncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
+	return func() tea.Msg {
+		return runSync(client, plexLib)
+	}
+}
+
+func runSync(client *plex.Client, plexLib plex.MusicLibrary) tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), librarySyncTimeout)
+	defer cancel()
+	l, err := library.Sync(ctx, client, plexLib)
+	if err != nil {
+		return libraryErrMsg{err: err}
+	}
+	return libraryReadyMsg{lib: l}
 }
 
 // Messages from the background library loader.
