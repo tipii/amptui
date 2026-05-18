@@ -87,11 +87,15 @@ func (m Model) footerLine(left string) string {
 	if right == "" {
 		return left
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
+	// Pad the left side to fill the row minus the right's width, so
+	// right ends up flush against the terminal edge regardless of left's
+	// length. Floors at width 1 if there's not enough room for both.
+	padTo := m.width - lipgloss.Width(right)
+	if padTo < lipgloss.Width(left)+1 {
+		padTo = lipgloss.Width(left) + 1
 	}
-	return left + strings.Repeat(" ", gap) + right
+	leftPadded := lipgloss.NewStyle().Width(padTo).Render(left)
+	return leftPadded + right
 }
 
 // overlayBox composites box, centered, on top of background. The background

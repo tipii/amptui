@@ -203,13 +203,7 @@ func (m Model) gridBodyView() string {
 	// Pad the body to exactly listHeight rows so the now-playing line and
 	// status bar stay pinned to the bottom of the terminal even when the
 	// grid's content doesn't fill the available space.
-	out := b.String()
-	rendered := lipgloss.Height(out)
-	target := m.listHeight()
-	if rendered < target {
-		out += strings.Repeat("\n", target-rendered)
-	}
-	return out
+	return lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
 }
 
 // gridCellTexts returns the (title, subtitle) shown inside a grid card.

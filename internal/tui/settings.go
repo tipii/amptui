@@ -219,10 +219,10 @@ func (m Model) settingsView() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.cacheStatsBody())
 
-	body := b.String()
-	if h := lipgloss.Height(body); h < m.listHeight() {
-		body += strings.Repeat("\n", m.listHeight()-h)
-	}
+	// Pad the body up to listHeight so the footer stays pinned to the
+	// bottom of the terminal regardless of how much settings content
+	// the user has scrolled past.
+	body := lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
 
 	var out strings.Builder
 	out.WriteString(body)
