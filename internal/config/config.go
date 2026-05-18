@@ -18,6 +18,10 @@ type Config struct {
 	// library instead of the library picker. Matched against a section's
 	// key or title (case-insensitive). Optional.
 	DefaultLibrary string `toml:"default_library"`
+	// DefaultViewArtist / DefaultViewAlbum select the initial render mode
+	// for those browser levels: "list" (default) or "grid".
+	DefaultViewArtist string `toml:"default_view_artist,omitempty"`
+	DefaultViewAlbum  string `toml:"default_view_album,omitempty"`
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml
@@ -65,4 +69,32 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("no token set (config: %s, or AMPTUI_TOKEN)", path)
 	}
 	return c, nil
+}
+
+// Save writes c to the config file, creating the directory if needed.
+// Uses an atomic temp-file-then-rename so a crash never leaves a half-
+// written config that would fail to parse on next launch.
+func (c Config) Save() error {
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if err := toml.NewEncoder(f).Encode(c); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }

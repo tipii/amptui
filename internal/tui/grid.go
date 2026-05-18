@@ -62,23 +62,51 @@ func gridCols(width int) int {
 	return cols
 }
 
-// supportsGrid reports whether the current browser level renders as a grid
-// when m.gridView is on. Currently artists and albums; tracks and the
-// library picker stay as lists.
+// supportsGrid reports whether the current browser level can render as a
+// grid. Currently artists and albums; tracks and the library picker stay
+// as lists.
 func (m Model) supportsGrid() bool {
 	return m.level == levelArtists || m.level == levelAlbums
 }
 
-// toggleGrid flips between list and grid view, syncing the cursor in both
-// directions so the same item stays highlighted across the switch.
+// currentGridView reports whether the current level is presently in grid
+// mode (each level has its own flag, primed from config at startup).
+func (m Model) currentGridView() bool {
+	switch m.level {
+	case levelArtists:
+		return m.gridArtists
+	case levelAlbums:
+		return m.gridAlbums
+	}
+	return false
+}
+
+// toggleGrid flips the current level's mode and keeps the same item
+// highlighted across the switch.
 func (m *Model) toggleGrid() {
-	if m.gridView {
+	if !m.supportsGrid() {
+		return
+	}
+	on := m.currentGridView()
+	if on {
+		// grid -> list
 		m.list.Select(m.gridCursor)
-		m.gridView = false
 	} else {
+		// list -> grid
 		m.gridCursor = m.list.Index()
-		m.gridView = true
+	}
+	m.setCurrentGridView(!on)
+	if !on {
 		m.ensureCursorVisible()
+	}
+}
+
+func (m *Model) setCurrentGridView(v bool) {
+	switch m.level {
+	case levelArtists:
+		m.gridArtists = v
+	case levelAlbums:
+		m.gridAlbums = v
 	}
 }
 

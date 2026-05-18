@@ -20,6 +20,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
@@ -52,6 +53,14 @@ type Model struct {
 
 	screen screen
 
+	// Settings-screen state. The huh form owns field navigation and edit
+	// modes; settingsValues holds the bound strings so the form has stable
+	// pointers, and we copy them back to cfg on submit.
+	settingsForm    *huh.Form
+	settingsValues  settingsValues
+	settingsSavedAt time.Time // for the "saved ✓" flash
+	settingsErr     error
+
 	list         list.Model
 	queueList    list.Model      // shown in the queue modal
 	helpViewport viewport.Model  // scrollable body of the help modal
@@ -75,12 +84,12 @@ type Model struct {
 	showHelp   bool
 	showSearch bool
 
-	// gridView swaps the Artists level from the default vertical list to a
-	// responsive grid. gridCursor is the linear index of the highlighted
-	// cell, kept in sync with m.list.Index() on toggle. gridScrollTop is
-	// the top-most visible card row; it only moves when the cursor crosses
-	// a viewport edge so navigation feels free within the visible area.
-	gridView      bool
+	// gridArtists / gridAlbums hold the current grid-vs-list preference for
+	// each level. They start from cfg.DefaultViewArtist / DefaultViewAlbum
+	// and flip on tab. gridCursor / gridScrollTop are shared — they're
+	// only meaningful while the current level is actually in grid mode.
+	gridArtists   bool
+	gridAlbums    bool
 	gridCursor    int
 	gridScrollTop int
 
@@ -144,6 +153,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	si.Placeholder = "search artists, albums, tracks…"
 	si.Prompt = "> "
 
+
 	hv := viewport.New()
 	hv.FillHeight = true
 	hv.SetContent(helpBodyContent())
@@ -158,8 +168,11 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		helpViewport:   hv,
 		spinner:        sp,
 		searchInput:    si,
+		settingsValues: newSettingsValues(cfg),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
+		gridArtists:    cfg.DefaultViewArtist == "grid",
+		gridAlbums:     cfg.DefaultViewAlbum == "grid",
 	}
 
 	if defaultLib != nil {
@@ -183,11 +196,15 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		m.startupLibrary = defaultLib
 	}
 
+	m.settingsForm = buildSettingsForm(&m.settingsValues)
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
+	if m.settingsForm != nil {
+		cmds = append(cmds, m.settingsForm.Init())
+	}
 	// Kick off the library sync in the background. For now the active
 	// section is the default (or the first one); multi-library is a
 	// follow-up. The libraryReadyMsg handler auto-navigates into the

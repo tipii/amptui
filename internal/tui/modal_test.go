@@ -162,9 +162,10 @@ func TestSettingsScreenRenders(t *testing.T) {
 	for _, want := range []string{
 		"Settings /",
 		"https://plex.example.dev",
-		"••••••••••••••••wxyz",   // masked token (last 4 visible)
-		"Music",                  // default library
-		"1 artists",              // entry breakdown
+		"Token",                  // password field label (value masked by huh)
+		"Music",                  // default library value
+		"1 artists",              // entry breakdown in cache stats
+		"Default view (Artists)", // huh select label
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in settings view", want)
@@ -208,7 +209,7 @@ func TestArtistGridRenders(t *testing.T) {
 	}
 	m.applyItems(levelArtists, items)
 	m.toggleGrid()
-	if !m.gridView {
+	if !m.currentGridView() {
 		t.Fatal("toggleGrid did not enable grid view")
 	}
 

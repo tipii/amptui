@@ -49,7 +49,7 @@ func (m Model) browserView() string {
 	}
 	b.WriteString("\n\n")
 
-	if m.gridView && m.supportsGrid() {
+	if m.currentGridView() {
 		b.WriteString(m.gridBodyView())
 	} else {
 		b.WriteString(m.list.View())
@@ -341,8 +341,12 @@ func helpBodyContent() string {
 		"  in modal: tab cycles filter (All/Artists/Albums/Songs)",
 		"            enter = play/open · alt+enter = queue track",
 		"",
+		helpStyle.Render("Settings"),
+		"  ,                open / close the settings screen",
+		"  in screen: j/k move · enter edit · esc back · R resync",
+		"  in edit:   enter save to config.toml · esc cancel",
+		"",
 		helpStyle.Render("App"),
-		"  ,                open settings screen",
 		"  ?                this help (j/k or pgup/pgdn to scroll)",
 		"  R                re-sync library cache from Plex",
 		"  ctrl+c / ctrl+q  quit",

@@ -19,6 +19,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueList.SetSize(mw-4, mh-3)
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
+		// huh form needs WindowSizeMsg too so it can size itself.
+		if m.settingsForm != nil {
+			if f, ok := forwardToForm(m.settingsForm, msg); ok {
+				m.settingsForm = f
+			}
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -93,34 +99,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList, cmd = m.queueList.Update(msg)
 			return m, cmd
 		}
-		// Settings screen owns its own (small) input set; route there first.
+		// Settings screen owns its own input set; route there first.
 		if m.screen == screenSettings {
-			switch msg.String() {
-			case "ctrl+c", "ctrl+q":
-				return m, tea.Quit
-			case ",", "esc":
-				m.screen = screenBrowser
-				return m, nil
-			case "R":
-				if m.librarySyncing || len(m.libs) == 0 {
-					return m, nil
-				}
-				active := m.libs[0]
-				if m.startupLibrary != nil {
-					active = *m.startupLibrary
-				}
-				m.librarySyncing = true
-				m.libraryErr = nil
-				return m, syncLibrary(m.client, active)
-			}
-			return m, nil
+			return m.handleSettingsKey(msg)
 		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
 			break
 		}
 		// Grid cursor navigation (only meaningful at the Artists level).
-		if m.gridView && m.supportsGrid() {
+		if m.currentGridView() {
 			switch msg.String() {
 			case "up", "k":
 				m.moveGridCursor(-1, 0)
