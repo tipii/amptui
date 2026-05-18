@@ -20,14 +20,13 @@ type artistItem struct{ artist library.Artist }
 
 func (i artistItem) Title() string { return i.artist.Title }
 func (i artistItem) Description() string {
-	switch {
-	case i.artist.AlbumCount == 0 && i.artist.TrackCount == 0:
+	if i.artist.AlbumCount == 0 {
 		return "artist"
-	case i.artist.AlbumCount == 0:
-		return fmt.Sprintf("%d tracks", i.artist.TrackCount)
-	default:
-		return fmt.Sprintf("%d albums · %d tracks", i.artist.AlbumCount, i.artist.TrackCount)
 	}
+	if i.artist.AlbumCount == 1 {
+		return "1 album"
+	}
+	return fmt.Sprintf("%d albums", i.artist.AlbumCount)
 }
 func (i artistItem) FilterValue() string { return i.artist.Title }
 

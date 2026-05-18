@@ -176,10 +176,10 @@ func gridCellTexts(item interface{ FilterValue() string }) (title, sub string) {
 	case artistItem:
 		title = it.artist.Title
 		switch {
-		case it.artist.AlbumCount > 0:
-			sub = fmt.Sprintf("%d albums · %d tracks", it.artist.AlbumCount, it.artist.TrackCount)
-		case it.artist.TrackCount > 0:
-			sub = fmt.Sprintf("%d tracks", it.artist.TrackCount)
+		case it.artist.AlbumCount == 1:
+			sub = "1 album"
+		case it.artist.AlbumCount > 1:
+			sub = fmt.Sprintf("%d albums", it.artist.AlbumCount)
 		}
 		return
 	case albumItem:
