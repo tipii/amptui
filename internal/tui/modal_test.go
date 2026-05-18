@@ -401,6 +401,47 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	}
 }
 
+// TestSettingsValidationBlocksCommit ensures that an invalid ServerURL
+// keeps the user in edit mode (so they can fix it) instead of silently
+// committing garbage to config.toml.
+func TestSettingsValidationBlocksCommit(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	m := New(cfg, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	for _, f := range m.settingsFields {
+		if c := f.Init(); c != nil {
+			if msg := c(); msg != nil {
+				upd, _ := m.Update(msg)
+				m = upd.(Model)
+			}
+		}
+	}
+
+	m.screen = screenSettings
+	m.settingsCursor = 0
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+
+	// Type "not-a-url" (no scheme — should fail validateServerURL).
+	for _, r := range "ftp://x" {
+		// Use Text only so non-letter runes don't accidentally match Code.
+		upd, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = upd.(Model)
+	}
+	// Press enter — validation should block the commit.
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+
+	if !m.settingsEditing {
+		t.Error("invalid input must keep edit mode open, not commit")
+	}
+	if m.cfg.ServerURL == "ftp://x" {
+		t.Error("invalid URL must NOT be persisted to cfg")
+	}
+}
+
 // TestDeleteQueueItemBeforePlaying covers deleting a non-playing track that
 // sits before the playing one — queueIdx must decrement.
 func TestDeleteQueueItemBeforePlaying(t *testing.T) {

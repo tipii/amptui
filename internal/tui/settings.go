@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -50,8 +51,8 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 		huh.NewOption("grid", "grid"),
 	}
 	fields := []huh.Field{
-		huh.NewInput().Title("Server URL").Value(&v.ServerURL),
-		huh.NewInput().Title("Token").EchoMode(huh.EchoModePassword).Value(&v.Token),
+		huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL),
+		huh.NewInput().Title("Token").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
 		huh.NewInput().
 			Title("Default library").
 			Description("Section name or key. Leave empty to show the picker on startup.").
@@ -64,6 +65,40 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 		fields[i] = f.WithKeyMap(km)
 	}
 	return fields
+}
+
+// validateServerURL allows the empty string (config can be partially set
+// while the user is figuring things out) but rejects anything that isn't
+// a valid http(s) URL — those values would fail at connect time anyway,
+// and surfacing it inline beats a stack trace on next launch.
+func validateServerURL(s string) error {
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("not a valid URL: %v", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
+// validateToken is intentionally light — Plex tokens are opaque strings
+// with no fixed format, so we only reject whitespace, which is almost
+// always a copy-paste mistake.
+func validateToken(s string) error {
+	if s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, " \t\n") {
+		return fmt.Errorf("token must not contain whitespace")
+	}
+	return nil
 }
 
 // normalizeView coerces a stored view setting to a known option, defaulting
@@ -141,6 +176,13 @@ func (m Model) handleSettingsEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Enter/Back don't trigger commit when the user types "l" or "h"
 	// into the field they're editing.
 	if key.Matches(msg, m.keymap.InputEnter) || key.Matches(msg, m.keymap.InputBack) {
+		// Refuse to commit when the field's own validation failed —
+		// the inline error stays visible and the user remains in edit
+		// mode to fix it. Esc still escapes via the field's own keymap
+		// (huh.Input handles esc-as-cancel internally).
+		if f := m.settingsFields[m.settingsCursor]; f.Error() != nil {
+			return m, cmd
+		}
 		blurCmd := m.settingsFields[m.settingsCursor].Blur()
 		m.settingsEditing = false
 		m.applyAndSaveSettings()
