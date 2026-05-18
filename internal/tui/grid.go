@@ -6,29 +6,58 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Grid layout constants. cellWidth includes the right gap; tweak these to
-// rebalance density vs readability.
+// Card geometry. lipgloss v2's Style.Width / Style.Height set the OUTER
+// dimensions (border-inclusive), so these values are the total cell size.
+// No gap between cards — adjacent borders touch and form a divider, which
+// lets the row fill the terminal exactly.
 const (
-	gridCellWidth  = 24
-	gridCellHeight = 1
-	gridColGap     = 1
+	cardOuterH      = 5  // total card height in rows (border + content)
+	cardIdealOuterW = 20 // target outer width when picking cols
+	cardMinOuterW   = 14 // floor: room for "Pink Floyd"-length names
+	cardBorderCols  = 2  // border takes 1 col each side
 )
 
 var (
-	gridCellStyle = lipgloss.NewStyle().Padding(0, 1)
-	gridCursorStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("62"))
+	// cardStyle / cardCursorStyle are templates; the per-card outer width
+	// is set at render time from gridLayout's result.
+	cardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Height(cardOuterH).
+			AlignHorizontal(lipgloss.Center).
+			AlignVertical(lipgloss.Center)
+
+	cardCursorStyle = cardStyle.
+			BorderForeground(lipgloss.Color("213")).
+			Foreground(lipgloss.Color("213")).
+			Bold(true)
 )
 
-// gridCols returns how many cells fit across the given width.
-func gridCols(width int) int {
-	step := gridCellWidth + gridColGap
-	cols := (width + gridColGap) / step
+// gridLayout picks the column count and a per-card OUTER width so that
+// cols * outerW == terminal width exactly. All cards in a row are the
+// same size; adjacent cards share visual borders.
+func gridLayout(width int) (cols, outerW int) {
+	cols = width / cardIdealOuterW
 	if cols < 1 {
 		cols = 1
 	}
+	outerW = width / cols
+	if outerW < cardMinOuterW {
+		cols = width / cardMinOuterW
+		if cols < 1 {
+			cols = 1
+		}
+		outerW = width / cols
+		if outerW < cardMinOuterW {
+			outerW = cardMinOuterW
+		}
+	}
+	return
+}
+
+// gridCols returns just the column count for cursor-movement math.
+func gridCols(width int) int {
+	cols, _ := gridLayout(width)
 	return cols
 }
 
@@ -36,11 +65,9 @@ func gridCols(width int) int {
 // directions so the same item stays highlighted across the switch.
 func (m *Model) toggleGrid() {
 	if m.gridView {
-		// grid -> list
 		m.list.Select(m.gridCursor)
 		m.gridView = false
 	} else {
-		// list -> grid
 		m.gridCursor = m.list.Index()
 		m.gridView = true
 	}
@@ -64,65 +91,73 @@ func (m *Model) moveGridCursor(drow, dcol int) {
 	m.gridCursor = c
 }
 
-// gridBodyView renders the grid for the current list items, highlighting
-// gridCursor and scrolling to keep it visible inside listHeight() rows.
+// gridBodyView renders the artist grid as rows of bordered, centered-text
+// cards. Scrolls vertically to keep the cursor row visible.
 func (m Model) gridBodyView() string {
 	items := m.list.Items()
-	cols := gridCols(m.width)
-	cellW := gridCellWidth - 2 // minus horizontal padding from gridCellStyle
-	visibleRows := m.listHeight() - 1 // reserve one row for the level title
-	if visibleRows < 1 {
-		visibleRows = 1
+	cols, outerW := gridLayout(m.width)
+	availRows := m.listHeight() - 1 // one row for the level title
+	if availRows < cardOuterH {
+		availRows = cardOuterH
+	}
+	visibleCardRows := availRows / cardOuterH
+	if visibleCardRows < 1 {
+		visibleCardRows = 1
 	}
 
 	totalRows := (len(items) + cols - 1) / cols
-	cursorRow := 0
-	if m.gridCursor >= 0 {
-		cursorRow = m.gridCursor / cols
-	}
-
-	// scrollTop keeps the cursor visible.
+	cursorRow := m.gridCursor / cols
 	scrollTop := 0
-	if cursorRow >= visibleRows {
-		scrollTop = cursorRow - visibleRows + 1
+	if cursorRow >= visibleCardRows {
+		scrollTop = cursorRow - visibleCardRows + 1
 	}
-	scrollEnd := scrollTop + visibleRows
+	scrollEnd := scrollTop + visibleCardRows
 	if scrollEnd > totalRows {
 		scrollEnd = totalRows
 	}
+
+	normal := cardStyle.Width(outerW)
+	cursor := cardCursorStyle.Width(outerW)
+	innerW := outerW - cardBorderCols
 
 	var b strings.Builder
 	b.WriteString(headerStyle.Render(m.list.Title))
 	b.WriteByte('\n')
 
 	for row := scrollTop; row < scrollEnd; row++ {
+		cells := make([]string, 0, cols)
 		for col := 0; col < cols; col++ {
 			idx := row*cols + col
 			if idx >= len(items) {
 				break
 			}
-			text := truncate(items[idx].(artistItem).artist.Title, cellW)
-			cell := text
+			name := truncate(items[idx].(artistItem).artist.Title, innerW)
+			style := normal
 			if idx == m.gridCursor {
-				cell = gridCursorStyle.Width(cellW).Render(text)
-			} else {
-				cell = gridCellStyle.Width(cellW).Render(text)
+				style = cursor
 			}
-			b.WriteString(cell)
-			if col < cols-1 && idx+1 < len(items) {
-				b.WriteString(strings.Repeat(" ", gridColGap))
-			}
+			cells = append(cells, style.Render(name))
 		}
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 		if row < scrollEnd-1 {
 			b.WriteByte('\n')
 		}
 	}
-	return b.String()
+
+	// Pad the body to exactly listHeight rows so the now-playing line and
+	// status bar stay pinned to the bottom of the terminal even when the
+	// grid's content doesn't fill the available space.
+	out := b.String()
+	rendered := lipgloss.Height(out)
+	target := m.listHeight()
+	if rendered < target {
+		out += strings.Repeat("\n", target-rendered)
+	}
+	return out
 }
 
 // truncate cuts s to at most n runes, appending an ellipsis when it had to
-// drop content. Pure ASCII length count is fine here since artist names that
-// reach the truncation length almost always contain only single-cell runes.
+// drop content.
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {

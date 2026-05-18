@@ -150,10 +150,12 @@ func (m Model) crumbLine() string {
 	return strings.Join(parts, " / ") + " /"
 }
 
-// listHeight reserves rows for the header (2), spacer (1), now-playing (1),
-// and footer (1).
+// listHeight is the height in rows of the body region (browser/grid). The
+// view above and below it consumes: header (1), blank spacer (1),
+// now-playing line (1), and footer (1) — 4 rows total — so the body fills
+// everything in between.
 func (m Model) listHeight() int {
-	h := m.height - 5
+	h := m.height - 4
 	if h < 1 {
 		return 1
 	}
