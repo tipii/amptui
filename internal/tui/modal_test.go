@@ -210,7 +210,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 	m = updated.(Model)
 
 	// Run each field's Init cmd through Update so updateFieldMsg fires.
-	for _, f := range m.settingsFields {
+	for _, f := range m.settings.fields {
 		if c := f.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
@@ -222,10 +222,10 @@ func TestSettingsSelectEdit(t *testing.T) {
 	// Enter settings, move cursor to the "Default view (Artists)" field
 	// (index 3 in our slice), press enter to edit.
 	m.screen = screenSettings
-	m.settingsCursor = 3
+	m.settings.cursor = 3
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
-	if !m.settingsEditing {
+	if !m.settings.editing {
 		t.Fatal("expected to be in edit mode after enter")
 	}
 
@@ -236,7 +236,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 	// Press enter to commit + exit edit mode.
 	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
-	if m.settingsEditing {
+	if m.settings.editing {
 		t.Errorf("expected edit mode to exit after enter")
 	}
 	if got := m.cfg.DefaultViewArtist; got != "grid" {
@@ -370,7 +370,7 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	m := New(cfg, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
-	for _, f := range m.settingsFields {
+	for _, f := range m.settings.fields {
 		if c := f.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
@@ -381,10 +381,10 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 
 	// Cursor on ServerURL (index 0), press enter to start editing.
 	m.screen = screenSettings
-	m.settingsCursor = 0
+	m.settings.cursor = 0
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
-	if !m.settingsEditing {
+	if !m.settings.editing {
 		t.Fatal("expected to be in edit mode after enter")
 	}
 
@@ -393,10 +393,10 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 		upd, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m = upd.(Model)
 	}
-	if !m.settingsEditing {
+	if !m.settings.editing {
 		t.Error("settings should still be in edit mode — h must not trigger Back")
 	}
-	if got := m.settingsValues.ServerURL; got != "http" {
+	if got := m.settings.values.ServerURL; got != "http" {
 		t.Errorf("expected ServerURL value 'http', got %q", got)
 	}
 }
@@ -410,7 +410,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	m := New(cfg, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
-	for _, f := range m.settingsFields {
+	for _, f := range m.settings.fields {
 		if c := f.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
@@ -420,7 +420,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	}
 
 	m.screen = screenSettings
-	m.settingsCursor = 0
+	m.settings.cursor = 0
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 
@@ -434,7 +434,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 
-	if !m.settingsEditing {
+	if !m.settings.editing {
 		t.Error("invalid input must keep edit mode open, not commit")
 	}
 	if m.cfg.ServerURL == "ftp://x" {

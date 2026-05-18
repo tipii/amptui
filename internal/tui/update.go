@@ -22,8 +22,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.SetHeight(mh - 3)
 		m.helpModel.SetWidth(msg.Width)
 		// huh fields need WindowSizeMsg too so they can size themselves.
-		m.forwardToAllSettingsFields(msg)
-		return m, nil
+		var fcmd tea.Cmd
+		m.settings, fcmd = m.settings.ForwardMsg(msg)
+		return m, fcmd
 
 	case tea.KeyPressMsg:
 		k := m.keymap
@@ -101,7 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Settings screen owns its own input set; route there first.
 		if m.screen == screenSettings {
-			return m.handleSettingsKey(msg)
+			return m.routeSettingsKey(msg)
 		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
@@ -216,14 +217,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Forward any unhandled non-key message to all settings fields so their
-	// internal state advances (cursor blink, focus cmds from Init, etc.).
+	// Forward any unhandled non-key message to the settings sub-model so
+	// its fields' internal state advances (cursor blink, focus cmds from
+	// Init, etc.).
 	var fieldsCmd tea.Cmd
 	if _, isKey := msg.(tea.KeyPressMsg); !isKey {
-		fieldsCmd = m.forwardToAllSettingsFields(msg)
+		m.settings, fieldsCmd = m.settings.ForwardMsg(msg)
 	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, tea.Batch(cmd, fieldsCmd)
+}
+
+// routeSettingsKey dispatches a key to the settings sub-model and acts
+// on the resulting outcome (close, refresh, commit). Kept on Model
+// because the outcomes need parent state (cfg, libs, client, grid flags).
+func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var (
+		cmd     tea.Cmd
+		outcome settingsOutcome
+	)
+	m.settings, cmd, outcome = m.settings.HandleKey(msg, m.keymap)
+	switch outcome {
+	case settingsOutcomeClose:
+		m.screen = screenBrowser
+	case settingsOutcomeRefresh:
+		if !m.librarySyncing && len(m.libs) > 0 {
+			active := m.libs[0]
+			if m.startupLibrary != nil {
+				active = *m.startupLibrary
+			}
+			m.librarySyncing = true
+			m.libraryErr = nil
+			return m, tea.Batch(cmd, syncLibrary(m.client, active))
+		}
+	case settingsOutcomeCommit:
+		// Pull the new values from the sub-model, apply runtime effects
+		// (grid view per level), persist, and tell the sub-model whether
+		// the save succeeded so it can flash the right indicator.
+		v := m.settings.Values()
+		m.cfg.ServerURL = v.ServerURL
+		m.cfg.Token = v.Token
+		m.cfg.DefaultLibrary = v.DefaultLibrary
+		m.cfg.DefaultViewArtist = v.ViewArtist
+		m.cfg.DefaultViewAlbum = v.ViewAlbum
+		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
+		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
+		m.settings.MarkSaved(m.cfg.Save())
+	}
+	return m, cmd
 }

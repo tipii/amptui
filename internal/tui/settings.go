@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -17,7 +18,7 @@ import (
 )
 
 // settingsValues holds the strings bound to each huh field. Stored on the
-// Model so the pointers remain stable across renders.
+// settings sub-model so the pointers remain stable across renders.
 type settingsValues struct {
 	ServerURL      string
 	Token          string
@@ -26,25 +27,220 @@ type settingsValues struct {
 	ViewAlbum      string
 }
 
-// newSettingsValues returns a heap-allocated settingsValues. The fields
-// bind to this struct's address via huh.Input.Value(&v.X); using a pointer
-// keeps the address stable across Model copies (Bubble Tea passes Model by
-// value through Update).
-func newSettingsValues(cfg config.Config) *settingsValues {
-	return &settingsValues{
+// settingsOutcome is what the settings sub-model asks its parent to do
+// after handling a key. Most keys are sub-model-internal (move cursor,
+// edit, etc.); a few — close, refresh, commit — need parent state.
+type settingsOutcome int
+
+const (
+	settingsOutcomeNone settingsOutcome = iota
+	settingsOutcomeClose
+	settingsOutcomeRefresh
+	settingsOutcomeCommit
+)
+
+// settingsModel owns the settings screen: editable fields, cursor, edit
+// state, save flash. It depends on the parent only for the active KeyMap
+// (passed in to Update) and the read-only library snapshot (passed in to
+// View for cache stats). Cross-cutting actions — close, refresh, commit
+// — are surfaced as settingsOutcome values that the parent acts on.
+type settingsModel struct {
+	fields  []huh.Field
+	values  *settingsValues
+	cursor  int
+	editing bool
+	savedAt time.Time
+	err     error
+}
+
+// newSettingsModel builds the sub-model from an initial config snapshot.
+// The bound values are seeded from cfg; subsequent edits are read back
+// out via values() when the parent commits.
+func newSettingsModel(cfg config.Config) settingsModel {
+	v := &settingsValues{
 		ServerURL:      cfg.ServerURL,
 		Token:          cfg.Token,
 		DefaultLibrary: cfg.DefaultLibrary,
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
 	}
+	return settingsModel{
+		fields: buildSettingsFields(v),
+		values: v,
+	}
+}
+
+// Init forwards each field's Init cmd in a single batch so huh's
+// internal focus / cursor-blink machinery starts up correctly.
+func (s settingsModel) Init() tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(s.fields))
+	for _, f := range s.fields {
+		cmds = append(cmds, f.Init())
+	}
+	return tea.Batch(cmds...)
+}
+
+// HandleKey routes a keypress while the settings screen is active.
+// km is the parent's KeyMap (shared, not owned). The returned outcome
+// tells the parent whether to close the screen, kick off a library
+// refresh, or apply the committed values.
+func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel, tea.Cmd, settingsOutcome) {
+	if s.editing {
+		return s.handleEditKey(msg, km)
+	}
+	switch {
+	case key.Matches(msg, km.Quit):
+		return s, tea.Quit, settingsOutcomeNone
+	case key.Matches(msg, km.Settings), key.Matches(msg, km.Back):
+		return s, nil, settingsOutcomeClose
+	case key.Matches(msg, km.Up):
+		if s.cursor > 0 {
+			s.cursor--
+		}
+		return s, nil, settingsOutcomeNone
+	case key.Matches(msg, km.Down):
+		if s.cursor < len(s.fields)-1 {
+			s.cursor++
+		}
+		return s, nil, settingsOutcomeNone
+	case key.Matches(msg, km.Enter):
+		if s.cursor < 0 || s.cursor >= len(s.fields) {
+			return s, nil, settingsOutcomeNone
+		}
+		s.editing = true
+		return s, s.fields[s.cursor].Focus(), settingsOutcomeNone
+	case key.Matches(msg, km.Refresh):
+		return s, nil, settingsOutcomeRefresh
+	}
+	return s, nil, settingsOutcomeNone
+}
+
+// handleEditKey processes a keystroke while a field is focused. Most
+// keys forward to the huh field; InputEnter / InputBack commit (the
+// bound value is already up-to-date) and exit edit mode. Commit is
+// refused while the field's own validation is failing.
+func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel, tea.Cmd, settingsOutcome) {
+	if key.Matches(msg, km.Quit) {
+		return s, tea.Quit, settingsOutcomeNone
+	}
+
+	updated, cmd := s.fields[s.cursor].Update(msg)
+	if f, ok := updated.(huh.Field); ok {
+		s.fields[s.cursor] = f
+	}
+
+	// Input* bindings (arrows / enter / esc only) so vim-letter aliases
+	// on Enter/Back don't trigger commit when the user types "l" or "h"
+	// into the field they're editing.
+	if key.Matches(msg, km.InputEnter) || key.Matches(msg, km.InputBack) {
+		if s.fields[s.cursor].Error() != nil {
+			return s, cmd, settingsOutcomeNone
+		}
+		blurCmd := s.fields[s.cursor].Blur()
+		s.editing = false
+		return s, tea.Batch(cmd, blurCmd), settingsOutcomeCommit
+	}
+	return s, cmd, settingsOutcomeNone
+}
+
+// ForwardMsg fans a non-key message (window resize, huh init/focus
+// cmds) to every field so each can advance its internal state. Safe to
+// call from any context — fields ignore msgs they don't care about.
+func (s settingsModel) ForwardMsg(msg tea.Msg) (settingsModel, tea.Cmd) {
+	var cmds []tea.Cmd
+	for i, f := range s.fields {
+		updated, c := f.Update(msg)
+		if fld, ok := updated.(huh.Field); ok {
+			s.fields[i] = fld
+		}
+		if c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	return s, tea.Batch(cmds...)
+}
+
+// MarkSaved flips on the "saved ✓" flash; the parent calls this after
+// a successful config.Save. err records a save failure for display.
+func (s *settingsModel) MarkSaved(err error) {
+	s.err = err
+	if err == nil {
+		s.savedAt = time.Now()
+	}
+}
+
+// Values returns the current bound values so the parent can copy them
+// into its own config on commit.
+func (s settingsModel) Values() settingsValues { return *s.values }
+
+// IsEditing reports whether a field currently has focus.
+func (s settingsModel) IsEditing() bool { return s.editing }
+
+// View renders the settings body. The caller composes header / now-playing
+// / footer around this. spin and stats are pulled from parent state since
+// the sub-model doesn't own the spinner or library snapshot.
+func (s settingsModel) View(bodyHeight int, statsBody string) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("amptui"))
+	b.WriteString("  " + crumbStyle.Render("Settings /"))
+	b.WriteString("\n\n")
+
+	// Surface config-file parse errors so the user sees why their on-disk
+	// values aren't taking effect (Load is lenient and would otherwise
+	// silently drop everything from a malformed file).
+	if w := config.LastLoadWarning; w != nil {
+		b.WriteString(errStyle.Render("config file error: "+w.Err.Error()) + "\n")
+		b.WriteString(helpStyle.Render("  fix the file or correct values below; save here overwrites it") + "\n\n")
+	}
+
+	b.WriteString(sectionStyle.Render("Server"))
+	b.WriteString("\n")
+	for i, f := range s.fields {
+		b.WriteString(s.renderField(i, f))
+	}
+	switch {
+	case s.err != nil:
+		b.WriteString("\n" + errStyle.Render("save error: "+s.err.Error()))
+	case time.Since(s.savedAt) < 2*time.Second:
+		b.WriteString("\n" + npStyle.Render("saved ✓"))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(statsBody)
+
+	// Pad up to bodyHeight so the parent's footer stays pinned to the
+	// bottom of the terminal regardless of how much content fits.
+	return lipgloss.NewStyle().Height(bodyHeight).Render(b.String())
+}
+
+// renderField shows one settings row: cursor / edit marker on the left,
+// then the huh field's own View() with each subsequent line indented to
+// align under the first.
+func (s settingsModel) renderField(i int, f huh.Field) string {
+	marker := "  "
+	switch {
+	case i == s.cursor && s.editing:
+		marker = npStyle.Render("✎ ")
+	case i == s.cursor:
+		marker = npStyle.Render("▶ ")
+	}
+	view := f.View()
+	lines := strings.Split(view, "\n")
+	for j, line := range lines {
+		if j == 0 {
+			lines[j] = marker + line
+		} else {
+			lines[j] = "  " + line
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // buildSettingsFields wires up one huh Field per editable setting. The
-// fields are used as standalone widgets — there is no wrapping form, so we
-// must apply huh's default keymap manually (Form/Group normally do this
-// when fields are members of a form; without it, key.Matches finds nothing
-// in the field's zero-valued keymap and navigation silently does nothing).
+// fields are used as standalone widgets — there is no wrapping form, so
+// huh's default keymap must be applied manually (Form/Group normally do
+// this; without it, key.Matches finds nothing in the field's zero-valued
+// keymap and navigation silently does nothing).
 func buildSettingsFields(v *settingsValues) []huh.Field {
 	viewOpts := []huh.Option[string]{
 		huh.NewOption("list", "list"),
@@ -69,8 +265,7 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 
 // validateServerURL allows the empty string (config can be partially set
 // while the user is figuring things out) but rejects anything that isn't
-// a valid http(s) URL — those values would fail at connect time anyway,
-// and surfacing it inline beats a stack trace on next launch.
+// a valid http(s) URL — those values would fail at connect time anyway.
 func validateServerURL(s string) error {
 	if s == "" {
 		return nil
@@ -89,8 +284,7 @@ func validateServerURL(s string) error {
 }
 
 // validateToken is intentionally light — Plex tokens are opaque strings
-// with no fixed format, so we only reject whitespace, which is almost
-// always a copy-paste mistake.
+// with no fixed format, so we only reject whitespace.
 func validateToken(s string) error {
 	if s == "" {
 		return nil
@@ -110,213 +304,27 @@ func normalizeView(v string) string {
 	return "list"
 }
 
-// handleSettingsKey routes keys while the settings screen is active.
-// Two modes:
-//   - navigation (default): j/k between fields, enter focuses one to edit,
-//     esc/, closes the screen, R re-syncs the library cache.
-//   - editing: keys go to the focused field. enter commits + saves and
-//     exits edit mode; esc also commits (we don't support cancel for v1).
-func (m Model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.settingsEditing {
-		return m.handleSettingsEditKey(msg)
-	}
-	k := m.keymap
-	switch {
-	case key.Matches(msg, k.Quit):
-		return m, tea.Quit
-	case key.Matches(msg, k.Settings), key.Matches(msg, k.Back):
-		m.screen = screenBrowser
-		return m, nil
-	case key.Matches(msg, k.Up):
-		if m.settingsCursor > 0 {
-			m.settingsCursor--
-		}
-		return m, nil
-	case key.Matches(msg, k.Down):
-		if m.settingsCursor < len(m.settingsFields)-1 {
-			m.settingsCursor++
-		}
-		return m, nil
-	case key.Matches(msg, k.Enter):
-		if m.settingsCursor < 0 || m.settingsCursor >= len(m.settingsFields) {
-			return m, nil
-		}
-		m.settingsEditing = true
-		return m, m.settingsFields[m.settingsCursor].Focus()
-	case key.Matches(msg, k.Refresh):
-		if m.librarySyncing || len(m.libs) == 0 {
-			return m, nil
-		}
-		active := m.libs[0]
-		if m.startupLibrary != nil {
-			active = *m.startupLibrary
-		}
-		m.librarySyncing = true
-		m.libraryErr = nil
-		return m, syncLibrary(m.client, active)
-	}
-	return m, nil
-}
-
-// handleSettingsEditKey processes a keystroke while a field is focused.
-// Most keys forward to the huh field. enter/esc commit (the bound value is
-// already up-to-date) and exit edit mode.
-func (m Model) handleSettingsEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, m.keymap.Quit) {
-		return m, tea.Quit
-	}
-
-	field := m.settingsFields[m.settingsCursor]
-	updated, cmd := field.Update(msg)
-	if f, ok := updated.(huh.Field); ok {
-		m.settingsFields[m.settingsCursor] = f
-	}
-
-	// Use Input* (arrows / enter / esc only) so vim-letter aliases on
-	// Enter/Back don't trigger commit when the user types "l" or "h"
-	// into the field they're editing.
-	if key.Matches(msg, m.keymap.InputEnter) || key.Matches(msg, m.keymap.InputBack) {
-		// Refuse to commit when the field's own validation failed —
-		// the inline error stays visible and the user remains in edit
-		// mode to fix it. Esc still escapes via the field's own keymap
-		// (huh.Input handles esc-as-cancel internally).
-		if f := m.settingsFields[m.settingsCursor]; f.Error() != nil {
-			return m, cmd
-		}
-		blurCmd := m.settingsFields[m.settingsCursor].Blur()
-		m.settingsEditing = false
-		m.applyAndSaveSettings()
-		return m, tea.Batch(cmd, blurCmd)
-	}
-	return m, cmd
-}
-
-// applyAndSaveSettings copies bound values into m.cfg, applies runtime
-// effects (grid view per level), and persists to config.toml.
-func (m *Model) applyAndSaveSettings() {
-	if m.settingsValues == nil {
-		return
-	}
-	m.cfg.ServerURL = m.settingsValues.ServerURL
-	m.cfg.Token = m.settingsValues.Token
-	m.cfg.DefaultLibrary = m.settingsValues.DefaultLibrary
-	m.cfg.DefaultViewArtist = m.settingsValues.ViewArtist
-	m.cfg.DefaultViewAlbum = m.settingsValues.ViewAlbum
-	m.gridArtists = m.cfg.DefaultViewArtist == "grid"
-	m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
-	if err := m.cfg.Save(); err != nil {
-		m.settingsErr = err
-		return
-	}
-	m.settingsErr = nil
-	m.settingsSavedAt = time.Now()
-}
-
-// forwardToAllSettingsFields fans non-key messages (window size, internal
-// huh init/focus cmds) to every field so each can advance its internal
-// state. Returns a batched cmd of anything the fields produce.
-func (m *Model) forwardToAllSettingsFields(msg tea.Msg) tea.Cmd {
-	var cmds []tea.Cmd
-	for i, f := range m.settingsFields {
-		updated, c := f.Update(msg)
-		if fld, ok := updated.(huh.Field); ok {
-			m.settingsFields[i] = fld
-		}
-		if c != nil {
-			cmds = append(cmds, c)
-		}
-	}
-	return tea.Batch(cmds...)
-}
-
-// settingsView renders the settings screen: each editable field with a
-// cursor marker on the current row, followed by read-only library stats.
-func (m Model) settingsView() string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("amptui"))
-	b.WriteString("  " + crumbStyle.Render("Settings /"))
-	b.WriteString("\n\n")
-
-	// Surface config-file parse errors so the user sees why their on-disk
-	// values aren't taking effect (Load is lenient and would otherwise
-	// silently drop everything from a malformed file).
-	if w := config.LastLoadWarning; w != nil {
-		b.WriteString(errStyle.Render("config file error: "+w.Err.Error()) + "\n")
-		b.WriteString(helpStyle.Render("  fix the file or correct values below; save here overwrites it") + "\n\n")
-	}
-
-	b.WriteString(sectionStyle.Render("Server"))
-	b.WriteString("\n")
-	for i, f := range m.settingsFields {
-		b.WriteString(m.renderSettingsField(i, f))
-	}
-	// Status flash for save success / error.
-	switch {
-	case m.settingsErr != nil:
-		b.WriteString("\n" + errStyle.Render("save error: "+m.settingsErr.Error()))
-	case time.Since(m.settingsSavedAt) < 2*time.Second:
-		b.WriteString("\n" + npStyle.Render("saved ✓"))
-	}
-
-	b.WriteString("\n\n")
-	b.WriteString(m.cacheStatsBody())
-
-	// Pad the body up to listHeight so the footer stays pinned to the
-	// bottom of the terminal regardless of how much settings content
-	// the user has scrolled past.
-	body := lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
-
-	var out strings.Builder
-	out.WriteString(body)
-	out.WriteString("\n")
-	out.WriteString(m.nowPlayingLine())
-	out.WriteString("\n")
-
-	out.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
-	return out.String()
-}
-
-// renderSettingsField shows one row: cursor marker on the left, then the
-// field's own View(). Indents each line of multi-line field output.
-func (m Model) renderSettingsField(i int, f huh.Field) string {
-	marker := "  "
-	switch {
-	case i == m.settingsCursor && m.settingsEditing:
-		marker = npStyle.Render("✎ ")
-	case i == m.settingsCursor:
-		marker = npStyle.Render("▶ ")
-	}
-	view := f.View()
-	lines := strings.Split(view, "\n")
-	for j, line := range lines {
-		if j == 0 {
-			lines[j] = marker + line
-		} else {
-			lines[j] = "  " + line
-		}
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
-// cacheStatsBody renders the read-only Library cache section.
-func (m Model) cacheStatsBody() string {
+// cacheStatsBody renders the read-only Library cache section shown under
+// the editable settings. It lives outside settingsModel because library
+// state is owned by the parent.
+func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model) string {
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Library cache"))
 	b.WriteString("\n")
-	if m.library == nil {
+	if lib == nil {
 		b.WriteString(settingRow("Status", helpStyle.Render("syncing…")))
 		return b.String()
 	}
-	path, _ := library.CachePath(m.library.SectionUUID)
+	path, _ := library.CachePath(lib.SectionUUID)
 	b.WriteString(settingRow("Path", path))
-	b.WriteString(settingRow("Last synced", formatSyncedAt(m.library.SyncedAt)))
-	b.WriteString(settingRow("Entries", entryBreakdown(m.library)))
+	b.WriteString(settingRow("Last synced", formatSyncedAt(lib.SyncedAt)))
+	b.WriteString(settingRow("Entries", entryBreakdown(lib)))
 	b.WriteString(settingRow("File size", cacheSize(path)))
-	b.WriteString(settingRow("Schema", fmt.Sprintf("v%d", m.library.SchemaVersion)))
-	if m.librarySyncing {
-		b.WriteString(settingRow("", helpStyle.Render(m.spinner.View()+"re-syncing from Plex…")))
-	} else if m.libraryErr != nil {
-		b.WriteString(settingRow("", errStyle.Render("error: "+m.libraryErr.Error())))
+	b.WriteString(settingRow("Schema", fmt.Sprintf("v%d", lib.SchemaVersion)))
+	if syncing {
+		b.WriteString(settingRow("", helpStyle.Render(sp.View()+"re-syncing from Plex…")))
+	} else if libErr != nil {
+		b.WriteString(settingRow("", errStyle.Render("error: "+libErr.Error())))
 	}
 	cfgPath, _ := config.Path()
 	b.WriteString("\n")

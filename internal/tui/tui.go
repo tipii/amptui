@@ -21,7 +21,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/huh/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
@@ -59,16 +58,10 @@ type Model struct {
 
 	screen screen
 
-	// Settings-screen state. Each field is a standalone huh.Field — we
-	// drive navigation between them with j/k and per-field commit-on-save
-	// ourselves. settingsValues holds stable pointers for the fields to
-	// bind to; on commit we copy back to cfg and Save().
-	settingsFields  []huh.Field
-	settingsValues  *settingsValues
-	settingsCursor  int  // which field is highlighted
-	settingsEditing bool // true while keys are routed into the focused field
-	settingsSavedAt time.Time
-	settingsErr     error
+	// settings is the sub-model that owns the settings screen state and
+	// its huh fields. The parent forwards key/window-size msgs into it and
+	// applies its outcomes (close / refresh / commit).
+	settings settingsModel
 
 	list         list.Model
 	queueList    list.Model      // shown in the queue modal
@@ -166,8 +159,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		helpViewport:   hv,
 		spinner:        sp,
 		searchInput:    si,
-		settingsValues: newSettingsValues(cfg),
-		// settingsFields wired below — needs m.settingsValues' stable pointer.
+		settings:       newSettingsModel(cfg),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 		gridArtists:    cfg.DefaultViewArtist == "grid",
@@ -195,7 +187,6 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		m.startupLibrary = defaultLib
 	}
 
-	m.settingsFields = buildSettingsFields(m.settingsValues)
 	m.helpViewport.SetContent(m.helpBodyContent())
 
 	// If the config is missing/invalid (no server URL or token), there's
@@ -210,9 +201,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
-	for _, f := range m.settingsFields {
-		cmds = append(cmds, f.Init())
-	}
+	cmds = append(cmds, m.settings.Init())
 	// Kick off the library sync in the background only when we actually
 	// have a Plex client and at least one library to sync. Missing config
 	// drops us on the settings screen with no background work to do.

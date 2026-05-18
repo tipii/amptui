@@ -198,7 +198,7 @@ func (m Model) currentHelp() helpView {
 		return k.searchModalHelp()
 	case m.showQueue:
 		return k.queueModalHelp()
-	case m.screen == screenSettings && m.settingsEditing:
+	case m.screen == screenSettings && m.settings.IsEditing():
 		return k.settingsEditHelp()
 	case m.screen == screenSettings:
 		return k.settingsHelp()

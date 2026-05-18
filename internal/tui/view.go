@@ -22,7 +22,7 @@ func (m Model) View() tea.View {
 	var background string
 	switch m.screen {
 	case screenSettings:
-		background = m.settingsView()
+		background = m.settingsScreen()
 	default:
 		background = m.browserView()
 	}
@@ -71,6 +71,22 @@ func (m Model) browserView() string {
 		footerLeft = m.helpModel.View(m.currentHelp())
 	}
 	b.WriteString(m.footerLine(footerLeft))
+	return b.String()
+}
+
+// settingsScreen composes the settings sub-model's body with the shared
+// chrome (now-playing line + footer). The sub-model itself doesn't own
+// those — they're parent-level concerns shared with the browser view.
+func (m Model) settingsScreen() string {
+	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner)
+	body := m.settings.View(m.listHeight(), stats)
+
+	var b strings.Builder
+	b.WriteString(body)
+	b.WriteString("\n")
+	b.WriteString(m.nowPlayingLine())
+	b.WriteString("\n")
+	b.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
 	return b.String()
 }
 
