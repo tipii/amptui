@@ -137,7 +137,10 @@ func (m Model) handleSettingsEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.settingsFields[m.settingsCursor] = f
 	}
 
-	if key.Matches(msg, m.keymap.Enter) || key.Matches(msg, m.keymap.Back) {
+	// Use Input* (arrows / enter / esc only) so vim-letter aliases on
+	// Enter/Back don't trigger commit when the user types "l" or "h"
+	// into the field they're editing.
+	if key.Matches(msg, m.keymap.InputEnter) || key.Matches(msg, m.keymap.InputBack) {
 		blurCmd := m.settingsFields[m.settingsCursor].Blur()
 		m.settingsEditing = false
 		m.applyAndSaveSettings()

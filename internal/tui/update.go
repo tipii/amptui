@@ -41,24 +41,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.helpViewport, cmd = m.helpViewport.Update(msg)
 			return m, cmd
 		}
-		// The search modal owns input while it is open.
+		// The search modal owns input while it is open. Navigation uses the
+		// Input* bindings (arrows / enter / esc only) so vim-letter aliases
+		// don't get swallowed when the user types them into the query.
 		if m.showSearch {
 			switch {
 			case key.Matches(msg, k.Quit):
 				return m, tea.Quit
-			case key.Matches(msg, k.Back):
+			case key.Matches(msg, k.InputBack):
 				m.closeSearch()
 				return m, nil
 			case key.Matches(msg, k.CycleFilter):
 				m.cycleSearchFilter()
 				return m, nil
-			case key.Matches(msg, k.Up):
+			case key.Matches(msg, k.InputUp):
 				m.moveSearchCursor(-1)
 				return m, nil
-			case key.Matches(msg, k.Down):
+			case key.Matches(msg, k.InputDown):
 				m.moveSearchCursor(1)
 				return m, nil
-			case key.Matches(msg, k.Enter):
+			case key.Matches(msg, k.InputEnter):
 				return m.activateSearchResult()
 			case key.Matches(msg, k.EnqueueFromSearch):
 				m.enqueueSearchResult()

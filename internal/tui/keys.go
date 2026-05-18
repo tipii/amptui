@@ -41,6 +41,13 @@ type KeyMap struct {
 	DeleteItem key.Binding
 
 	// --- search modal ---
+	// Text-input-friendly navigation: arrows / enter / esc ONLY, no vim
+	// letters — so typing "look" in the search field doesn't trigger
+	// Up/Back/Enter via the k/h/l aliases.
+	InputUp           key.Binding
+	InputDown         key.Binding
+	InputEnter        key.Binding
+	InputBack         key.Binding
 	CycleFilter       key.Binding
 	EnqueueFromSearch key.Binding
 }
@@ -77,6 +84,10 @@ func NewKeyMap() KeyMap {
 		MoveUp:     key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
 		DeleteItem: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 
+		InputUp:           key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up")),
+		InputDown:         key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down")),
+		InputEnter:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		InputBack:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		CycleFilter:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "filter")),
 		EnqueueFromSearch: key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "queue track")),
 	}
@@ -114,9 +125,10 @@ func (k KeyMap) queueModalHelp() helpView {
 }
 
 // searchModalHelp is the help context for the fuzzy-search modal.
+// Uses Input* bindings (arrows only) because the field accepts typed text.
 func (k KeyMap) searchModalHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.CycleFilter, k.Up, k.Down, k.Enter, k.EnqueueFromSearch, k.Back},
+		short: []key.Binding{k.CycleFilter, k.InputUp, k.InputDown, k.InputEnter, k.EnqueueFromSearch, k.InputBack},
 	}
 }
 
@@ -135,9 +147,11 @@ func (k KeyMap) settingsHelp() helpView {
 }
 
 // settingsEditHelp is shown while a settings field is in edit mode.
+// Uses Input* bindings (arrows only) — vim-letter aliases would type
+// into the field instead of committing.
 func (k KeyMap) settingsEditHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Enter, k.Back, k.Quit},
+		short: []key.Binding{k.InputEnter, k.InputBack, k.Quit},
 	}
 }
 
