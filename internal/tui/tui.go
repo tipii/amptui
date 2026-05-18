@@ -18,6 +18,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -38,9 +39,10 @@ type Model struct {
 	// so search jumps can synthesize a Libraries crumb at any depth.
 	libs []plex.MusicLibrary
 
-	list      list.Model
-	queueList list.Model // shown in the queue modal
-	spinner   spinner.Model
+	list         list.Model
+	queueList    list.Model      // shown in the queue modal
+	helpViewport viewport.Model  // scrollable body of the help modal
+	spinner      spinner.Model
 
 	level      level
 	crumbs     []crumb
@@ -120,12 +122,17 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 	si.Placeholder = "search artists, albums, tracks…"
 	si.Prompt = "> "
 
+	hv := viewport.New()
+	hv.FillHeight = true
+	hv.SetContent(helpBodyContent())
+
 	m := Model{
 		client:       client,
 		player:       p,
 		libs:         libs,
 		list:         l,
 		queueList:    ql,
+		helpViewport: hv,
 		spinner:      sp,
 		searchInput:  si,
 		level:        levelLibraries,

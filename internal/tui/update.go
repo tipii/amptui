@@ -13,10 +13,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.list.SetSize(msg.Width, m.listHeight())
-		// The queue list lives inside the modal box: subtract the border
-		// (2), horizontal padding (2), and one row for the box title.
+		// Modal interiors: subtract the border (2), horizontal padding (2),
+		// and one row for the box title.
 		mw, mh := m.modalSize()
 		m.queueList.SetSize(mw-4, mh-3)
+		m.helpViewport.SetWidth(mw - 4)
+		m.helpViewport.SetHeight(mh - 3)
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -27,8 +29,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "?", "esc":
 				m.showHelp = false
+				return m, nil
 			}
-			return m, nil
+			// Forward scroll keys (↑/↓, j/k, pgup/pgdn, etc.) to viewport.
+			var cmd tea.Cmd
+			m.helpViewport, cmd = m.helpViewport.Update(msg)
+			return m, cmd
 		}
 		// The search modal owns input while it is open. Most keys are
 		// forwarded to the textinput so the user can type their query.

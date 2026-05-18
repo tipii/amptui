@@ -23,7 +23,7 @@ func newQueueModel(t *testing.T) Model {
 	}
 	m := New(nil, nil, libs, nil)
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 28})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 
 	m.queue = []plex.Track{

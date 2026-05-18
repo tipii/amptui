@@ -52,7 +52,7 @@ func (m Model) browserView() string {
 	var footerLeft string
 	switch {
 	case m.showHelp:
-		footerLeft = helpStyle.Render("? / esc close")
+		footerLeft = helpStyle.Render("j/k or pgup/pgdn scroll · ? / esc close")
 	case m.showSearch:
 		footerLeft = helpStyle.Render(
 			"tab filter · ↑/↓ select · enter open/play · alt+enter queue · esc close")
@@ -156,19 +156,17 @@ func (m Model) listHeight() int {
 	return h
 }
 
-// modalSize returns the outer width and height of a modal box, clamped to
-// fit inside the content region.
+// modalSize returns the outer dimensions of a modal box — roughly 70% of
+// the terminal in each axis, with a small floor so very small terminals
+// still produce something usable.
 func (m Model) modalSize() (w, h int) {
-	w = m.width - 8
-	if w > 60 {
-		w = 60
+	w = m.width * 7 / 10
+	if w < 20 {
+		w = 20
 	}
-	if w < 16 {
-		w = 16
-	}
-	h = m.listHeight() - 2
-	if h < 5 {
-		h = 5
+	h = m.height * 7 / 10
+	if h < 8 {
+		h = 8
 	}
 	return w, h
 }
@@ -176,16 +174,12 @@ func (m Model) modalSize() (w, h int) {
 // queueModalBox renders the bordered queue box. Positioning is handled by
 // the compositor in overlayBox.
 func (m Model) queueModalBox() string {
-	w, _ := m.modalSize()
-
 	title := headerStyle.Render(fmt.Sprintf("Queue · %d track(s)", len(m.queue)))
 	body := m.queueList.View()
 	if len(m.queue) == 0 {
 		body = helpStyle.Render("queue is empty — press q / Q to add tracks")
 	}
-
-	// Width(w-2): the style's width is the content box inside the border.
-	return modalStyle.Width(w - 2).Render(title + "\n" + body)
+	return m.modalFrame(title + "\n" + body)
 }
 
 // searchModalBox renders the fuzzy-finder modal: a filter tab bar, the text
@@ -210,7 +204,7 @@ func (m Model) searchModalBox() string {
 		body = m.searchResultsView(w - 4)
 	}
 
-	return modalStyle.Width(w - 2).Render(title + "\n" + input + "\n\n" + body)
+	return m.modalFrame(title + "\n" + input + "\n\n" + body)
 }
 
 // searchFilterBar renders the [All] Artists Albums Songs tabs with the
@@ -293,11 +287,25 @@ func padRight(s string, n int) string {
 	return s + strings.Repeat(" ", n-len(s))
 }
 
-// helpModalBox renders the keybindings reference as a bordered modal box.
+// helpModalBox renders the keybindings reference as a bordered modal box
+// with a scrollable body (helpViewport).
 func (m Model) helpModalBox() string {
-	w, _ := m.modalSize()
-
 	title := headerStyle.Render("Keybindings")
+	return m.modalFrame(title + "\n" + m.helpViewport.View())
+}
+
+// modalFrame applies the rounded-border modal style with both width and
+// height pinned to the current modalSize. The explicit Height keeps every
+// modal at the same outer size regardless of how much content sits inside
+// — without it, short content (e.g. "no matches" in the search modal)
+// makes the box shrink, which feels jittery as the user types.
+func (m Model) modalFrame(content string) string {
+	w, h := m.modalSize()
+	return modalStyle.Width(w - 2).Height(h - 2).Render(content)
+}
+
+// helpBodyContent is the static text shown inside the help viewport.
+func helpBodyContent() string {
 	lines := []string{
 		helpStyle.Render("Browse"),
 		"  enter / → / l    open · play track",
@@ -321,9 +329,8 @@ func (m Model) helpModalBox() string {
 		"            enter = play/open · alt+enter = queue track",
 		"",
 		helpStyle.Render("App"),
-		"  ?                this help",
+		"  ?                this help (j/k or pgup/pgdn to scroll)",
 		"  ctrl+c / ctrl+q  quit",
 	}
-	body := strings.Join(lines, "\n")
-	return modalStyle.Width(w - 2).Render(title + "\n\n" + body)
+	return strings.Join(lines, "\n")
 }
