@@ -21,7 +21,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.SetHeight(mh - 3)
 		// huh form needs WindowSizeMsg too so it can size itself.
 		if m.settingsForm != nil {
-			if f, ok := forwardToForm(m.settingsForm, msg); ok {
+			if f, _, ok := forwardToForm(m.settingsForm, msg); ok {
 				m.settingsForm = f
 			}
 		}
@@ -225,7 +225,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Forward any unhandled non-key message to the settings form so its
+	// internal state (focus, group init) advances even when we're not on
+	// the settings screen. The form is built once in New() and lives
+	// through the whole app lifetime.
+	var formCmd tea.Cmd
+	if _, isKey := msg.(tea.KeyPressMsg); !isKey && m.settingsForm != nil {
+		if f, c, ok := forwardToForm(m.settingsForm, msg); ok {
+			m.settingsForm = f
+			formCmd = c
+		}
+	}
+
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, tea.Batch(cmd, formCmd)
 }

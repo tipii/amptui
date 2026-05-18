@@ -268,11 +268,12 @@ func max(a, b int) int {
 }
 
 // forwardToForm calls form.Update(msg) and re-asserts the returned model
-// back to a *huh.Form. Returns (nil, false) if the assertion fails.
-func forwardToForm(form *huh.Form, msg tea.Msg) (*huh.Form, bool) {
-	updated, _ := form.Update(msg)
+// back to a *huh.Form. Returns the form's cmd alongside; ok is false if
+// the assertion fails.
+func forwardToForm(form *huh.Form, msg tea.Msg) (*huh.Form, tea.Cmd, bool) {
+	updated, cmd := form.Update(msg)
 	if f, ok := updated.(*huh.Form); ok {
-		return f, true
+		return f, cmd, true
 	}
-	return nil, false
+	return nil, nil, false
 }
