@@ -71,7 +71,7 @@ func run() error {
 	}
 
 	// Alt-screen is set declaratively in the model's View() in v2.
-	prog := tea.NewProgram(tui.New(client, p, libs, defaultLib))
+	prog := tea.NewProgram(tui.New(cfg, client, p, libs, defaultLib))
 	_, err = prog.Run()
 	return err
 }

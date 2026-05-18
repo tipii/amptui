@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -22,7 +23,7 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
 	}
-	m := New(nil, nil, libs, nil)
+	m := New(config.Config{}, nil, nil, libs, nil)
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -132,6 +133,46 @@ func TestSearchModalRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// TestSettingsScreenRenders verifies the settings page shows server info
+// (URL, masked token, default library) and library cache stats.
+func TestSettingsScreenRenders(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music", UUID: "uuid-test"}}
+	cfg := config.Config{
+		ServerURL:      "https://plex.example.dev",
+		Token:          "abcdef1234567890wxyz",
+		DefaultLibrary: "Music",
+	}
+	m := New(cfg, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.library = &library.Library{
+		SchemaVersion: library.CacheSchemaVersion,
+		SectionUUID:   "uuid-test",
+		SyncedAt:      time.Now().Add(-3 * time.Minute),
+		Entries: []library.Entry{
+			{Kind: library.KindArtist, Title: "Al Green", RatingKey: "ar1"},
+			{Kind: library.KindAlbum, Title: "Gets Next to You", RatingKey: "al1"},
+			{Kind: library.KindTrack, Title: "I'm a Ram", RatingKey: "t1"},
+		},
+	}
+	m.librarySyncing = false
+	m.screen = screenSettings
+
+	out := m.View().Content
+	for _, want := range []string{
+		"Settings /",
+		"https://plex.example.dev",
+		"••••••••••••••••wxyz",   // masked token (last 4 visible)
+		"Music",                  // default library
+		"1 artists",              // entry breakdown
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in settings view", want)
+		}
+	}
+	t.Log("\n" + out)
+}
+
 // TestStatusBarSyncingIndicator verifies the right-aligned syncing
 // indicator appears in the footer while the library loader is running.
 func TestStatusBarSyncingIndicator(t *testing.T) {
@@ -150,7 +191,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // level produces a multi-column layout and highlights the cursor cell.
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(nil, nil, libs, nil)
+	m := New(config.Config{}, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 

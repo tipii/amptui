@@ -22,6 +22,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/player"
 	"github.com/theopalhol/amptui/internal/plex"
@@ -31,13 +32,25 @@ import (
 // auto-advance the queue.
 type tickMsg time.Time
 
+// screen is the top-level view (browser vs. settings). Modals overlay on
+// the current screen.
+type screen int
+
+const (
+	screenBrowser screen = iota
+	screenSettings
+)
+
 type Model struct {
+	cfg    config.Config
 	client *plex.Client
 	player *player.Player // may be nil if mpv is unavailable
 
 	// libs is the full list of music libraries on the server, kept around
 	// so search jumps can synthesize a Libraries crumb at any depth.
 	libs []plex.MusicLibrary
+
+	screen screen
 
 	list         list.Model
 	queueList    list.Model      // shown in the queue modal
@@ -106,7 +119,8 @@ var (
 // be nil, in which case browsing works but playback is disabled. If
 // defaultLib is non-nil, the UI opens straight into that library, with a
 // "Libraries" crumb pushed so the user can still go back to the picker.
-func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaultLib *plex.MusicLibrary) Model {
+// cfg is used by the settings screen (read-only display).
+func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaultLib *plex.MusicLibrary) Model {
 	items := make([]list.Item, len(libs))
 	for i, l := range libs {
 		items[i] = libraryItem{lib: l}
@@ -135,15 +149,16 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 	hv.SetContent(helpBodyContent())
 
 	m := Model{
-		client:       client,
-		player:       p,
-		libs:         libs,
-		list:         l,
-		queueList:    ql,
-		helpViewport: hv,
-		spinner:      sp,
-		searchInput:  si,
-		level:        levelLibraries,
+		cfg:            cfg,
+		client:         client,
+		player:         p,
+		libs:           libs,
+		list:           l,
+		queueList:      ql,
+		helpViewport:   hv,
+		spinner:        sp,
+		searchInput:    si,
+		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 	}
 

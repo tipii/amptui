@@ -74,7 +74,8 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `/`                   | Filter the current list                      |
 | `space`               | Pause / resume                               |
 | `n` / `p`             | Next / previous in queue                     |
-| `,` / `.`             | Seek −10s / +10s                             |
+| `<` / `>`             | Seek −10s / +10s                             |
+| `,`                   | Open the settings screen                     |
 | `q` / `Q`             | Add highlighted track / whole album to queue |
 | `o`                   | Open / close the queue modal                 |
 | `s`                   | Open the fuzzy search modal                  |

@@ -19,7 +19,13 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	background := m.browserView()
+	var background string
+	switch m.screen {
+	case screenSettings:
+		background = m.settingsView()
+	default:
+		background = m.browserView()
+	}
 	switch {
 	case m.showHelp:
 		v.SetContent(m.overlayBox(background, m.helpModalBox()))
@@ -69,7 +75,7 @@ func (m Model) browserView() string {
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
 		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · tab grid · o queue · R refresh · ctrl+q quit")
+			"? keys · s search · enter open · tab grid · o queue · , settings · ctrl+q quit")
 	}
 	b.WriteString(m.footerLine(footerLeft))
 	return b.String()
@@ -323,7 +329,7 @@ func helpBodyContent() string {
 		helpStyle.Render("Playback"),
 		"  space            pause / resume",
 		"  n / p            next / previous in queue",
-		"  , / .            seek −10s / +10s",
+		"  < / >            seek −10s / +10s",
 		"",
 		helpStyle.Render("Queue"),
 		"  q / Q            add track / album to queue",
@@ -336,6 +342,7 @@ func helpBodyContent() string {
 		"            enter = play/open · alt+enter = queue track",
 		"",
 		helpStyle.Render("App"),
+		"  ,                open settings screen",
 		"  ?                this help (j/k or pgup/pgdn to scroll)",
 		"  R                re-sync library cache from Plex",
 		"  ctrl+c / ctrl+q  quit",

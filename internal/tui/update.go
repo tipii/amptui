@@ -93,6 +93,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList, cmd = m.queueList.Update(msg)
 			return m, cmd
 		}
+		// Settings screen owns its own (small) input set; route there first.
+		if m.screen == screenSettings {
+			switch msg.String() {
+			case "ctrl+c", "ctrl+q":
+				return m, tea.Quit
+			case ",", "esc":
+				m.screen = screenBrowser
+				return m, nil
+			case "R":
+				if m.librarySyncing || len(m.libs) == 0 {
+					return m, nil
+				}
+				active := m.libs[0]
+				if m.startupLibrary != nil {
+					active = *m.startupLibrary
+				}
+				m.librarySyncing = true
+				m.libraryErr = nil
+				return m, syncLibrary(m.client, active)
+			}
+			return m, nil
+		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
 			break
@@ -136,6 +158,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "s":
 			return m, m.openSearch()
+		case ",":
+			m.screen = screenSettings
+			return m, nil
 		case "R":
 			if m.librarySyncing || len(m.libs) == 0 {
 				return m, nil
@@ -158,12 +183,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = m.player.TogglePause()
 			}
 			return m, nil
-		case ",":
+		case "<":
 			if m.player != nil {
 				_ = m.player.Seek(-10 * time.Second)
 			}
 			return m, nil
-		case ".":
+		case ">":
 			if m.player != nil {
 				_ = m.player.Seek(10 * time.Second)
 			}
