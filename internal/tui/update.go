@@ -98,7 +98,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		// Grid cursor navigation (only meaningful at the Artists level).
-		if m.gridView && m.level == levelArtists {
+		if m.gridView && m.supportsGrid() {
 			switch msg.String() {
 			case "up", "k":
 				m.moveGridCursor(-1, 0)
@@ -159,37 +159,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case artistsMsg:
-		m.applyItems(levelArtists, []list.Item(msg))
-		return m, nil
-	case albumsMsg:
-		m.applyItems(levelAlbums, []list.Item(msg))
-		return m, nil
-	case tracksMsg:
-		m.applyItems(levelTracks, []list.Item(msg))
-		return m, nil
-	case errMsg:
-		m.loading = false
-		m.err = msg.err
-		// Undo the crumb we optimistically pushed before fetching.
-		if n := len(m.crumbs); n > 0 {
-			m.crumbs = m.crumbs[:n-1]
-		}
-		return m, nil
 
-	case indexReadyMsg:
-		m.index = msg.idx
-		m.indexLoading = false
-		m.indexErr = nil
-		// If the user already typed in the search modal while indexing was
-		// in flight, surface their results now.
+	case libraryReadyMsg:
+		m.library = msg.lib
+		m.librarySyncing = false
+		m.libraryErr = nil
+		// If the user already typed in the search modal while sync was in
+		// flight, surface their results now.
 		if m.showSearch {
 			m.runSearch()
 		}
+		// Honor the startup library — auto-navigate into its artists once
+		// the cache is ready and we haven't already drilled in.
+		if m.startupLibrary != nil && m.level == levelLibraries {
+			m.applyItems(levelArtists, m.artistItems())
+		}
 		return m, nil
-	case indexErrMsg:
-		m.indexLoading = false
-		m.indexErr = msg.err
+	case libraryErrMsg:
+		m.librarySyncing = false
+		m.libraryErr = msg.err
 		return m, nil
 
 	case tickMsg:

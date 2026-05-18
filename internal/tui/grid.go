@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -59,6 +60,13 @@ func gridLayout(width int) (cols, outerW int) {
 func gridCols(width int) int {
 	cols, _ := gridLayout(width)
 	return cols
+}
+
+// supportsGrid reports whether the current browser level renders as a grid
+// when m.gridView is on. Currently artists and albums; tracks and the
+// library picker stay as lists.
+func (m Model) supportsGrid() bool {
+	return m.level == levelArtists || m.level == levelAlbums
 }
 
 // toggleGrid flips between list and grid view, syncing the cursor in both
@@ -131,12 +139,17 @@ func (m Model) gridBodyView() string {
 			if idx >= len(items) {
 				break
 			}
-			name := truncate(items[idx].(artistItem).artist.Title, innerW)
+			title, sub := gridCellTexts(items[idx])
+			title = truncate(title, innerW)
+			content := title
+			if sub != "" {
+				content += "\n" + helpStyle.Render(truncate(sub, innerW))
+			}
 			style := normal
 			if idx == m.gridCursor {
 				style = cursor
 			}
-			cells = append(cells, style.Render(name))
+			cells = append(cells, style.Render(content))
 		}
 		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 		if row < scrollEnd-1 {
@@ -154,6 +167,35 @@ func (m Model) gridBodyView() string {
 		out += strings.Repeat("\n", target-rendered)
 	}
 	return out
+}
+
+// gridCellTexts returns the (title, subtitle) shown inside a grid card.
+// Subtitle is dimmed at render time; empty subtitle = single-line card.
+func gridCellTexts(item interface{ FilterValue() string }) (title, sub string) {
+	switch it := item.(type) {
+	case artistItem:
+		title = it.artist.Title
+		switch {
+		case it.artist.AlbumCount > 0:
+			sub = fmt.Sprintf("%d albums · %d tracks", it.artist.AlbumCount, it.artist.TrackCount)
+		case it.artist.TrackCount > 0:
+			sub = fmt.Sprintf("%d tracks", it.artist.TrackCount)
+		}
+		return
+	case albumItem:
+		title = it.album.Title
+		var parts []string
+		if it.album.Year > 0 {
+			parts = append(parts, fmt.Sprintf("%d", it.album.Year))
+		}
+		if it.album.TrackCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d tracks", it.album.TrackCount))
+		}
+		sub = strings.Join(parts, " · ")
+		return
+	}
+	title = item.FilterValue()
+	return
 }
 
 // truncate cuts s to at most n runes, appending an ellipsis when it had to

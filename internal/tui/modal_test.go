@@ -8,7 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/index"
+	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -104,13 +104,13 @@ func TestSearchModalRenders(t *testing.T) {
 	m := newQueueModel(t)
 	m.showQueue = false
 
-	// Inject a small in-memory index, open the modal, and seed a query.
-	m.index = &index.Index{Entries: []index.Entry{
-		{Kind: index.KindArtist, Title: "Al Green", RatingKey: "ar1"},
-		{Kind: index.KindAlbum, Title: "Gets Next to You", RatingKey: "al1", Artist: "Al Green"},
-		{Kind: index.KindTrack, Title: "I'm a Ram", RatingKey: "t1", Album: "Gets Next to You", Artist: "Al Green"},
+	// Inject a small in-memory library, open the modal, and seed a query.
+	m.library = &library.Library{Entries: []library.Entry{
+		{Kind: library.KindArtist, Title: "Al Green", RatingKey: "ar1"},
+		{Kind: library.KindAlbum, Title: "Gets Next to You", RatingKey: "al1", Artist: "Al Green"},
+		{Kind: library.KindTrack, Title: "I'm a Ram", RatingKey: "t1", Album: "Gets Next to You", Artist: "Al Green"},
 	}}
-	m.indexLoading = false
+	m.librarySyncing = false
 	_ = m.openSearch()
 	m.searchInput.SetValue("al green")
 	m.runSearch()
@@ -132,16 +132,16 @@ func TestSearchModalRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
-// TestStatusBarIndexingIndicator verifies the right-aligned indexing
-// indicator appears in the footer while the loader is running.
-func TestStatusBarIndexingIndicator(t *testing.T) {
+// TestStatusBarSyncingIndicator verifies the right-aligned syncing
+// indicator appears in the footer while the library loader is running.
+func TestStatusBarSyncingIndicator(t *testing.T) {
 	m := newQueueModel(t)
 	m.showQueue = false
-	m.indexLoading = true
+	m.librarySyncing = true
 
 	out := m.View().Content
-	if !strings.Contains(out, "indexing library") {
-		t.Errorf("expected 'indexing library' indicator in the footer")
+	if !strings.Contains(out, "syncing library") {
+		t.Errorf("expected 'syncing library' indicator in the footer")
 	}
 	t.Log("\n" + out)
 }
@@ -154,15 +154,16 @@ func TestArtistGridRenders(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 
-	// Populate the artists level as if a fetch had completed.
+	// Populate the artists level as if a sync had completed (with counts so
+	// we exercise the two-line card render).
 	items := []list.Item{
-		artistItem{artist: plex.Artist{RatingKey: "ar1", Title: "Al Green"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar2", Title: "Led Zeppelin"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar3", Title: "Pink Floyd"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar4", Title: "Radiohead"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar5", Title: "The Beatles"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar6", Title: "Mac DeMarco"}},
-		artistItem{artist: plex.Artist{RatingKey: "ar7", Title: "Arctic Monkeys"}},
+		artistItem{artist: library.Artist{RatingKey: "ar1", Title: "Al Green", AlbumCount: 5, TrackCount: 72}},
+		artistItem{artist: library.Artist{RatingKey: "ar2", Title: "Led Zeppelin", AlbumCount: 9, TrackCount: 81}},
+		artistItem{artist: library.Artist{RatingKey: "ar3", Title: "Pink Floyd", AlbumCount: 14, TrackCount: 165}},
+		artistItem{artist: library.Artist{RatingKey: "ar4", Title: "Radiohead", AlbumCount: 9, TrackCount: 102}},
+		artistItem{artist: library.Artist{RatingKey: "ar5", Title: "The Beatles", AlbumCount: 13, TrackCount: 213}},
+		artistItem{artist: library.Artist{RatingKey: "ar6", Title: "Mac DeMarco", AlbumCount: 4, TrackCount: 55}},
+		artistItem{artist: library.Artist{RatingKey: "ar7", Title: "Arctic Monkeys", AlbumCount: 7, TrackCount: 85}},
 	}
 	m.applyItems(levelArtists, items)
 	m.toggleGrid()

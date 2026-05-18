@@ -7,45 +7,44 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/index"
+	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
-// indexBuildTimeout caps the cold-start library fetch when no cache exists.
-const indexBuildTimeout = 90 * time.Second
+// librarySyncTimeout caps the cold-start library fetch when no cache exists.
+const librarySyncTimeout = 90 * time.Second
 
 // searchResultLimit caps the number of results returned per query.
 const searchResultLimit = 200
 
-// loadOrBuildIndex returns a Cmd that loads the library index from disk when
-// fresh, otherwise rebuilds and persists it. Result arrives as
-// indexReadyMsg or indexErrMsg.
-func loadOrBuildIndex(client *plex.Client, lib plex.MusicLibrary) tea.Cmd {
+// loadOrSyncLibrary returns a Cmd that loads the cache from disk when fresh,
+// otherwise syncs from Plex and persists. Result arrives as libraryReadyMsg
+// or libraryErrMsg.
+func loadOrSyncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
 	return func() tea.Msg {
-		if idx, err := index.Load(lib.UUID); err == nil && idx.IsFresh(lib) {
-			return indexReadyMsg{idx: idx}
+		if l, err := library.Load(plexLib.UUID); err == nil && l.IsFresh(plexLib) {
+			return libraryReadyMsg{lib: l}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), indexBuildTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), librarySyncTimeout)
 		defer cancel()
-		idx, err := index.Build(ctx, client, lib)
+		l, err := library.Sync(ctx, client, plexLib)
 		if err != nil {
-			return indexErrMsg{err: err}
+			return libraryErrMsg{err: err}
 		}
-		_ = idx.Save() // best effort; an unwritable cache shouldn't break search
-		return indexReadyMsg{idx: idx}
+		return libraryReadyMsg{lib: l}
 	}
 }
 
-// Messages from the background index loader.
+// Messages from the background library loader.
 type (
-	indexReadyMsg struct{ idx *index.Index }
-	indexErrMsg   struct{ err error }
+	libraryReadyMsg struct{ lib *library.Library }
+	libraryErrMsg   struct{ err error }
 )
 
 // searchFilters lists the kind-filters that Tab cycles through, paired with
 // the labels shown in the modal's filter bar.
 var (
-	searchFilters     = [][]index.Kind{nil, {index.KindArtist}, {index.KindAlbum}, {index.KindTrack}}
+	searchFilters     = [][]library.Kind{nil, {library.KindArtist}, {library.KindAlbum}, {library.KindTrack}}
 	searchFilterNames = []string{"All", "Artists", "Albums", "Songs"}
 )
 
@@ -70,12 +69,12 @@ func (m *Model) closeSearch() {
 // runSearch re-fuzzies the current query and updates the visible results.
 func (m *Model) runSearch() {
 	q := m.searchInput.Value()
-	if m.index == nil || q == "" {
+	if m.library == nil || q == "" {
 		m.searchResults = nil
 		m.searchCursor = 0
 		return
 	}
-	m.searchResults = m.index.Search(q, searchFilters[m.searchFilter], searchResultLimit)
+	m.searchResults = m.library.Search(q, searchFilters[m.searchFilter], searchResultLimit)
 	if m.searchCursor >= len(m.searchResults) {
 		m.searchCursor = 0
 	}
@@ -112,14 +111,14 @@ func (m Model) activateSearchResult() (tea.Model, tea.Cmd) {
 	}
 	e := m.searchResults[m.searchCursor]
 	switch e.Kind {
-	case index.KindTrack:
+	case library.KindTrack:
 		t := entryToTrack(e)
 		m.closeSearch()
 		return m.playTracks([]plex.Track{t}, 0)
-	case index.KindArtist:
-		return m.jumpToArtist(e.RatingKey)
-	case index.KindAlbum:
-		return m.jumpToAlbum(e.RatingKey)
+	case library.KindArtist:
+		return m.jumpToArtist(e.RatingKey), nil
+	case library.KindAlbum:
+		return m.jumpToAlbum(e.RatingKey), nil
 	}
 	return m, nil
 }
@@ -132,15 +131,15 @@ func (m *Model) enqueueSearchResult() {
 		return
 	}
 	e := m.searchResults[m.searchCursor]
-	if e.Kind != index.KindTrack {
+	if e.Kind != library.KindTrack {
 		return
 	}
 	m.enqueue(entryToTrack(e))
 }
 
-// entryToTrack reconstructs a plex.Track from an indexed entry so it can be
+// entryToTrack reconstructs a plex.Track from a library Entry so it can be
 // fed into playTracks / enqueue.
-func entryToTrack(e index.Entry) plex.Track {
+func entryToTrack(e library.Entry) plex.Track {
 	return plex.Track{
 		RatingKey:       e.RatingKey,
 		Title:           e.Title,
@@ -158,28 +157,28 @@ func entryToTrack(e index.Entry) plex.Track {
 // jumpToArtist closes the search modal and points the browser at the
 // artist's albums. Resets the crumb trail to a single Libraries frame so
 // `esc` from the new view returns to the library picker.
-func (m Model) jumpToArtist(ratingKey string) (tea.Model, tea.Cmd) {
+func (m Model) jumpToArtist(artistKey string) Model {
 	m.closeSearch()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
-	m.loading, m.err = true, nil
-	return m, m.fetchAlbums(ratingKey)
+	m.applyItems(levelAlbums, m.albumItems(artistKey))
+	return m
 }
 
 // jumpToAlbum closes the search modal and points the browser at the album's
 // tracks. See jumpToArtist for the crumb behavior.
-func (m Model) jumpToAlbum(ratingKey string) (tea.Model, tea.Cmd) {
+func (m Model) jumpToAlbum(albumKey string) Model {
 	m.closeSearch()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
-	m.loading, m.err = true, nil
-	return m, m.fetchTracks(ratingKey)
+	m.applyItems(levelTracks, m.trackItems(albumKey))
+	return m
 }
 
 // pushLibrariesCrumb pushes a synthetic Libraries crumb built from m.libs,
 // used by search jumps so esc has somewhere coherent to land. The
-// breadcrumb label is the active library's title — the one the index/
-// search was built against — so the trail reads naturally.
+// breadcrumb label is the active library's title — the one the cache was
+// built against — so the trail reads naturally.
 func (m *Model) pushLibrariesCrumb() {
 	items := make([]list.Item, len(m.libs))
 	for i, l := range m.libs {

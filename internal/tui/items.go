@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 
+	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -15,20 +16,43 @@ func (i libraryItem) Title() string       { return i.lib.Title }
 func (i libraryItem) Description() string { return "music library" }
 func (i libraryItem) FilterValue() string { return i.lib.Title }
 
-type artistItem struct{ artist plex.Artist }
+type artistItem struct{ artist library.Artist }
 
-func (i artistItem) Title() string       { return i.artist.Title }
-func (i artistItem) Description() string { return "artist" }
+func (i artistItem) Title() string { return i.artist.Title }
+func (i artistItem) Description() string {
+	switch {
+	case i.artist.AlbumCount == 0 && i.artist.TrackCount == 0:
+		return "artist"
+	case i.artist.AlbumCount == 0:
+		return fmt.Sprintf("%d tracks", i.artist.TrackCount)
+	default:
+		return fmt.Sprintf("%d albums · %d tracks", i.artist.AlbumCount, i.artist.TrackCount)
+	}
+}
 func (i artistItem) FilterValue() string { return i.artist.Title }
 
-type albumItem struct{ album plex.Album }
+type albumItem struct{ album library.Album }
 
 func (i albumItem) Title() string { return i.album.Title }
 func (i albumItem) Description() string {
+	var parts []string
 	if i.album.Year > 0 {
-		return fmt.Sprintf("%d", i.album.Year)
+		parts = append(parts, fmt.Sprintf("%d", i.album.Year))
 	}
-	return "album"
+	if i.album.TrackCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d tracks", i.album.TrackCount))
+	}
+	if len(parts) == 0 {
+		return "album"
+	}
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " · "
+		}
+		out += p
+	}
+	return out
 }
 func (i albumItem) FilterValue() string { return i.album.Title }
 

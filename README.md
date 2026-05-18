@@ -17,7 +17,7 @@ Early development. Working today:
 - [x] Play queue: add track/album, auto-advance, queue modal
 - [x] Queue: next/prev skip, reorder, delete, jump-to-play
 - [x] In-app keybindings modal (`?`)
-- [x] Fuzzy search modal (`s`) with kind filter, disk-cached library index
+- [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; Plex is only touched during sync
 - [ ] Scrobble / mark played
 
 ## Requirements
@@ -70,7 +70,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `enter` / `→` / `l`   | Open selected item / play track              |
 | `esc` / `←` / `h`     | Go back                                      |
 | `↑` / `↓` / `j` / `k` | Move selection                               |
-| `tab`                 | Toggle list / grid view (at Artists)         |
+| `tab`                 | Toggle list / grid view (Artists, Albums)    |
 | `/`                   | Filter the current list                      |
 | `space`               | Pause / resume                               |
 | `n` / `p`             | Next / previous in queue                     |
@@ -102,11 +102,12 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `alt+enter` | Append highlighted track to the queue           |
 | `esc`       | Close                                           |
 
-The library index is built on first launch (~8s for a 9k-track library),
-cached at `~/.cache/amptui/<sectionUUID>.json`, and invalidated when Plex's
-section `contentChangedAt` counter advances. While indexing, a small
-spinner appears on the right of the status bar; the rest of the app stays
-fully usable.
+The library cache is built on first launch (~8s for a 9k-track library),
+persisted to `~/.cache/amptui/<sectionUUID>.json`, and invalidated when
+Plex's section `contentChangedAt` counter advances. Every subsequent
+browse and search reads from this cache — Plex is only contacted during
+sync. While syncing, a small spinner appears on the right of the status
+bar; the browser opens into the cache once the sync finishes.
 
 ## Project layout
 

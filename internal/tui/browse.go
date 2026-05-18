@@ -1,16 +1,11 @@
 package tui
 
 import (
-	"context"
-	"fmt"
-	"time"
+	"errors"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
-
-// fetchTimeout bounds each Plex request fired from the UI.
-const fetchTimeout = 15 * time.Second
 
 type level int
 
@@ -29,18 +24,16 @@ type crumb struct {
 	index int
 }
 
-// Messages delivered by async fetch commands.
-type (
-	artistsMsg []list.Item
-	albumsMsg  []list.Item
-	tracksMsg  []list.Item
-	errMsg     struct{ err error }
-)
-
-// drillDown enters the selected item: fetches the next level, or for a track,
-// starts playback.
+// drillDown enters the selected item: opens the next level via library
+// lookups (instant — no network), or for a track, starts playback.
 func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	if m.loading {
+		return m, nil
+	}
+	if m.library == nil {
+		// Library isn't ready yet; opening a child level would have nothing
+		// to show. Leave the user where they are.
+		m.err = errors.New("library still syncing — try again in a moment")
 		return m, nil
 	}
 	sel := m.selectedItem()
@@ -51,16 +44,16 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	switch it := sel.(type) {
 	case libraryItem:
 		m.pushCrumb(it.lib.Title)
-		m.loading, m.err = true, nil
-		return m, m.fetchArtists(it.lib.Key)
+		m.applyItems(levelArtists, m.artistItems())
+		return m, nil
 	case artistItem:
 		m.pushCrumb(it.artist.Title)
-		m.loading, m.err = true, nil
-		return m, m.fetchAlbums(it.artist.RatingKey)
+		m.applyItems(levelAlbums, m.albumItems(it.artist.RatingKey))
+		return m, nil
 	case albumItem:
 		m.pushCrumb(it.album.Title)
-		m.loading, m.err = true, nil
-		return m, m.fetchTracks(it.album.RatingKey)
+		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
+		return m, nil
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
 	case trackItem:
@@ -115,7 +108,7 @@ func (m *Model) applyItems(lvl level, items []list.Item) {
 // selectedItem returns the highlighted item, accounting for grid mode (the
 // grid keeps its own cursor independent of the bubbles list).
 func (m Model) selectedItem() list.Item {
-	if m.gridView && m.level == levelArtists {
+	if m.gridView && m.supportsGrid() {
 		items := m.list.Items()
 		if m.gridCursor >= 0 && m.gridCursor < len(items) {
 			return items[m.gridCursor]
@@ -138,58 +131,47 @@ func (m Model) titleForLevel(lvl level) string {
 	}
 }
 
-// --- async fetch commands ---
+// --- library-driven item builders ---
 
-func (m Model) fetchArtists(sectionKey string) tea.Cmd {
-	client := m.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-		defer cancel()
-		artists, err := client.Artists(ctx, sectionKey)
-		if err != nil {
-			return errMsg{fmt.Errorf("loading artists: %w", err)}
-		}
-		items := make([]list.Item, len(artists))
-		for i, a := range artists {
-			items[i] = artistItem{artist: a}
-		}
-		return artistsMsg(items)
+// artistItems builds the list rows for the Artists level from the cache.
+func (m Model) artistItems() []list.Item {
+	if m.library == nil {
+		return nil
 	}
+	artists := m.library.Artists()
+	items := make([]list.Item, len(artists))
+	for i, a := range artists {
+		items[i] = artistItem{artist: a}
+	}
+	return items
 }
 
-func (m Model) fetchAlbums(artistKey string) tea.Cmd {
-	client := m.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-		defer cancel()
-		albums, err := client.Albums(ctx, artistKey)
-		if err != nil {
-			return errMsg{fmt.Errorf("loading albums: %w", err)}
-		}
-		items := make([]list.Item, len(albums))
-		for i, a := range albums {
-			items[i] = albumItem{album: a}
-		}
-		return albumsMsg(items)
+// albumItems builds the list rows for the Albums level of one artist.
+func (m Model) albumItems(artistKey string) []list.Item {
+	if m.library == nil {
+		return nil
 	}
+	albums := m.library.Albums(artistKey)
+	items := make([]list.Item, len(albums))
+	for i, a := range albums {
+		items[i] = albumItem{album: a}
+	}
+	return items
 }
 
-func (m Model) fetchTracks(albumKey string) tea.Cmd {
-	client := m.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-		defer cancel()
-		tracks, err := client.Tracks(ctx, albumKey)
-		if err != nil {
-			return errMsg{fmt.Errorf("loading tracks: %w", err)}
-		}
-		items := make([]list.Item, 0, len(tracks)+1)
-		if len(tracks) > 0 {
-			items = append(items, albumActionItem{tracks: tracks})
-		}
-		for i, t := range tracks {
-			items = append(items, trackItem{track: t, tracks: tracks, pos: i})
-		}
-		return tracksMsg(items)
+// trackItems builds the list rows for the Tracks level of one album,
+// prepended with the "Play album" action row.
+func (m Model) trackItems(albumKey string) []list.Item {
+	if m.library == nil {
+		return nil
 	}
+	tracks := m.library.Tracks(albumKey)
+	items := make([]list.Item, 0, len(tracks)+1)
+	if len(tracks) > 0 {
+		items = append(items, albumActionItem{tracks: tracks})
+	}
+	for i, t := range tracks {
+		items = append(items, trackItem{track: t, tracks: tracks, pos: i})
+	}
+	return items
 }
