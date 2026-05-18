@@ -279,8 +279,6 @@ func (m Model) cacheStatsBody() string {
 	return b.String()
 }
 
-var sectionStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
-
 // settingRow formats one read-only "key: value" line.
 func settingRow(key, value string) string {
 	const keyWidth = 24

@@ -22,7 +22,6 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
@@ -121,18 +120,6 @@ type Model struct {
 
 	width, height int
 }
-
-var (
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
-	crumbStyle  = lipgloss.NewStyle().Faint(true)
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	helpStyle   = lipgloss.NewStyle().Faint(true)
-	npStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("121"))
-	modalStyle  = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("213")).
-			Padding(0, 1)
-)
 
 // New builds the initial model showing the given music libraries. player may
 // be nil, in which case browsing works but playback is disabled. If

@@ -18,22 +18,6 @@ const (
 	cardBorderCols  = 2  // border takes 1 col each side
 )
 
-var (
-	// cardStyle / cardCursorStyle are templates; the per-card outer width
-	// is set at render time from gridLayout's result.
-	cardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
-			Height(cardOuterH).
-			AlignHorizontal(lipgloss.Center).
-			AlignVertical(lipgloss.Center)
-
-	cardCursorStyle = cardStyle.
-			BorderForeground(lipgloss.Color("213")).
-			Foreground(lipgloss.Color("213")).
-			Bold(true)
-)
-
 // gridLayout picks the column count and a per-card OUTER width so that
 // cols * outerW == terminal width exactly. All cards in a row are the
 // same size; adjacent cards share visual borders.
