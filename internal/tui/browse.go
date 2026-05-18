@@ -93,7 +93,7 @@ func (m *Model) pushCrumb(title string) {
 }
 
 // applyItems installs a freshly fetched level into the list. Also resets
-// the grid cursor so it stays in sync with the list selection.
+// the grid cursor + scroll so the new level starts cleanly at the top.
 func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.loading = false
 	m.err = nil
@@ -103,6 +103,7 @@ func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.list.Title = m.titleForLevel(lvl)
 	m.list.SetSize(m.width, m.listHeight())
 	m.gridCursor = 0
+	m.gridScrollTop = 0
 }
 
 // selectedItem returns the highlighted item, accounting for grid mode (the

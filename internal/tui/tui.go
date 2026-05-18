@@ -64,9 +64,12 @@ type Model struct {
 
 	// gridView swaps the Artists level from the default vertical list to a
 	// responsive grid. gridCursor is the linear index of the highlighted
-	// cell, kept in sync with m.list.Index() on toggle.
-	gridView   bool
-	gridCursor int
+	// cell, kept in sync with m.list.Index() on toggle. gridScrollTop is
+	// the top-most visible card row; it only moves when the cursor crosses
+	// a viewport edge so navigation feels free within the visible area.
+	gridView      bool
+	gridCursor    int
+	gridScrollTop int
 
 	// Search-modal state.
 	searchInput   textinput.Model

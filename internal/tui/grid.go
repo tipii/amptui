@@ -78,11 +78,15 @@ func (m *Model) toggleGrid() {
 	} else {
 		m.gridCursor = m.list.Index()
 		m.gridView = true
+		m.ensureCursorVisible()
 	}
 }
 
 // moveGridCursor shifts the gridCursor by (drow, dcol), clamped to the
-// items count. dcol moves within a row; drow moves by `cols` items.
+// items count. dcol moves within a row; drow moves by `cols` items. The
+// viewport (gridScrollTop) only moves when the cursor would otherwise
+// leave the visible area — so j/k inside the viewport never jumps the
+// view, but pushing past the edges scrolls one row at a time.
 func (m *Model) moveGridCursor(drow, dcol int) {
 	items := m.list.Items()
 	if len(items) == 0 {
@@ -97,6 +101,38 @@ func (m *Model) moveGridCursor(drow, dcol int) {
 		c = len(items) - 1
 	}
 	m.gridCursor = c
+	m.ensureCursorVisible()
+}
+
+// gridVisibleRows is how many card rows fit in the body region.
+func (m Model) gridVisibleRows() int {
+	availRows := m.listHeight() - 1
+	if availRows < cardOuterH {
+		availRows = cardOuterH
+	}
+	n := availRows / cardOuterH
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// ensureCursorVisible adjusts gridScrollTop the minimum amount required to
+// keep gridCursor inside the visible window.
+func (m *Model) ensureCursorVisible() {
+	cols := gridCols(m.width)
+	if cols < 1 {
+		return
+	}
+	visible := m.gridVisibleRows()
+	cursorRow := m.gridCursor / cols
+	if cursorRow < m.gridScrollTop {
+		m.gridScrollTop = cursorRow
+		return
+	}
+	if cursorRow >= m.gridScrollTop+visible {
+		m.gridScrollTop = cursorRow - visible + 1
+	}
 }
 
 // gridBodyView renders the artist grid as rows of bordered, centered-text
@@ -104,20 +140,15 @@ func (m *Model) moveGridCursor(drow, dcol int) {
 func (m Model) gridBodyView() string {
 	items := m.list.Items()
 	cols, outerW := gridLayout(m.width)
-	availRows := m.listHeight() - 1 // one row for the level title
-	if availRows < cardOuterH {
-		availRows = cardOuterH
-	}
-	visibleCardRows := availRows / cardOuterH
-	if visibleCardRows < 1 {
-		visibleCardRows = 1
-	}
+	visibleCardRows := m.gridVisibleRows()
 
 	totalRows := (len(items) + cols - 1) / cols
-	cursorRow := m.gridCursor / cols
-	scrollTop := 0
-	if cursorRow >= visibleCardRows {
-		scrollTop = cursorRow - visibleCardRows + 1
+	scrollTop := m.gridScrollTop
+	if scrollTop > totalRows-visibleCardRows {
+		scrollTop = totalRows - visibleCardRows
+	}
+	if scrollTop < 0 {
+		scrollTop = 0
 	}
 	scrollEnd := scrollTop + visibleCardRows
 	if scrollEnd > totalRows {
