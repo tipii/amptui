@@ -3,9 +3,12 @@ package tui
 import (
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/theopalhol/amptui/internal/plex"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -19,73 +22,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueList.SetSize(mw-4, mh-3)
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
-		return m, nil
+		m.helpModel.SetWidth(msg.Width)
+		// huh fields need WindowSizeMsg too so they can size themselves.
+		var fcmd tea.Cmd
+		m.settings, fcmd = m.settings.ForwardMsg(msg)
+		return m, fcmd
 
 	case tea.KeyPressMsg:
+		k := m.keymap
+
 		// The help modal owns input while it is open.
 		if m.showHelp {
-			switch msg.String() {
-			case "ctrl+c", "ctrl+q":
+			switch {
+			case key.Matches(msg, k.Quit):
 				return m, tea.Quit
-			case "?", "esc":
+			case key.Matches(msg, k.Help), key.Matches(msg, k.Back):
 				m.showHelp = false
 				return m, nil
 			}
-			// Forward scroll keys (↑/↓, j/k, pgup/pgdn, etc.) to viewport.
 			var cmd tea.Cmd
 			m.helpViewport, cmd = m.helpViewport.Update(msg)
 			return m, cmd
 		}
-		// The search modal owns input while it is open. Most keys are
-		// forwarded to the textinput so the user can type their query.
-		if m.showSearch {
-			switch msg.String() {
-			case "ctrl+c", "ctrl+q":
-				return m, tea.Quit
-			case "esc":
-				m.closeSearch()
-				return m, nil
-			case "tab":
-				m.cycleSearchFilter()
-				return m, nil
-			case "up":
-				m.moveSearchCursor(-1)
-				return m, nil
-			case "down":
-				m.moveSearchCursor(1)
-				return m, nil
-			case "enter":
-				return m.activateSearchResult()
-			case "alt+enter":
-				m.enqueueSearchResult()
-				return m, nil
-			}
-			prev := m.searchInput.Value()
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			if m.searchInput.Value() != prev {
-				m.runSearch()
-			}
-			return m, cmd
+		// The search modal owns input while it is open. The sub-model
+		// drives navigation + typing; outcomes (close, play, enqueue,
+		// jump) need parent state so we apply them here.
+		if m.search.IsOpen() {
+			return m.routeSearchKey(msg)
 		}
 		// The queue modal owns input while it is open.
 		if m.showQueue {
-			switch msg.String() {
-			case "ctrl+c", "ctrl+q":
+			switch {
+			case key.Matches(msg, k.Quit):
 				return m, tea.Quit
-			case "o", "esc":
+			case key.Matches(msg, k.OpenQueue), key.Matches(msg, k.Back):
 				m.showQueue = false
 				return m, nil
-			case "J":
+			case key.Matches(msg, k.MoveDown):
 				m.moveQueueItem(1)
 				return m, nil
-			case "K":
+			case key.Matches(msg, k.MoveUp):
 				m.moveQueueItem(-1)
 				return m, nil
-			case "d":
+			case key.Matches(msg, k.DeleteItem):
 				m.deleteQueueItem()
 				return m, nil
-			case "enter":
+			case key.Matches(msg, k.Enter):
 				m.playQueueItem()
 				return m, nil
 			}
@@ -93,50 +75,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList, cmd = m.queueList.Update(msg)
 			return m, cmd
 		}
+		// Settings screen owns its own input set; route there first.
+		if m.screen == screenSettings {
+			return m.routeSettingsKey(msg)
+		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
 			break
 		}
-		// Grid cursor navigation (only meaningful at the Artists level).
-		if m.gridView && m.supportsGrid() {
-			switch msg.String() {
-			case "up", "k":
+		// Grid cursor navigation (only meaningful at supported levels).
+		if m.currentGridView() {
+			switch {
+			case key.Matches(msg, k.Up):
 				m.moveGridCursor(-1, 0)
 				return m, nil
-			case "down", "j":
+			case key.Matches(msg, k.Down):
 				m.moveGridCursor(1, 0)
 				return m, nil
-			case "left":
+			case key.Matches(msg, k.Left):
 				m.moveGridCursor(0, -1)
 				return m, nil
-			case "right":
+			case key.Matches(msg, k.Right):
 				m.moveGridCursor(0, 1)
 				return m, nil
 			}
 		}
-		switch msg.String() {
-		case "ctrl+c", "ctrl+q":
+		switch {
+		case key.Matches(msg, k.Quit):
 			return m, tea.Quit
-		case "?":
+		case key.Matches(msg, k.Help):
 			m.showHelp = true
 			return m, nil
-		case "tab":
+		case key.Matches(msg, k.ToggleGrid):
 			m.toggleGrid()
 			return m, nil
-		case "enter", "l", "right":
+		case key.Matches(msg, k.Enter):
 			return m.drillDown()
-		case "esc", "backspace", "h", "left":
+		case key.Matches(msg, k.Back):
 			return m.goBack()
-		case "q":
+		case key.Matches(msg, k.EnqueueTrack):
 			return m.enqueueSelectedTrack(), nil
-		case "Q":
+		case key.Matches(msg, k.EnqueueAlbum):
 			return m.enqueueSelectedAlbum(), nil
-		case "o":
+		case key.Matches(msg, k.OpenQueue):
 			m.openQueue()
 			return m, nil
-		case "s":
-			return m, m.openSearch()
-		case "R":
+		case key.Matches(msg, k.OpenSearch):
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Open()
+			return m, cmd
+		case key.Matches(msg, k.Settings):
+			m.screen = screenSettings
+			return m, nil
+		case key.Matches(msg, k.Refresh):
 			if m.librarySyncing || len(m.libs) == 0 {
 				return m, nil
 			}
@@ -147,46 +138,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
-		case "n":
+		case key.Matches(msg, k.NextTrack):
 			m.playNext()
 			return m, nil
-		case "p":
+		case key.Matches(msg, k.PrevTrack):
 			m.playPrev()
 			return m, nil
-		case "space":
+		case key.Matches(msg, k.Pause):
 			if m.player != nil {
 				_ = m.player.TogglePause()
 			}
 			return m, nil
-		case ",":
+		case key.Matches(msg, k.SeekBack):
 			if m.player != nil {
 				_ = m.player.Seek(-10 * time.Second)
 			}
 			return m, nil
-		case ".":
+		case key.Matches(msg, k.SeekForward):
 			if m.player != nil {
 				_ = m.player.Seek(10 * time.Second)
 			}
 			return m, nil
 		}
 
-
 	case libraryReadyMsg:
 		m.library = msg.lib
 		m.librarySyncing = false
 		m.libraryErr = nil
-		// If the user already typed in the search modal while sync was in
-		// flight, surface their results now.
-		if m.showSearch {
-			m.runSearch()
+		if m.search.IsOpen() {
+			m.search.RunQuery(m.library)
 		}
-		// Honor the startup library — auto-navigate into its artists once
-		// the cache is ready and we haven't already drilled in.
 		if m.startupLibrary != nil && m.level == levelLibraries {
 			m.applyItems(levelArtists, m.artistItems())
 		} else {
-			// Manual refresh (R) — re-render the current level in place
-			// with the fresh library data so counts and titles are updated.
 			m.refreshCurrentLevel()
 		}
 		return m, nil
@@ -198,8 +182,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m = m.advanceIfFinished()
 		if m.showQueue {
-			// Keep the modal's current-track marker in sync with playback,
-			// preserving the user's scroll position.
 			idx := m.queueList.Index()
 			m.rebuildQueueList()
 			m.queueList.Select(idx)
@@ -212,7 +194,90 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Forward any unhandled non-key message to the settings sub-model so
+	// its fields' internal state advances (cursor blink, focus cmds from
+	// Init, etc.).
+	var fieldsCmd tea.Cmd
+	if _, isKey := msg.(tea.KeyPressMsg); !isKey {
+		m.settings, fieldsCmd = m.settings.ForwardMsg(msg)
+	}
+
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	return m, tea.Batch(cmd, fieldsCmd)
+}
+
+// routeSettingsKey dispatches a key to the settings sub-model and acts
+// on the resulting outcome (close, refresh, commit). Kept on Model
+// because the outcomes need parent state (cfg, libs, client, grid flags).
+func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var (
+		cmd     tea.Cmd
+		outcome settingsOutcome
+	)
+	m.settings, cmd, outcome = m.settings.HandleKey(msg, m.keymap)
+	switch outcome {
+	case settingsOutcomeClose:
+		m.screen = screenBrowser
+	case settingsOutcomeRefresh:
+		if !m.librarySyncing && len(m.libs) > 0 {
+			active := m.libs[0]
+			if m.startupLibrary != nil {
+				active = *m.startupLibrary
+			}
+			m.librarySyncing = true
+			m.libraryErr = nil
+			return m, tea.Batch(cmd, syncLibrary(m.client, active))
+		}
+	case settingsOutcomeCommit:
+		// Pull the new values from the sub-model, apply runtime effects
+		// (grid view per level), persist, and tell the sub-model whether
+		// the save succeeded so it can flash the right indicator.
+		v := m.settings.Values()
+		m.cfg.ServerURL = v.ServerURL
+		m.cfg.Token = v.Token
+		m.cfg.DefaultLibrary = v.DefaultLibrary
+		m.cfg.DefaultViewArtist = v.ViewArtist
+		m.cfg.DefaultViewAlbum = v.ViewAlbum
+		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
+		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
+		m.settings.MarkSaved(m.cfg.Save())
+	}
+	return m, cmd
+}
+
+// routeSearchKey dispatches a key to the search sub-model and acts on
+// the resulting outcome. Outcomes that touch parent state — the playback
+// queue, the browser crumbs — are applied here so the sub-model stays
+// decoupled from playback and navigation.
+func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var (
+		cmd     tea.Cmd
+		outcome searchOutcome
+	)
+	m.search, cmd, outcome = m.search.HandleKey(msg, m.keymap, m.library)
+	switch outcome {
+	case searchOutcomeClose:
+		m.search = m.search.Close()
+	case searchOutcomePlayTrack:
+		if e := m.search.SelectedEntry(); e != nil {
+			t := entryToTrack(*e)
+			m.search = m.search.Close()
+			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			return model, tea.Batch(cmd, pcmd)
+		}
+	case searchOutcomeEnqueueTrack:
+		if e := m.search.SelectedEntry(); e != nil {
+			m.enqueue(entryToTrack(*e))
+		}
+	case searchOutcomeJumpArtist:
+		if e := m.search.SelectedEntry(); e != nil {
+			return m.jumpToArtist(e.RatingKey), cmd
+		}
+	case searchOutcomeJumpAlbum:
+		if e := m.search.SelectedEntry(); e != nil {
+			return m.jumpToAlbum(e.RatingKey), cmd
+		}
+	}
 	return m, cmd
 }

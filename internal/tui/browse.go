@@ -109,7 +109,7 @@ func (m *Model) applyItems(lvl level, items []list.Item) {
 // selectedItem returns the highlighted item, accounting for grid mode (the
 // grid keeps its own cursor independent of the bubbles list).
 func (m Model) selectedItem() list.Item {
-	if m.gridView && m.supportsGrid() {
+	if m.currentGridView() {
 		items := m.list.Items()
 		if m.gridCursor >= 0 && m.gridCursor < len(items) {
 			return items[m.gridCursor]

@@ -19,11 +19,17 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	background := m.browserView()
+	var background string
+	switch m.screen {
+	case screenSettings:
+		background = m.settingsScreen()
+	default:
+		background = m.browserView()
+	}
 	switch {
 	case m.showHelp:
 		v.SetContent(m.overlayBox(background, m.helpModalBox()))
-	case m.showSearch:
+	case m.search.IsOpen():
 		v.SetContent(m.overlayBox(background, m.searchModalBox()))
 	case m.showQueue:
 		v.SetContent(m.overlayBox(background, m.queueModalBox()))
@@ -43,7 +49,7 @@ func (m Model) browserView() string {
 	}
 	b.WriteString("\n\n")
 
-	if m.gridView && m.supportsGrid() {
+	if m.currentGridView() {
 		b.WriteString(m.gridBodyView())
 	} else {
 		b.WriteString(m.list.View())
@@ -55,23 +61,32 @@ func (m Model) browserView() string {
 
 	var footerLeft string
 	switch {
-	case m.showHelp:
-		footerLeft = helpStyle.Render("j/k or pgup/pgdn scroll · ? / esc close")
-	case m.showSearch:
-		footerLeft = helpStyle.Render(
-			"tab filter · ↑/↓ select · enter open/play · alt+enter queue · esc close")
-	case m.showQueue:
-		footerLeft = helpStyle.Render(
-			"j/k move · J/K reorder · d delete · enter play · o/esc close")
 	case m.loading:
 		footerLeft = m.spinner.View() + "loading…"
 	case m.err != nil:
 		footerLeft = errStyle.Render("error: " + m.err.Error())
 	default:
-		footerLeft = helpStyle.Render(
-			"? keys · s search · enter open · tab grid · o queue · R refresh · ctrl+q quit")
+		// Auto-render from the active KeyMap context so the help line
+		// stays in sync with bindings without hand-maintained strings.
+		footerLeft = m.helpModel.View(m.currentHelp())
 	}
 	b.WriteString(m.footerLine(footerLeft))
+	return b.String()
+}
+
+// settingsScreen composes the settings sub-model's body with the shared
+// chrome (now-playing line + footer). The sub-model itself doesn't own
+// those — they're parent-level concerns shared with the browser view.
+func (m Model) settingsScreen() string {
+	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner)
+	body := m.settings.View(m.listHeight(), stats)
+
+	var b strings.Builder
+	b.WriteString(body)
+	b.WriteString("\n")
+	b.WriteString(m.nowPlayingLine())
+	b.WriteString("\n")
+	b.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
 	return b.String()
 }
 
@@ -88,11 +103,15 @@ func (m Model) footerLine(left string) string {
 	if right == "" {
 		return left
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
+	// Pad the left side to fill the row minus the right's width, so
+	// right ends up flush against the terminal edge regardless of left's
+	// length. Floors at width 1 if there's not enough room for both.
+	padTo := m.width - lipgloss.Width(right)
+	if padTo < lipgloss.Width(left)+1 {
+		padTo = lipgloss.Width(left) + 1
 	}
-	return left + strings.Repeat(" ", gap) + right
+	leftPadded := lipgloss.NewStyle().Width(padTo).Render(left)
+	return leftPadded + right
 }
 
 // overlayBox composites box, centered, on top of background. The background
@@ -188,78 +207,16 @@ func (m Model) queueModalBox() string {
 	return m.modalFrame(title + "\n" + body)
 }
 
-// searchModalBox renders the fuzzy-finder modal: a filter tab bar, the text
-// input, and the ranked results.
+// searchModalBox wraps the sub-model's body in the shared modal frame.
+// The width / results-height arithmetic stays here because it depends on
+// the parent's modalSize layout.
 func (m Model) searchModalBox() string {
-	w, _ := m.modalSize()
-
-	title := headerStyle.Render("Search") + "   " + m.searchFilterBar()
-	input := m.searchInput.View()
-
-	var body string
-	switch {
-	case m.library == nil && m.libraryErr != nil:
-		body = errStyle.Render("library error: " + m.libraryErr.Error())
-	case m.library == nil:
-		body = helpStyle.Render(m.spinner.View() + "syncing library… results will appear here when ready")
-	case m.searchInput.Value() == "":
-		body = helpStyle.Render("type to search · tab cycles filter")
-	case len(m.searchResults) == 0:
-		body = helpStyle.Render("no matches")
-	default:
-		body = m.searchResultsView(w - 4)
-	}
-
-	return m.modalFrame(title + "\n" + input + "\n\n" + body)
-}
-
-// searchFilterBar renders the [All] Artists Albums Songs tabs with the
-// current filter highlighted.
-func (m Model) searchFilterBar() string {
-	parts := make([]string, len(searchFilterNames))
-	for i, name := range searchFilterNames {
-		if i == m.searchFilter {
-			parts[i] = headerStyle.Render("[" + name + "]")
-		} else {
-			parts[i] = helpStyle.Render(name)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// searchResultsView formats the ranked results, marking the cursor row.
-func (m Model) searchResultsView(innerWidth int) string {
-	// Visible window: enough rows to fill the modal body, scrolled to keep
-	// the cursor in view.
-	_, mh := m.modalSize()
-	// modal inner height available for results: outer-h minus border(2),
-	// title row(1), input row(1), spacer(1).
-	avail := mh - 5
-	if avail < 1 {
-		avail = 1
-	}
-	start := 0
-	if m.searchCursor >= avail {
-		start = m.searchCursor - avail + 1
-	}
-	end := start + avail
-	if end > len(m.searchResults) {
-		end = len(m.searchResults)
-	}
-
-	var b strings.Builder
-	for i := start; i < end; i++ {
-		e := m.searchResults[i]
-		cursor := "  "
-		if i == m.searchCursor {
-			cursor = npStyle.Render("▶ ")
-		}
-		b.WriteString(cursor + formatSearchEntry(e, innerWidth-2))
-		if i < end-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
+	w, mh := m.modalSize()
+	// Inner height available for results: outer-h minus border(2), title
+	// row(1), input row(1), spacer(1).
+	resultsH := mh - 5
+	body := m.search.View(w-4, resultsH, m.library, m.libraryErr, m.spinner)
+	return m.modalFrame(body)
 }
 
 func formatSearchEntry(e library.Entry, maxWidth int) string {
@@ -310,35 +267,20 @@ func (m Model) modalFrame(content string) string {
 	return modalStyle.Width(w - 2).Height(h - 2).Render(content)
 }
 
-// helpBodyContent is the static text shown inside the help viewport.
-func helpBodyContent() string {
-	lines := []string{
-		helpStyle.Render("Browse"),
-		"  enter / → / l    open · play track",
-		"  esc / ← / h      go back",
-		"  j / k / ↑ / ↓    move selection",
-		"  tab              toggle list / grid (Artists, Albums)",
-		"  /                filter list",
-		"",
-		helpStyle.Render("Playback"),
-		"  space            pause / resume",
-		"  n / p            next / previous in queue",
-		"  , / .            seek −10s / +10s",
-		"",
-		helpStyle.Render("Queue"),
-		"  q / Q            add track / album to queue",
-		"  o                open / close queue modal",
-		"  in modal: J/K reorder · d delete · enter play",
-		"",
-		helpStyle.Render("Search"),
-		"  s                open fuzzy search",
-		"  in modal: tab cycles filter (All/Artists/Albums/Songs)",
-		"            enter = play/open · alt+enter = queue track",
-		"",
-		helpStyle.Render("App"),
-		"  ?                this help (j/k or pgup/pgdn to scroll)",
-		"  R                re-sync library cache from Plex",
-		"  ctrl+c / ctrl+q  quit",
+// helpBodyContent renders the help-modal body from KeyMap.helpModalSections,
+// so it stays in sync with the actual bindings. A help.Model in ShowAll
+// mode formats each section's binding rows; we prepend a faint title above.
+func (m Model) helpBodyContent() string {
+	h := m.helpModel
+	h.ShowAll = true
+	var b strings.Builder
+	for i, s := range m.keymap.helpModalSections() {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(helpStyle.Render(s.title))
+		b.WriteString("\n")
+		b.WriteString(h.View(helpView{full: s.bindings}))
 	}
-	return strings.Join(lines, "\n")
+	return b.String()
 }

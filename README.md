@@ -47,6 +47,11 @@ token = "your-X-Plex-Token-here"
 # Optional: skip the library picker and open straight into this library.
 # Matched against a library's section key or title (case-insensitive).
 default_library = "Music"
+
+# Optional: initial render mode at each browser level — "list" or "grid".
+# Tab toggles at runtime. Editable from the settings screen (`,`).
+default_view_artist = "grid"
+default_view_album = "list"
 ```
 
 All values can also be supplied via environment variables, which override the
@@ -74,7 +79,8 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `/`                   | Filter the current list                      |
 | `space`               | Pause / resume                               |
 | `n` / `p`             | Next / previous in queue                     |
-| `,` / `.`             | Seek −10s / +10s                             |
+| `<` / `>`             | Seek −10s / +10s                             |
+| `,`                   | Open / close the settings screen             |
 | `q` / `Q`             | Add highlighted track / whole album to queue |
 | `o`                   | Open / close the queue modal                 |
 | `s`                   | Open the fuzzy search modal                  |
@@ -102,6 +108,19 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `enter`     | Play (track) or jump into (artist/album)        |
 | `alt+enter` | Append highlighted track to the queue           |
 | `esc`       | Close                                           |
+
+**Inside the settings screen:**
+
+| Key       | Action                                                  |
+| --------- | ------------------------------------------------------- |
+| `j` / `k` | Move cursor between editable fields                     |
+| `enter`   | Edit the highlighted field                              |
+| `enter` (while editing) | Save the new value to `config.toml`       |
+| `esc`     | Cancel an edit, or close the settings screen            |
+| `R`       | Re-sync the library cache from Plex                     |
+
+Server URL or token changes take effect on next launch (the running app
+keeps its existing Plex client).
 
 The library cache is built on first launch (~8s for a 9k-track library),
 persisted to `~/.cache/amptui/<sectionUUID>.json`, and invalidated when

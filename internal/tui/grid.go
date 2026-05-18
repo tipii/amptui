@@ -18,22 +18,6 @@ const (
 	cardBorderCols  = 2  // border takes 1 col each side
 )
 
-var (
-	// cardStyle / cardCursorStyle are templates; the per-card outer width
-	// is set at render time from gridLayout's result.
-	cardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
-			Height(cardOuterH).
-			AlignHorizontal(lipgloss.Center).
-			AlignVertical(lipgloss.Center)
-
-	cardCursorStyle = cardStyle.
-			BorderForeground(lipgloss.Color("213")).
-			Foreground(lipgloss.Color("213")).
-			Bold(true)
-)
-
 // gridLayout picks the column count and a per-card OUTER width so that
 // cols * outerW == terminal width exactly. All cards in a row are the
 // same size; adjacent cards share visual borders.
@@ -62,23 +46,51 @@ func gridCols(width int) int {
 	return cols
 }
 
-// supportsGrid reports whether the current browser level renders as a grid
-// when m.gridView is on. Currently artists and albums; tracks and the
-// library picker stay as lists.
+// supportsGrid reports whether the current browser level can render as a
+// grid. Currently artists and albums; tracks and the library picker stay
+// as lists.
 func (m Model) supportsGrid() bool {
 	return m.level == levelArtists || m.level == levelAlbums
 }
 
-// toggleGrid flips between list and grid view, syncing the cursor in both
-// directions so the same item stays highlighted across the switch.
+// currentGridView reports whether the current level is presently in grid
+// mode (each level has its own flag, primed from config at startup).
+func (m Model) currentGridView() bool {
+	switch m.level {
+	case levelArtists:
+		return m.gridArtists
+	case levelAlbums:
+		return m.gridAlbums
+	}
+	return false
+}
+
+// toggleGrid flips the current level's mode and keeps the same item
+// highlighted across the switch.
 func (m *Model) toggleGrid() {
-	if m.gridView {
+	if !m.supportsGrid() {
+		return
+	}
+	on := m.currentGridView()
+	if on {
+		// grid -> list
 		m.list.Select(m.gridCursor)
-		m.gridView = false
 	} else {
+		// list -> grid
 		m.gridCursor = m.list.Index()
-		m.gridView = true
+	}
+	m.setCurrentGridView(!on)
+	if !on {
 		m.ensureCursorVisible()
+	}
+}
+
+func (m *Model) setCurrentGridView(v bool) {
+	switch m.level {
+	case levelArtists:
+		m.gridArtists = v
+	case levelAlbums:
+		m.gridAlbums = v
 	}
 }
 
@@ -191,13 +203,7 @@ func (m Model) gridBodyView() string {
 	// Pad the body to exactly listHeight rows so the now-playing line and
 	// status bar stay pinned to the bottom of the terminal even when the
 	// grid's content doesn't fill the available space.
-	out := b.String()
-	rendered := lipgloss.Height(out)
-	target := m.listHeight()
-	if rendered < target {
-		out += strings.Repeat("\n", target-rendered)
-	}
-	return out
+	return lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
 }
 
 // gridCellTexts returns the (title, subtitle) shown inside a grid card.

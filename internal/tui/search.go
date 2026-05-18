@@ -2,9 +2,13 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/theopalhol/amptui/internal/library"
@@ -60,93 +64,219 @@ var (
 	searchFilterNames = []string{"All", "Artists", "Albums", "Songs"}
 )
 
-// openSearch shows the search modal and focuses its input.
-func (m *Model) openSearch() tea.Cmd {
-	m.showSearch = true
-	m.searchInput.Reset()
-	m.searchResults = nil
-	m.searchCursor = 0
-	return m.searchInput.Focus()
+// searchOutcome is what the search sub-model asks its parent to do after
+// handling a key. Most keys are sub-model-internal (cursor, filter,
+// typing); a few — close, play, enqueue, jump — need parent state
+// (queue, browser crumbs).
+type searchOutcome int
+
+const (
+	searchOutcomeNone searchOutcome = iota
+	searchOutcomeClose
+	searchOutcomePlayTrack    // SelectedEntry() is a track to play
+	searchOutcomeEnqueueTrack // SelectedEntry() is a track to enqueue
+	searchOutcomeJumpArtist   // SelectedEntry() is an artist to drill into
+	searchOutcomeJumpAlbum    // SelectedEntry() is an album to drill into
+)
+
+// searchModel owns the fuzzy-finder modal: the text input, the ranked
+// result list, the cursor, and the kind filter. It does not own the
+// library cache — that's a parent-level concern passed in at use sites.
+type searchModel struct {
+	input   textinput.Model
+	results []library.Entry
+	cursor  int
+	filter  int
+	open    bool
 }
 
-// closeSearch hides the search modal and clears its state.
-func (m *Model) closeSearch() {
-	m.showSearch = false
-	m.searchInput.Blur()
-	m.searchInput.Reset()
-	m.searchResults = nil
-	m.searchCursor = 0
+// newSearchModel returns a ready-but-closed sub-model.
+func newSearchModel() searchModel {
+	si := textinput.New()
+	si.Placeholder = "search artists, albums, tracks…"
+	si.Prompt = "> "
+	return searchModel{input: si}
 }
 
-// runSearch re-fuzzies the current query and updates the visible results.
-func (m *Model) runSearch() {
-	q := m.searchInput.Value()
-	if m.library == nil || q == "" {
-		m.searchResults = nil
-		m.searchCursor = 0
+// Open shows the modal, clears prior state, and returns the input's
+// focus cmd so the cursor blinks immediately.
+func (s searchModel) Open() (searchModel, tea.Cmd) {
+	s.open = true
+	s.input.Reset()
+	s.results = nil
+	s.cursor = 0
+	return s, s.input.Focus()
+}
+
+// Close hides the modal and clears all per-session state.
+func (s searchModel) Close() searchModel {
+	s.open = false
+	s.input.Blur()
+	s.input.Reset()
+	s.results = nil
+	s.cursor = 0
+	return s
+}
+
+// IsOpen reports whether the modal is currently visible.
+func (s searchModel) IsOpen() bool { return s.open }
+
+// SelectedEntry returns the entry under the cursor, or nil if there
+// isn't one. Used by parent after a Play/Enqueue/Jump outcome.
+func (s searchModel) SelectedEntry() *library.Entry {
+	if s.cursor < 0 || s.cursor >= len(s.results) {
+		return nil
+	}
+	e := s.results[s.cursor]
+	return &e
+}
+
+// HandleKey routes a keypress while the search modal is open. lib is
+// the active library snapshot (may be nil while syncing) — passed in
+// so re-running the search on a typed character can hit the cache.
+func (s searchModel) HandleKey(msg tea.KeyPressMsg, km KeyMap, lib *library.Library) (searchModel, tea.Cmd, searchOutcome) {
+	switch {
+	case key.Matches(msg, km.Quit):
+		return s, tea.Quit, searchOutcomeNone
+	case key.Matches(msg, km.InputBack):
+		return s, nil, searchOutcomeClose
+	case key.Matches(msg, km.CycleFilter):
+		s.filter = (s.filter + 1) % len(searchFilters)
+		s.runQuery(lib)
+		return s, nil, searchOutcomeNone
+	case key.Matches(msg, km.InputUp):
+		s.moveCursor(-1)
+		return s, nil, searchOutcomeNone
+	case key.Matches(msg, km.InputDown):
+		s.moveCursor(1)
+		return s, nil, searchOutcomeNone
+	case key.Matches(msg, km.InputEnter):
+		e := s.SelectedEntry()
+		if e == nil {
+			return s, nil, searchOutcomeNone
+		}
+		switch e.Kind {
+		case library.KindTrack:
+			return s, nil, searchOutcomePlayTrack
+		case library.KindArtist:
+			return s, nil, searchOutcomeJumpArtist
+		case library.KindAlbum:
+			return s, nil, searchOutcomeJumpAlbum
+		}
+		return s, nil, searchOutcomeNone
+	case key.Matches(msg, km.EnqueueFromSearch):
+		if e := s.SelectedEntry(); e != nil && e.Kind == library.KindTrack {
+			return s, nil, searchOutcomeEnqueueTrack
+		}
+		return s, nil, searchOutcomeNone
+	}
+	// Anything else is a text-input keystroke — re-run on change.
+	prev := s.input.Value()
+	var cmd tea.Cmd
+	s.input, cmd = s.input.Update(msg)
+	if s.input.Value() != prev {
+		s.runQuery(lib)
+	}
+	return s, cmd, searchOutcomeNone
+}
+
+// RunQuery re-runs the active query against lib. Used after the parent
+// learns the library is finally ready (so prior keystrokes show results).
+func (s *searchModel) RunQuery(lib *library.Library) { s.runQuery(lib) }
+
+func (s *searchModel) runQuery(lib *library.Library) {
+	q := s.input.Value()
+	if lib == nil || q == "" {
+		s.results = nil
+		s.cursor = 0
 		return
 	}
-	m.searchResults = m.library.Search(q, searchFilters[m.searchFilter], searchResultLimit)
-	if m.searchCursor >= len(m.searchResults) {
-		m.searchCursor = 0
+	s.results = lib.Search(q, searchFilters[s.filter], searchResultLimit)
+	if s.cursor >= len(s.results) {
+		s.cursor = 0
 	}
 }
 
-// cycleSearchFilter advances the kind filter (Tab) and re-runs the search.
-func (m *Model) cycleSearchFilter() {
-	m.searchFilter = (m.searchFilter + 1) % len(searchFilters)
-	m.runSearch()
-}
-
-// moveSearchCursor clamps the cursor inside the current result list.
-func (m *Model) moveSearchCursor(delta int) {
-	if len(m.searchResults) == 0 {
+func (s *searchModel) moveCursor(delta int) {
+	if len(s.results) == 0 {
 		return
 	}
-	c := m.searchCursor + delta
+	c := s.cursor + delta
 	if c < 0 {
 		c = 0
 	}
-	if c >= len(m.searchResults) {
-		c = len(m.searchResults) - 1
+	if c >= len(s.results) {
+		c = len(s.results) - 1
 	}
-	m.searchCursor = c
+	s.cursor = c
 }
 
-// activateSearchResult handles enter on the selected result.
-//   - track:  play it (replaces queue, like enter on a track in the browser)
-//   - artist: jump the browser to that artist's albums
-//   - album:  jump the browser to that album's tracks
-func (m Model) activateSearchResult() (tea.Model, tea.Cmd) {
-	if m.searchCursor < 0 || m.searchCursor >= len(m.searchResults) {
-		return m, nil
+// View renders the modal body (without the modal box / border — caller
+// wraps with modalFrame). Stats from the parent (library readiness,
+// spinner, errors) are passed in so the sub-model stays decoupled from
+// library loading state.
+func (s searchModel) View(innerWidth, resultsHeight int, lib *library.Library, libErr error, sp spinner.Model) string {
+	title := headerStyle.Render("Search") + "   " + s.filterBar()
+	input := s.input.View()
+
+	var body string
+	switch {
+	case lib == nil && libErr != nil:
+		body = errStyle.Render("library error: " + libErr.Error())
+	case lib == nil:
+		body = helpStyle.Render(sp.View() + "syncing library… results will appear here when ready")
+	case s.input.Value() == "":
+		body = helpStyle.Render("type to search · tab cycles filter")
+	case len(s.results) == 0:
+		body = helpStyle.Render("no matches")
+	default:
+		body = s.resultsView(innerWidth, resultsHeight)
 	}
-	e := m.searchResults[m.searchCursor]
-	switch e.Kind {
-	case library.KindTrack:
-		t := entryToTrack(e)
-		m.closeSearch()
-		return m.playTracks([]plex.Track{t}, 0)
-	case library.KindArtist:
-		return m.jumpToArtist(e.RatingKey), nil
-	case library.KindAlbum:
-		return m.jumpToAlbum(e.RatingKey), nil
-	}
-	return m, nil
+	return title + "\n" + input + "\n\n" + body
 }
 
-// enqueueSearchResult appends the highlighted track to the queue. Only
-// tracks can be enqueued individually from search — for whole-artist or
-// whole-album enqueue use the browser (Q) after jumping there with enter.
-func (m *Model) enqueueSearchResult() {
-	if m.searchCursor < 0 || m.searchCursor >= len(m.searchResults) {
-		return
+// filterBar renders the [All] Artists Albums Songs tabs with the
+// current filter highlighted.
+func (s searchModel) filterBar() string {
+	parts := make([]string, len(searchFilterNames))
+	for i, name := range searchFilterNames {
+		if i == s.filter {
+			parts[i] = headerStyle.Render("[" + name + "]")
+		} else {
+			parts[i] = helpStyle.Render(name)
+		}
 	}
-	e := m.searchResults[m.searchCursor]
-	if e.Kind != library.KindTrack {
-		return
+	return strings.Join(parts, " ")
+}
+
+// resultsView formats the ranked results, marking the cursor row.
+// resultsHeight is the number of rows available for results.
+func (s searchModel) resultsView(innerWidth, resultsHeight int) string {
+	if resultsHeight < 1 {
+		resultsHeight = 1
 	}
-	m.enqueue(entryToTrack(e))
+	start := 0
+	if s.cursor >= resultsHeight {
+		start = s.cursor - resultsHeight + 1
+	}
+	end := start + resultsHeight
+	if end > len(s.results) {
+		end = len(s.results)
+	}
+
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		e := s.results[i]
+		cursor := "  "
+		if i == s.cursor {
+			cursor = npStyle.Render("▶ ")
+		}
+		b.WriteString(cursor + formatSearchEntry(e, innerWidth-2))
+		if i < end-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // entryToTrack reconstructs a plex.Track from a library Entry so it can be
@@ -170,7 +300,7 @@ func entryToTrack(e library.Entry) plex.Track {
 // artist's albums. Resets the crumb trail to a single Libraries frame so
 // `esc` from the new view returns to the library picker.
 func (m Model) jumpToArtist(artistKey string) Model {
-	m.closeSearch()
+	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
@@ -180,7 +310,7 @@ func (m Model) jumpToArtist(artistKey string) Model {
 // jumpToAlbum closes the search modal and points the browser at the album's
 // tracks. See jumpToArtist for the crumb behavior.
 func (m Model) jumpToAlbum(albumKey string) Model {
-	m.closeSearch()
+	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
 	m.applyItems(levelTracks, m.trackItems(albumKey))
