@@ -1,9 +1,9 @@
-// Package plex wraps the plexgo SDK with helpers scoped to music libraries.
+// Package plex is a small Plex Media Server client scoped to music libraries.
 //
-// Some Plex endpoints return JSON that the Speakeasy-generated plexgo models
-// reject (e.g. integer 0/1 where the SDK expects a bool). For those we fall
-// back to a direct HTTP call with a struct that only picks the fields we need,
-// so unmodeled quirky fields are simply ignored.
+// Every endpoint goes through a raw-HTTP helper that decodes into minimal
+// structs picking only the fields we use — Plex's JSON has enough quirks
+// (e.g. integer 0/1 in fields that should be booleans) that ignoring unknown
+// fields beats fighting a generated SDK's strict models.
 package plex
 
 import (
@@ -14,17 +14,14 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/LukeHagar/plexgo"
 )
 
 // clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to track
 // this app as a distinct device; keep it stable across runs.
 const clientIdentifier = "amptui"
 
-// Client is a thin wrapper around the plexgo SDK plus a raw HTTP escape hatch.
+// Client is a thin HTTP wrapper around a Plex Media Server.
 type Client struct {
-	api       *plexgo.PlexAPI
 	http      *http.Client
 	serverURL string
 	token     string
@@ -32,14 +29,7 @@ type Client struct {
 
 // New builds a Client pointed at serverURL and authenticated with token.
 func New(serverURL, token string) *Client {
-	api := plexgo.New(
-		plexgo.WithServerURL(serverURL),
-		plexgo.WithSecurity(token),
-		plexgo.WithClientIdentifier(clientIdentifier),
-		plexgo.WithProduct("amptui"),
-	)
 	return &Client{
-		api:       api,
 		http:      &http.Client{Timeout: 15 * time.Second},
 		serverURL: strings.TrimRight(serverURL, "/"),
 		token:     token,
@@ -76,6 +66,9 @@ type MusicLibrary struct {
 	Key   string
 	Title string
 	UUID  string
+	// ContentChangedAt is Plex's monotonic counter for the section's content
+	// version — use it to invalidate a local cache when it changes.
+	ContentChangedAt int64
 }
 
 // MusicLibraries returns the server's music library sections.
@@ -83,10 +76,11 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
 	var body struct {
 		MediaContainer struct {
 			Directory []struct {
-				Key   string `json:"key"`
-				Type  string `json:"type"`
-				Title string `json:"title"`
-				UUID  string `json:"uuid"`
+				Key              string `json:"key"`
+				Type             string `json:"type"`
+				Title            string `json:"title"`
+				UUID             string `json:"uuid"`
+				ContentChangedAt int64  `json:"contentChangedAt"`
 			} `json:"Directory"`
 		} `json:"MediaContainer"`
 	}
@@ -99,7 +93,12 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
 		if d.Type != "artist" {
 			continue
 		}
-		libs = append(libs, MusicLibrary{Key: d.Key, Title: d.Title, UUID: d.UUID})
+		libs = append(libs, MusicLibrary{
+			Key:              d.Key,
+			Title:            d.Title,
+			UUID:             d.UUID,
+			ContentChangedAt: d.ContentChangedAt,
+		})
 	}
 	return libs, nil
 }

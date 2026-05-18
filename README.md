@@ -17,7 +17,7 @@ Early development. Working today:
 - [x] Play queue: add track/album, auto-advance, queue modal
 - [x] Queue: next/prev skip, reorder, delete, jump-to-play
 - [x] In-app keybindings modal (`?`)
-- [ ] Search
+- [x] Fuzzy search modal (`s`) with kind filter, disk-cached library index
 - [ ] Scrobble / mark played
 
 ## Requirements
@@ -76,18 +76,36 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `,` / `.`             | Seek −10s / +10s                             |
 | `q` / `Q`             | Add highlighted track / whole album to queue |
 | `o`                   | Open / close the queue modal                 |
+| `s`                   | Open the fuzzy search modal                  |
 | `?`                   | Open / close the keybindings modal           |
 | `ctrl+c` / `ctrl+q`   | Quit                                         |
 
 **Inside the queue modal:**
 
-| Key       | Action                                       |
-| --------- | -------------------------------------------- |
-| `j` / `k` | Move cursor                                  |
-| `J` / `K` | Reorder highlighted track down / up          |
-| `d`       | Delete highlighted track                     |
-| `enter`   | Jump playback to highlighted track           |
+| Key         | Action                                     |
+| ----------- | ------------------------------------------ |
+| `j` / `k`   | Move cursor                                |
+| `J` / `K`   | Reorder highlighted track down / up        |
+| `d`         | Delete highlighted track                   |
+| `enter`     | Jump playback to highlighted track         |
 | `o` / `esc` | Close                                      |
+
+**Inside the search modal:**
+
+| Key         | Action                                          |
+| ----------- | ----------------------------------------------- |
+| (type)      | Fuzzy search across the whole library           |
+| `tab`       | Cycle filter: All / Artists / Albums / Songs    |
+| `↑` / `↓`   | Move cursor through results                     |
+| `enter`     | Play (track) or jump into (artist/album)        |
+| `alt+enter` | Append highlighted track to the queue           |
+| `esc`       | Close                                           |
+
+The library index is built on first launch (~8s for a 9k-track library),
+cached at `~/.cache/amptui/<sectionUUID>.json`, and invalidated when Plex's
+section `contentChangedAt` counter advances. While indexing, a small
+spinner appears on the right of the status bar; the rest of the app stays
+fully usable.
 
 ## Project layout
 

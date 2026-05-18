@@ -17,9 +17,12 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/theopalhol/amptui/internal/index"
 	"github.com/theopalhol/amptui/internal/player"
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -32,9 +35,14 @@ type Model struct {
 	client *plex.Client
 	player *player.Player // may be nil if mpv is unavailable
 
-	list      list.Model
-	queueList list.Model // shown in the queue modal
-	spinner   spinner.Model
+	// libs is the full list of music libraries on the server, kept around
+	// so search jumps can synthesize a Libraries crumb at any depth.
+	libs []plex.MusicLibrary
+
+	list         list.Model
+	queueList    list.Model      // shown in the queue modal
+	helpViewport viewport.Model  // scrollable body of the help modal
+	spinner      spinner.Model
 
 	level      level
 	crumbs     []crumb
@@ -48,10 +56,24 @@ type Model struct {
 	queue    []plex.Track
 	queueIdx int
 
-	// showQueue / showHelp are true while their modal is open; an open
-	// modal owns input.
-	showQueue bool
-	showHelp  bool
+	// showQueue / showHelp / showSearch are true while their modal is
+	// open; an open modal owns input.
+	showQueue  bool
+	showHelp   bool
+	showSearch bool
+
+	// Search-modal state.
+	searchInput   textinput.Model
+	searchResults []index.Entry
+	searchCursor  int
+	searchFilter  int // index into searchFilters / searchFilterNames
+
+	// index is the fuzzy-search index for the active library; nil until the
+	// background loader resolves. indexLoading drives the status-bar
+	// indicator.
+	index        *index.Index
+	indexErr     error
+	indexLoading bool
 
 	// startupLibrary, if set, is fetched on Init so the UI opens straight
 	// into that library instead of the picker.
@@ -96,13 +118,25 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
+	si := textinput.New()
+	si.Placeholder = "search artists, albums, tracks…"
+	si.Prompt = "> "
+
+	hv := viewport.New()
+	hv.FillHeight = true
+	hv.SetContent(helpBodyContent())
+
 	m := Model{
-		client:    client,
-		player:    p,
-		list:      l,
-		queueList: ql,
-		spinner:   sp,
-		level:     levelLibraries,
+		client:       client,
+		player:       p,
+		libs:         libs,
+		list:         l,
+		queueList:    ql,
+		helpViewport: hv,
+		spinner:      sp,
+		searchInput:  si,
+		level:        levelLibraries,
+		indexLoading: true, // Init kicks off the background index build
 	}
 
 	if defaultLib != nil {
@@ -118,7 +152,7 @@ func New(client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaul
 		}
 		m.crumbs = append(m.crumbs, crumb{
 			level: levelLibraries,
-			title: "Libraries",
+			title: defaultLib.Title,
 			items: items,
 			index: idx,
 		})
@@ -133,6 +167,16 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
 	if m.startupLibrary != nil {
 		cmds = append(cmds, m.fetchArtists(m.startupLibrary.Key))
+	}
+	// Kick off the search index in the background. For now the active
+	// library is the default (or the first one); multi-library search is a
+	// follow-up.
+	if len(m.libs) > 0 {
+		active := m.libs[0]
+		if m.startupLibrary != nil {
+			active = *m.startupLibrary
+		}
+		cmds = append(cmds, loadOrBuildIndex(m.client, active))
 	}
 	return tea.Batch(cmds...)
 }

@@ -50,15 +50,15 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 
 	switch it := sel.(type) {
 	case libraryItem:
-		m.pushCrumb()
+		m.pushCrumb(it.lib.Title)
 		m.loading, m.err = true, nil
 		return m, m.fetchArtists(it.lib.Key)
 	case artistItem:
-		m.pushCrumb()
+		m.pushCrumb(it.artist.Title)
 		m.loading, m.err = true, nil
 		return m, m.fetchAlbums(it.artist.RatingKey)
 	case albumItem:
-		m.pushCrumb()
+		m.pushCrumb(it.album.Title)
 		m.loading, m.err = true, nil
 		return m, m.fetchTracks(it.album.RatingKey)
 	case albumActionItem:
@@ -80,16 +80,20 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	m.level = c.level
 	m.err = nil
 	m.list.SetItems(c.items)
-	m.list.Title = c.title
+	// Restore the list's heading by level (the crumb's title is the
+	// breadcrumb label for the item the user drilled into, not the page).
+	m.list.Title = m.titleForLevel(c.level)
 	m.list.Select(c.index)
 	return m, nil
 }
 
-// pushCrumb saves the current frame so goBack can restore it.
-func (m *Model) pushCrumb() {
+// pushCrumb saves the current frame so goBack can restore it. title is the
+// breadcrumb label for this frame — typically the name of the item the user
+// is drilling into (so the trail reads "Music / Al Green / …").
+func (m *Model) pushCrumb(title string) {
 	m.crumbs = append(m.crumbs, crumb{
 		level: m.level,
-		title: m.list.Title,
+		title: title,
 		items: m.list.Items(),
 		index: m.list.Index(),
 	})
