@@ -7,7 +7,6 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/BurntSushi/toml v1.6.0
-	github.com/LukeHagar/plexgo v0.28.5
 	github.com/sahilm/fuzzy v0.1.2
 )
 
