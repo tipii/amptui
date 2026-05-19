@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -200,6 +201,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case librariesReadyMsg:
+		// Result of the first-time-setup fetch kicked off by the settings
+		// commit. Populate the picker list, resolve the active library
+		// (honoring cfg.DefaultLibrary if set), then chain into the same
+		// cache-sync + dashboard-load that Init runs on a normal start.
+		if msg.err != nil {
+			m.librarySyncing = false
+			m.libraryErr = msg.err
+			return m, nil
+		}
+		m.libs = msg.libs
+		items := make([]list.Item, len(m.libs))
+		for i, l := range m.libs {
+			items[i] = libraryItem{lib: l}
+		}
+		if m.level == levelLibraries {
+			m.list.SetItems(items)
+			m.list.Select(0)
+		}
+		if len(m.libs) == 0 {
+			m.librarySyncing = false
+			return m, nil
+		}
+		active := m.libs[0]
+		if m.cfg.DefaultLibrary != "" {
+			for i := range m.libs {
+				if m.libs[i].Key == m.cfg.DefaultLibrary ||
+					strings.EqualFold(m.libs[i].Title, m.cfg.DefaultLibrary) {
+					active = m.libs[i]
+					break
+				}
+			}
+		}
+		return m, tea.Batch(
+			loadOrSyncLibrary(m.client, active),
+			m.dashboard.Load(m.client, active.Key),
+		)
+
 	case libraryReadyMsg:
 		m.library = msg.lib
 		m.librarySyncing = false
@@ -309,6 +348,17 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
+		// First-time setup: app started without credentials, user has now
+		// supplied them. Build the Plex client and fetch the library list
+		// in the background so they can leave the settings screen and
+		// browse without restarting. Re-edits after a successful startup
+		// still require a relaunch (we don't tear down an existing client).
+		if m.client == nil && m.cfg.IsValid() {
+			m.client = plex.New(m.cfg.ServerURL, m.cfg.Token)
+			m.librarySyncing = true
+			m.libraryErr = nil
+			return m, tea.Batch(cmd, fetchLibraries(m.client))
+		}
 	}
 	return m, cmd
 }

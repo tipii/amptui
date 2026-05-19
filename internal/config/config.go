@@ -27,14 +27,20 @@ type Config struct {
 	Home string `toml:"home,omitempty"`
 }
 
-// Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml
-// (falling back to ~/.config).
+// Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml,
+// falling back to ~/.config/amptui/config.toml. We resolve this manually
+// (instead of os.UserConfigDir) because the Go stdlib points at
+// ~/Library/Application Support on macOS, and amptui standardizes on the
+// XDG-style ~/.config layout across platforms.
 func Path() (string, error) {
-	dir, err := os.UserConfigDir()
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "amptui", "config.toml"), nil
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "amptui", "config.toml"), nil
+	return filepath.Join(home, ".config", "amptui", "config.toml"), nil
 }
 
 // LoadWarning describes a non-fatal problem encountered during Load — e.g.
