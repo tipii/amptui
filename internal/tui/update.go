@@ -24,6 +24,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
 		m.helpModel.SetWidth(msg.Width)
+		// Progress bar fits between the left indent and the right edge.
+		m.progress.SetWidth(msg.Width - 4)
 		// huh fields need WindowSizeMsg too so they can size themselves.
 		var fcmd tea.Cmd
 		m.settings, fcmd = m.settings.ForwardMsg(msg)

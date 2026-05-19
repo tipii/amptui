@@ -150,23 +150,40 @@ func (m Model) overlayBox(background, box string) string {
 	return lipgloss.NewCompositor(bg, fg).Render()
 }
 
-// nowPlayingLine renders the current track plus elapsed/total time.
+// nowPlayingLine renders a two-row block: the current track + elapsed
+// time on row 1, and a track-position bar on row 2 (blank when nothing
+// is playing). Two rows are always returned so the surrounding layout
+// stays stable across track changes.
 func (m Model) nowPlayingLine() string {
 	if m.nowPlaying == nil {
-		return helpStyle.Render("— nothing playing —")
+		return helpStyle.Render("— nothing playing —") + "\n"
 	}
 	t := m.nowPlaying
 
 	var status, clock string
+	var pct float64
 	if m.player != nil {
 		s := m.player.State()
 		clock = fmt.Sprintf("  %s / %s", fmtDur(s.Position), fmtDur(t.Duration))
 		if s.Paused {
 			status = " [paused]"
 		}
+		if t.Duration > 0 {
+			pct = float64(s.Position) / float64(t.Duration)
+			if pct < 0 {
+				pct = 0
+			} else if pct > 1 {
+				pct = 1
+			}
+		}
 	}
-	return npStyle.Render(fmt.Sprintf("♪ %s — %s%s%s",
+	line := npStyle.Render(fmt.Sprintf("♪ %s — %s%s%s",
 		t.Artist, t.Title, clock, status))
+	bar := ""
+	if t.Duration > 0 {
+		bar = m.progress.ViewAs(pct)
+	}
+	return line + "\n" + bar
 }
 
 func fmtDur(d time.Duration) string {
@@ -188,12 +205,13 @@ func (m Model) crumbLine() string {
 	return strings.Join(parts, " / ") + " /"
 }
 
-// listHeight is the height in rows of the body region (browser/grid). The
-// view above and below it consumes: header (1), blank spacer (1),
-// now-playing line (1), and footer (1) — 4 rows total — so the body fills
-// everything in between.
+// listHeight is the height in rows of the body region (browser/grid).
+// The view above and below it consumes: header (1), blank spacer (1),
+// now-playing block (2: track line + progress bar), and footer (1) —
+// 5 rows total. We always reserve the bar row so the body doesn't
+// resize between songs that do/don't have a duration.
 func (m Model) listHeight() int {
-	h := m.height - 4
+	h := m.height - 5
 	if h < 1 {
 		return 1
 	}

@@ -17,6 +17,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -70,9 +71,10 @@ type Model struct {
 	dashboard dashboardModel
 
 	list         list.Model
-	queueList    list.Model      // shown in the queue modal
-	helpViewport viewport.Model  // scrollable body of the help modal
+	queueList    list.Model     // shown in the queue modal
+	helpViewport viewport.Model // scrollable body of the help modal
 	spinner      spinner.Model
+	progress     progress.Model // now-playing track-position bar
 
 	level      level
 	crumbs     []crumb
@@ -142,6 +144,13 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
+	// Track-position bar shown under the now-playing line. ViewAs is
+	// used to render at a specific percent each tick (no animation).
+	pr := progress.New(
+		progress.WithoutPercentage(),
+		progress.WithColors(theme.Accent),
+	)
+
 	hv := viewport.New()
 	hv.FillHeight = true
 
@@ -156,6 +165,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		queueList:      ql,
 		helpViewport:   hv,
 		spinner:        sp,
+		progress:       pr,
 		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
 		dashboard:      newDashboardModel(),
