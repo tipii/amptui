@@ -32,12 +32,15 @@ Working today:
 ## Build
 
 ```bash
-make build   # produces ./amptui
-make run     # build-and-run via `go run`
-make         # list all targets (build / run / test / vet / tidy / clean)
+make build     # produces ./amptui
+make run       # build-and-run via `go run`
+make install   # `go install` to $GOBIN / $GOPATH/bin so `amptui` is on PATH
+make uninstall # remove the installed binary
+make           # list all targets
 ```
 
-Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`.
+Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`,
+or `go install ./cmd/amptui` for a system-wide install.
 
 ## Configuration
 

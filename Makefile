@@ -1,10 +1,16 @@
 BINARY := amptui
 PKG    := ./cmd/amptui
 
-.PHONY: build run test vet tidy clean help
+.PHONY: build run install uninstall test vet tidy clean help
 
 build: ## Build the amptui binary
 	go build -o $(BINARY) $(PKG)
+
+install: ## Install amptui to $GOBIN (or $GOPATH/bin) so it's on PATH
+	go install $(PKG)
+
+uninstall: ## Remove the installed amptui binary from $GOBIN / $GOPATH/bin
+	rm -f $$(go env GOBIN)/$(BINARY) $$(go env GOPATH)/bin/$(BINARY)
 
 run: ## Run amptui directly (no separate build step)
 	go run $(PKG)
