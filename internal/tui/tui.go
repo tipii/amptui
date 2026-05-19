@@ -188,6 +188,13 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 
 	m.helpViewport.SetContent(m.helpBodyContent())
 
+	// Honor the user's preferred home screen. screenDashboard is the
+	// zero value (and the default); flip to screenBrowser when they've
+	// asked for the library as their landing page.
+	if cfg.Home == "library" {
+		m.screen = screenBrowser
+	}
+
 	// If the config is missing/invalid (no server URL or token), there's
 	// nothing to browse — open straight into settings so the user can
 	// enter their credentials inline.

@@ -263,6 +263,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.DefaultLibrary = v.DefaultLibrary
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
+		m.cfg.Home = v.Home
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())

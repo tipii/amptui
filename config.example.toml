@@ -9,6 +9,10 @@ token = "your-X-Plex-Token-here"
 # default_library = "Music"
 
 # Optional: initial render mode for each browser level — "list" or "grid".
-# Tab toggles at runtime. Editable from the settings screen (,).
+# Editable from the settings screen (,).
 # default_view_artist = "list"
 # default_view_album = "list"
+
+# Optional: which screen amptui opens on — "dashboard" (default) or "library".
+# Tab toggles between them at runtime. Editable from the settings screen (,).
+# home = "dashboard"

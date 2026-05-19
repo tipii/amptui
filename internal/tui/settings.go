@@ -25,6 +25,7 @@ type settingsValues struct {
 	DefaultLibrary string
 	ViewArtist     string
 	ViewAlbum      string
+	Home           string
 }
 
 // settingsOutcome is what the settings sub-model asks its parent to do
@@ -63,6 +64,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		DefaultLibrary: cfg.DefaultLibrary,
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
+		Home:           normalizeHome(cfg.Home),
 	}
 	return settingsModel{
 		fields: buildSettingsFields(v),
@@ -255,6 +257,10 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 			Value(&v.DefaultLibrary),
 		huh.NewSelect[string]().Title("Default view (Artists)").Height(3).Options(viewOpts...).Value(&v.ViewArtist),
 		huh.NewSelect[string]().Title("Default view (Albums)").Height(3).Options(viewOpts...).Value(&v.ViewAlbum),
+		huh.NewSelect[string]().Title("Home screen").Height(3).Options(
+			huh.NewOption("dashboard", "dashboard"),
+			huh.NewOption("library", "library"),
+		).Value(&v.Home),
 	}
 	km := huh.NewDefaultKeyMap()
 	for i, f := range fields {
@@ -302,6 +308,15 @@ func normalizeView(v string) string {
 		return "grid"
 	}
 	return "list"
+}
+
+// normalizeHome coerces a stored home setting to a known option,
+// defaulting to "dashboard" for empty / unknown values.
+func normalizeHome(v string) string {
+	if v == "library" {
+		return "library"
+	}
+	return "dashboard"
 }
 
 // cacheStatsBody renders the read-only Library cache section shown under

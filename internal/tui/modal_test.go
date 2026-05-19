@@ -370,6 +370,17 @@ func TestDashboardRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// TestHomeScreenLibraryFromConfig verifies the cfg.Home = "library"
+// setting overrides the dashboard default at startup.
+func TestHomeScreenLibraryFromConfig(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "library"}
+	m := New(cfg, nil, nil, libs, nil)
+	if m.screen != screenBrowser {
+		t.Errorf("expected screenBrowser when Home=library, got %v", m.screen)
+	}
+}
+
 // TestTabSwitchesDashboardAndBrowser drives the Tab key to confirm the
 // two screens flip cleanly without losing any state.
 func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
