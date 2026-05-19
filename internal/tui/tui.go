@@ -331,8 +331,23 @@ func kittyIDFor(parts ...string) int {
 	return id
 }
 
+// newKeyedPicture returns a picture.Model whose Kitty ID is derived
+// from the (role, ratingKey) pair. Revisiting the same item across
+// app runs hands the terminal the same ID — and the image cached at
+// that ID is already the correct one — so the surface paints
+// instantly without a "stale image" flicker from a randomly-reused
+// kittyID. role disambiguates the multiple surfaces a single item
+// can have (e.g. "artist-header" vs. "artist-modal").
+func newKeyedPicture(role, ratingKey string, cols, rows int) picture.Model {
+	p := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor(role, ratingKey)})
+	p.SetSize(cols, rows)
+	return p
+}
+
 // newSizedPicture returns a picture.Model pre-sized to the given cell
-// rectangle with a unique Kitty image ID.
+// rectangle with a unique Kitty image ID. Used for the placeholder
+// instances New() builds at startup; per-item surfaces are
+// reconstructed on drill-down via newKeyedPicture.
 func newSizedPicture(cols, rows int) picture.Model {
 	p := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
 	p.SetSize(cols, rows)

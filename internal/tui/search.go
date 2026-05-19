@@ -327,8 +327,11 @@ func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
 	m.artistMeta, m.albumMeta = nil, nil
 	m.metaLoading = true
-	// No eager SetImage(nil): rely on the new artwork to overwrite the
-	// old image at the same kittyID. See drillDown for the same pattern.
+	// Rebuild the artist surfaces with kittyIDs tied to this ratingKey,
+	// matching the per-key pattern in drillDown so a revisit reuses the
+	// terminal's already-cached image at the same ID.
+	m.artistHeaderPic = newKeyedPicture("artist-header", artistKey, headerThumbCellsW, headerThumbCellsH)
+	m.artistModalPic = newKeyedPicture("artist-modal", artistKey, modalThumbCellsW, modalThumbCellsH)
 	return m, tea.Batch(
 		fetchArtistMeta(m.client, artistKey),
 		fetchArtwork(m.client, artistKey, "artist"),
@@ -363,6 +366,8 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 	m.applyItems(levelTracks, m.trackItems(albumKey))
 	m.albumMeta = nil
 	m.metaLoading = true
+	m.albumHeaderPic = newKeyedPicture("album-header", albumKey, headerThumbCellsW, headerThumbCellsH)
+	m.albumModalPic = newKeyedPicture("album-modal", albumKey, modalThumbCellsW, modalThumbCellsH)
 	return m, tea.Batch(
 		fetchAlbumMeta(m.client, albumKey),
 		fetchArtwork(m.client, albumKey, "album"),

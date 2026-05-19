@@ -189,12 +189,18 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		m.applyItems(levelAlbums, items)
 		m.artistMeta, m.albumMeta = nil, nil
 		m.metaLoading = true
-		// No SetImage(nil) here: picture.Model.SetImage docs call out
-		// that synchronously clearing the placeholder grid creates a
-		// visible blank + glyph-fallback frame between renders. We
-		// rely on the next SetImage to overwrite the old image at the
-		// same kittyID in place. When there's no new image (artist
-		// without artwork), the thumbReadyMsg error handler clears.
+		// Rebuild the artist surfaces with kittyIDs derived from this
+		// artist's ratingKey so a revisit hits the terminal's existing
+		// image at the same ID — no inter-run stale-image flicker.
+		m.artistHeaderPic = newKeyedPicture("artist-header", it.artist.RatingKey, headerThumbCellsW, headerThumbCellsH)
+		m.artistModalPic = newKeyedPicture("artist-modal", it.artist.RatingKey, modalThumbCellsW, modalThumbCellsH)
+		// No SetImage(nil) on the old models: picture.Model.SetImage
+		// docs call out that synchronously clearing the placeholder
+		// grid creates a visible blank + glyph-fallback frame between
+		// renders. The freshly-constructed models above have no image
+		// yet, so View renders empty until SetImage lands. When the
+		// fetch fails (artist without artwork), the thumbReadyMsg
+		// error handler clears.
 		cmds := []tea.Cmd{
 			fetchArtistMeta(m.client, it.artist.RatingKey),
 			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
@@ -206,6 +212,8 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
 		m.albumMeta = nil
 		m.metaLoading = true
+		m.albumHeaderPic = newKeyedPicture("album-header", it.album.RatingKey, headerThumbCellsW, headerThumbCellsH)
+		m.albumModalPic = newKeyedPicture("album-modal", it.album.RatingKey, modalThumbCellsW, modalThumbCellsH)
 		return m, tea.Batch(
 			fetchAlbumMeta(m.client, it.album.RatingKey),
 			fetchArtwork(m.client, it.album.RatingKey, "album"),
