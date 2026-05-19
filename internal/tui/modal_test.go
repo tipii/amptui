@@ -43,7 +43,7 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
 	}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	// Default screen is now dashboard; flip to browser so tests that
 	// assert browser content show through under modals can find it.
 	m.screen = screenBrowser
@@ -166,7 +166,7 @@ func TestSettingsScreenRenders(t *testing.T) {
 		Token:          "abcdef1234567890wxyz",
 		DefaultLibrary: "Music",
 	}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	m.library = &library.Library{
@@ -207,7 +207,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 		Token:             "abcd",
 		DefaultViewArtist: "list",
 	}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	// Bootstrap: window size + flush all fields' Init cmds via
 	// forwardToAllSettingsFields (which Update does for non-key msgs).
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -302,7 +302,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // level produces a multi-column layout and highlights the cursor cell.
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -347,7 +347,7 @@ func TestArtistGridRenders(t *testing.T) {
 func TestDashboardRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 
@@ -433,7 +433,7 @@ func TestInfoModalRendersArtistMetadata(t *testing.T) {
 func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "https://x", Token: "t"}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	if m.screen != screenBrowser {
 		t.Errorf("default screen should be library, got %v", m.screen)
 	}
@@ -443,7 +443,7 @@ func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 // two screens flip cleanly without losing any state.
 func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 	if m.screen != screenBrowser {
@@ -493,7 +493,7 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "", Token: "abcd"}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {
@@ -533,7 +533,7 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 func TestSettingsValidationBlocksCommit(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "", Token: "abcd"}
-	m := New(cfg, nil, nil, libs, nil)
+	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {

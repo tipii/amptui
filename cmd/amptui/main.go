@@ -58,14 +58,17 @@ func run() error {
 	}
 
 	// Playback is best-effort: if mpv can't start, browsing still works.
-	p, err := player.New()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: playback disabled:", err)
+	// The error is also handed to the TUI so the settings screen can
+	// explain *why* playback is disabled (the stderr message scrolls off
+	// the moment the TUI takes over the screen).
+	p, playerErr := player.New()
+	if playerErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: playback disabled:", playerErr)
 	} else {
 		defer p.Close()
 	}
 
-	prog := tea.NewProgram(tui.New(cfg, client, p, libs, defaultLib))
-	_, err = prog.Run()
+	prog := tea.NewProgram(tui.New(cfg, client, p, playerErr, libs, defaultLib))
+	_, err := prog.Run()
 	return err
 }

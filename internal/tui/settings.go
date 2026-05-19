@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/library"
 )
 
@@ -26,6 +27,7 @@ type settingsValues struct {
 	ViewArtist     string
 	ViewAlbum      string
 	Home           string
+	Images         bool
 }
 
 // settingsOutcome is what the settings sub-model asks its parent to do
@@ -38,6 +40,7 @@ const (
 	settingsOutcomeClose
 	settingsOutcomeRefresh
 	settingsOutcomeCommit
+	settingsOutcomePurgeImgs
 )
 
 // settingsModel owns the settings screen: editable fields, cursor, edit
@@ -65,6 +68,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
 		Home:           normalizeHome(cfg.Home),
+		Images:         cfg.Images,
 	}
 	return settingsModel{
 		fields: buildSettingsFields(v),
@@ -113,6 +117,8 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 		return s, s.fields[s.cursor].Focus(), settingsOutcomeNone
 	case key.Matches(msg, km.Refresh):
 		return s, nil, settingsOutcomeRefresh
+	case key.Matches(msg, km.PurgeImgs):
+		return s, nil, settingsOutcomePurgeImgs
 	}
 	return s, nil, settingsOutcomeNone
 }
@@ -261,6 +267,10 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 			huh.NewOption("dashboard", "dashboard"),
 			huh.NewOption("library", "library"),
 		).Value(&v.Home),
+		huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
+			huh.NewOption("off", false),
+			huh.NewOption("on", true),
+		).Value(&v.Images),
 	}
 	km := huh.NewDefaultKeyMap()
 	for i, f := range fields {
@@ -319,10 +329,12 @@ func normalizeHome(v string) string {
 	return "library"
 }
 
-// cacheStatsBody renders the read-only Library cache section shown under
-// the editable settings. It lives outside settingsModel because library
-// state is owned by the parent.
-func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model) string {
+// cacheStatsBody renders the read-only status sections shown under the
+// editable settings. It lives outside settingsModel because library and
+// player state is owned by the parent. mpvReady reports whether the mpv
+// subprocess started successfully; playerErr, if non-nil, is the reason
+// it did not.
+func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Library cache"))
 	b.WriteString("\n")
@@ -341,6 +353,44 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 	} else if libErr != nil {
 		b.WriteString(settingRow("", errStyle.Render("error: "+libErr.Error())))
 	}
+
+	// Image cache footprint — same shape (path / files / size) as the
+	// library cache above so users can see at a glance how much disk
+	// the thumb cache is using and clear it manually if they want.
+	b.WriteString("\n")
+	b.WriteString(sectionStyle.Render("Image cache"))
+	b.WriteString("\n")
+	if imgStats, err := imgcache.GetStats(); err == nil {
+		b.WriteString(settingRow("Path", imgStats.Path))
+		switch {
+		case imgStats.Missing:
+			b.WriteString(settingRow("Status", helpStyle.Render("(empty — no thumbs fetched yet)")))
+		default:
+			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
+			b.WriteString(settingRow("Disk size", humanBytes(imgStats.Bytes)))
+			b.WriteString(settingRow("", helpStyle.Render("press C to clear (disk + terminal cache)")))
+		}
+	} else {
+		b.WriteString(settingRow("", errStyle.Render("error: "+err.Error())))
+	}
+
+	// Playback dependency. The stderr warning from main.go scrolls off
+	// behind the TUI, so this is the place users actually see why their
+	// play / enqueue keys are silently no-opping.
+	b.WriteString("\n")
+	b.WriteString(sectionStyle.Render("Playback"))
+	b.WriteString("\n")
+	if mpvReady {
+		b.WriteString(settingRow("mpv", "ready"))
+	} else {
+		reason := "not detected on PATH"
+		if playerErr != nil {
+			reason = playerErr.Error()
+		}
+		b.WriteString(settingRow("mpv", errStyle.Render(reason)))
+		b.WriteString(settingRow("", helpStyle.Render("install mpv (https://mpv.io/) and relaunch to enable playback")))
+	}
+
 	cfgPath, _ := config.Path()
 	b.WriteString("\n")
 	b.WriteString(settingRow("Config file", cfgPath))

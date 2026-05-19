@@ -1,13 +1,18 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -52,6 +57,92 @@ func fetchAlbumMeta(client *plex.Client, ratingKey string) tea.Cmd {
 	}
 }
 
+// thumbReadyMsg delivers a decoded thumbnail image. kind selects
+// which Model slot it goes into; decoding happens in the fetch
+// goroutine so the UI thread doesn't block on PNG/JPEG decode.
+// Rendering happens via picture.Model.SetImage in the parent Update,
+// keeping all image-state ownership in picture.Model.
+type thumbReadyMsg struct {
+	kind string // "artist", "album", or "grid:<ratingKey>"
+	img  image.Image
+	err  error
+}
+
+// gridThumbCellsW / H is the cell footprint of a thumbnail inside one
+// grid card. Half-block rendering packs 2 image rows per cell, so a
+// (cellsW × cellsH) block looks visually square when cellsW ≈ cellsH×2
+// (typical 2:1 monospace cells). Sized to fill the card's inner area
+// (cardIdealOuterW-2 wide × cardOuterH-2-1 tall) so the thumb is the
+// dominant visual element with one row left at the bottom for the
+// title.
+const (
+	// 12 image cols × (6 cells × 2 rows) = 12 × 12 image pixels =
+	// visually square. Fills the card's inner area exactly.
+	gridThumbCellsW = cardIdealOuterW - cardBorderCols // 12
+	gridThumbCellsH = cardOuterH - cardBorderCols - 1  // 6
+)
+
+// fetchArtwork loads the default thumb for a Plex item by ratingKey,
+// cache-first, through the direct /library/metadata/<key>/thumb URL
+// (no transcoder hop). One synthetic cache key — "grid/<ratingKey>" —
+// is shared across every view that wants this item's artwork (grid
+// card, list row, artist/album header, info modal), so the second
+// caller for a given item hits the on-disk cache instead of Plex.
+// kind is "grid:<key>", "artist", or "album" — used by the parent to
+// route the decoded image into the right picture.Model slot.
+func fetchArtwork(client *plex.Client, ratingKey, kind string) tea.Cmd {
+	if client == nil || ratingKey == "" {
+		return nil
+	}
+	cacheKey := "grid/" + ratingKey
+	return func() tea.Msg {
+		data, _ := imgcache.Get(cacheKey, 0, 0)
+		if len(data) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
+			defer cancel()
+			var err error
+			data, err = client.FetchImage(ctx, client.ArtworkURL(ratingKey))
+			if err != nil {
+				return thumbReadyMsg{kind: kind, err: err}
+			}
+			_ = imgcache.Put(cacheKey, 0, 0, data)
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return thumbReadyMsg{kind: kind, err: err}
+		}
+		return thumbReadyMsg{kind: kind, img: img}
+	}
+}
+
+
+// gridThumbFetches batches per-card fetches for every item in items
+// that doesn't already have a picture.Model.
+func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
+	if !m.cfg.Images || m.client == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, it := range items {
+		var key string
+		switch v := it.(type) {
+		case artistItem:
+			key = v.artist.RatingKey
+		case albumItem:
+			key = v.album.RatingKey
+		}
+		if key == "" {
+			continue
+		}
+		if _, ok := m.gridPics[key]; ok {
+			continue
+		}
+		cmds = append(cmds, fetchArtwork(m.client, key, "grid:"+key))
+	}
+	return tea.Batch(cmds...)
+}
+
+
 type level int
 
 const (
@@ -89,20 +180,44 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	switch it := sel.(type) {
 	case libraryItem:
 		m.pushCrumb(it.lib.Title)
-		m.applyItems(levelArtists, m.artistItems())
-		return m, nil
+		items := m.artistItems()
+		m.applyItems(levelArtists, items)
+		return m, m.gridThumbFetches(items)
 	case artistItem:
 		m.pushCrumb(it.artist.Title)
-		m.applyItems(levelAlbums, m.albumItems(it.artist.RatingKey))
+		items := m.albumItems(it.artist.RatingKey)
+		m.applyItems(levelAlbums, items)
 		m.artistMeta, m.albumMeta = nil, nil
 		m.metaLoading = true
-		return m, fetchArtistMeta(m.client, it.artist.RatingKey)
+		// Rebuild the artist surfaces with kittyIDs derived from this
+		// artist's ratingKey so a revisit hits the terminal's existing
+		// image at the same ID — no inter-run stale-image flicker.
+		m.artistHeaderPic = newKeyedPicture("artist-header", it.artist.RatingKey, headerThumbCellsW, headerThumbCellsH)
+		m.artistModalPic = newKeyedPicture("artist-modal", it.artist.RatingKey, modalThumbCellsW, modalThumbCellsH)
+		// No SetImage(nil) on the old models: picture.Model.SetImage
+		// docs call out that synchronously clearing the placeholder
+		// grid creates a visible blank + glyph-fallback frame between
+		// renders. The freshly-constructed models above have no image
+		// yet, so View renders empty until SetImage lands. When the
+		// fetch fails (artist without artwork), the thumbReadyMsg
+		// error handler clears.
+		cmds := []tea.Cmd{
+			fetchArtistMeta(m.client, it.artist.RatingKey),
+			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
+			m.gridThumbFetches(items),
+		}
+		return m, tea.Batch(cmds...)
 	case albumItem:
 		m.pushCrumb(it.album.Title)
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
 		m.albumMeta = nil
 		m.metaLoading = true
-		return m, fetchAlbumMeta(m.client, it.album.RatingKey)
+		m.albumHeaderPic = newKeyedPicture("album-header", it.album.RatingKey, headerThumbCellsW, headerThumbCellsH)
+		m.albumModalPic = newKeyedPicture("album-modal", it.album.RatingKey, modalThumbCellsW, modalThumbCellsH)
+		return m, tea.Batch(
+			fetchAlbumMeta(m.client, it.album.RatingKey),
+			fetchArtwork(m.client, it.album.RatingKey, "album"),
+		)
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
 	case trackItem:
@@ -126,6 +241,10 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	// breadcrumb label for the item the user drilled into, not the page).
 	m.list.Title = m.titleForLevel(c.level)
 	m.list.Select(c.index)
+	// listHeight depends on level (image-bearing levels carry a taller
+	// chrome). Reflow now that we're back on a different level so the
+	// list doesn't keep its previous frame's size.
+	m.list.SetSize(m.width, m.listHeight())
 	return m, nil
 }
 

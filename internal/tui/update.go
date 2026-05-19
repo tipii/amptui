@@ -11,6 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
+
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -251,13 +254,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.refreshCurrentLevel()
 		}
-		return m, nil
+		// If we just landed on a grid-bearing level, kick off the
+		// thumb fetches.
+		return m, m.gridThumbFetches(m.list.Items())
 	case libraryErrMsg:
 		m.librarySyncing = false
 		m.libraryErr = msg.err
 		return m, nil
 
 	case artistMetaMsg:
+		// Hero artwork is fetched in parallel (see drillDown / search
+		// jumps), so meta arrival no longer needs to chain a thumb
+		// fetch — usually the image is already in the picture.Model by
+		// the time the metadata JSON returns.
 		m.metaLoading = false
 		m.artistMeta = msg.meta
 		return m, nil
@@ -265,6 +274,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metaLoading = false
 		m.albumMeta = msg.meta
 		return m, nil
+	case thumbReadyMsg:
+		if msg.err != nil || msg.img == nil {
+			// No artwork for this item — clear any stale image left on
+			// the header from the previous artist/album so we don't show
+			// the wrong cover. (Grid pics are keyed by ratingKey and
+			// just never get an entry created; no stale state to clear.)
+			switch msg.kind {
+			case "artist":
+				return m, tea.Batch(
+					m.artistHeaderPic.SetImage(nil),
+					m.artistModalPic.SetImage(nil),
+				)
+			case "album":
+				return m, tea.Batch(
+					m.albumHeaderPic.SetImage(nil),
+					m.albumModalPic.SetImage(nil),
+				)
+			}
+			return m, nil
+		}
+		// Hand the decoded image off to the right picture.Model. The
+		// model handles its own size / mode / async render. applyPicMode
+		// flips to Kitty mode the first time it sees a model still in
+		// glyph mode while the parent prefers Kitty.
+		var cmds []tea.Cmd
+		switch {
+		case msg.kind == "artist":
+			cmds = append(cmds,
+				m.applyPicMode(&m.artistHeaderPic),
+				m.applyPicMode(&m.artistModalPic),
+				m.artistHeaderPic.SetImage(msg.img),
+				m.artistModalPic.SetImage(msg.img),
+			)
+			// The list was sized before the thumb existed (headerThumb()
+			// was "") so listHeight returned the no-image budget. Now
+			// that the hero thumb is in, reflow against the taller
+			// chrome or the status bar gets pushed off the terminal.
+			m.list.SetSize(m.width, m.listHeight())
+		case msg.kind == "album":
+			cmds = append(cmds,
+				m.applyPicMode(&m.albumHeaderPic),
+				m.applyPicMode(&m.albumModalPic),
+				m.albumHeaderPic.SetImage(msg.img),
+				m.albumModalPic.SetImage(msg.img),
+			)
+			m.list.SetSize(m.width, m.listHeight())
+		case strings.HasPrefix(msg.kind, "grid:"):
+			key := strings.TrimPrefix(msg.kind, "grid:")
+			// Build two sized models from the same image: one for the
+			// grid card and a smaller one for the list row. Sharing the
+			// fetch keeps a single cache hit per RatingKey. The Kitty
+			// IDs are derived from the RatingKey (one per cell size) so
+			// a revisit reuses the terminal's existing placement — no
+			// stale-image flicker from a randomly-reused ID.
+			gp := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor("grid", key)})
+			gp.SetSize(gridThumbCellsW, gridThumbCellsH)
+			lp := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor("list", key)})
+			lp.SetSize(listThumbCellsW, listThumbCellsH)
+			cmds = append(cmds,
+				m.applyPicMode(&gp), gp.SetImage(msg.img),
+				m.applyPicMode(&lp), lp.SetImage(msg.img),
+			)
+			m.gridPics[key] = &gp
+			m.listPics[key] = &lp
+		}
+		return m, tea.Batch(cmds...)
 
 	case dashboardPlaysMsg:
 		m.dashboard.ApplyPlays(msg)
@@ -307,9 +382,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settings, fieldsCmd = m.settings.ForwardMsg(msg)
 	}
 
+	// Route picture-owned msgs (KittyFrameMsg, CellSizeEvent) to every
+	// picture.Model. The models guard internally on modelID + seq so
+	// each msg is cheaply ignored by all but the matching model.
+	picCmd := m.forwardPictureMsg(msg)
+
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, tea.Batch(cmd, fieldsCmd)
+	return m, tea.Batch(cmd, fieldsCmd, picCmd)
+}
+
+// forwardPictureMsg fans msg out to every picture.Model the parent
+// owns, collecting any cmds they emit.
+func (m *Model) forwardPictureMsg(msg tea.Msg) tea.Cmd {
+	if !picture.IsPictureMsg(msg) {
+		return nil
+	}
+	cmds := []tea.Cmd{
+		m.artistHeaderPic.Update(msg),
+		m.artistModalPic.Update(msg),
+		m.albumHeaderPic.Update(msg),
+		m.albumModalPic.Update(msg),
+	}
+	for _, p := range m.gridPics {
+		cmds = append(cmds, p.Update(msg))
+	}
+	for _, p := range m.listPics {
+		cmds = append(cmds, p.Update(msg))
+	}
+	return tea.Batch(cmds...)
 }
 
 // routeSettingsKey dispatches a key to the settings sub-model and acts
@@ -334,20 +435,39 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, syncLibrary(m.client, active))
 		}
+	case settingsOutcomePurgeImgs:
+		// Wipe disk, drop in-memory picture.Models, and tell the
+		// terminal to drop every Kitty image it's holding. Without
+		// the terminal step the registry would still serve the old
+		// images on the next placement under the same kittyID.
+		_ = imgcache.Purge()
+		m.gridPics = map[string]*picture.Model{}
+		m.listPics = map[string]*picture.Model{}
+		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
 		// Pull the new values from the sub-model, apply runtime effects
 		// (grid view per level), persist, and tell the sub-model whether
 		// the save succeeded so it can flash the right indicator.
 		v := m.settings.Values()
+		imagesEnabled := !m.cfg.Images && v.Images
+		imagesChanged := m.cfg.Images != v.Images
 		m.cfg.ServerURL = v.ServerURL
 		m.cfg.Token = v.Token
 		m.cfg.DefaultLibrary = v.DefaultLibrary
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
 		m.cfg.Home = v.Home
+		m.cfg.Images = v.Images
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
+		// Toggling Images flips the chrome between the no-image
+		// budget and the hero-thumb budget (an extra spacer + thumb
+		// rows). Resize the list so it doesn't run into the status
+		// bar (on) or leave a gap (off).
+		if imagesChanged {
+			m.list.SetSize(m.width, m.listHeight())
+		}
 		// First-time setup: app started without credentials, user has now
 		// supplied them. Build the Plex client and fetch the library list
 		// in the background so they can leave the settings screen and
@@ -358,6 +478,22 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, fetchLibraries(m.client))
+		}
+		// If the user just flipped Inline artwork on, the current
+		// screen has no thumbs yet — kick off the fetches now so
+		// they show up without requiring a navigation round-trip.
+		if imagesEnabled {
+			var fetches []tea.Cmd
+			if items := m.list.Items(); len(items) > 0 {
+				fetches = append(fetches, m.gridThumbFetches(items))
+			}
+			if m.artistMeta != nil && m.artistMeta.RatingKey != "" {
+				fetches = append(fetches, fetchArtwork(m.client, m.artistMeta.RatingKey, "artist"))
+			}
+			if m.albumMeta != nil && m.albumMeta.RatingKey != "" {
+				fetches = append(fetches, fetchArtwork(m.client, m.albumMeta.RatingKey, "album"))
+			}
+			return m, tea.Batch(append(fetches, cmd)...)
 		}
 	}
 	return m, cmd

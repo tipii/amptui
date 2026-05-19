@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
+
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -48,16 +50,30 @@ func (m Model) View() tea.View {
 // line, and footer. Modals are composited on top of this.
 func (m Model) browserView() string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("amptui"))
+	title := headerStyle.Render("amptui")
 	if crumbs := m.crumbLine(); crumbs != "" {
-		b.WriteString("  " + crumbStyle.Render(crumbs))
+		title += "  " + crumbStyle.Render(crumbs)
 	}
+	// Chrome layout:
+	//   row 1:   title + breadcrumb (always full-width — image must not
+	//            sit on the same row).
+	//   row 2:   blank spacer.
+	//   row 3+:  on artist / album screens with Images on, the hero
+	//            thumb (N rows tall) docked to the left of the info
+	//            summary. On other screens this collapses to the one-
+	//            line summary directly below the spacer.
+	b.WriteString(title)
 	b.WriteString("\n")
-	// Replace what used to be a blank spacer with a one-line info
-	// header on screens that have rich metadata for what they show.
-	// On other screens it stays blank so the overall chrome height
-	// is constant.
-	b.WriteString(m.infoHeaderLine())
+	if thumb := m.headerThumb(); thumb != "" {
+		b.WriteString("\n")
+		// Right column gets whatever's left after the thumb + a 2-col
+		// gutter, minus a small safety margin so wrapped lines don't
+		// touch the terminal edge.
+		rightWidth := m.width - headerThumbCellsW - 4
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, thumb, "  ", m.infoHeaderBlock(rightWidth)))
+	} else {
+		b.WriteString(m.infoHeaderLine())
+	}
 	b.WriteString("\n")
 
 	if m.currentGridView() {
@@ -94,7 +110,11 @@ func (m Model) dashboardScreen() string {
 	b.WriteString(headerStyle.Render("amptui"))
 	b.WriteString("  " + crumbStyle.Render("Dashboard"))
 	b.WriteString("\n\n")
-	b.WriteString(m.dashboard.View(m.width, m.listHeight()-2, m.spinner))
+	// Dashboard renders its title + spacer outside the sub-model body,
+	// matching the browser layout, so the body itself gets exactly
+	// listHeight rows. The previous -2 over-compensated and left a
+	// 2-row gap above the now-playing line.
+	b.WriteString(m.dashboard.View(m.width, m.listHeight(), m.spinner))
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
@@ -106,8 +126,17 @@ func (m Model) dashboardScreen() string {
 // chrome (now-playing line + footer). The sub-model itself doesn't own
 // those — they're parent-level concerns shared with the browser view.
 func (m Model) settingsScreen() string {
-	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner)
-	body := m.settings.View(m.listHeight(), stats)
+	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
+	// Unlike the browser / dashboard, the settings sub-model renders
+	// its own "amptui Settings /" header INSIDE the padded body. So
+	// pass it the full screen height minus only the now-playing line
+	// + footer (3 rows), not listHeight (which assumes the title
+	// chrome lives outside the body).
+	bodyHeight := m.height - 3
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	body := m.settings.View(bodyHeight, stats)
 
 	var b strings.Builder
 	b.WriteString(body)
@@ -203,6 +232,109 @@ func fmtDur(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
+// headerThumbCellsW / H is the cell footprint of the hero thumbnail
+// shown on artist / album screens. It lives in a dedicated block
+// *under* the breadcrumb row (not beside it), so it can be sizeable
+// without crowding the title. 2:1 cell aspect → W=2×H stays
+// visually square.
+const (
+	headerThumbCellsW = 14
+	headerThumbCellsH = 7
+)
+
+// headerThumb returns the rendered small thumbnail to dock next to
+// the title row, or "" when artwork is off / unavailable / not on
+// a screen that has one.
+func (m Model) headerThumb() string {
+	if !m.cfg.Images {
+		return ""
+	}
+	var p *picture.Model
+	switch m.level {
+	case levelAlbums:
+		p = &m.artistHeaderPic
+	case levelTracks:
+		p = &m.albumHeaderPic
+	}
+	if p == nil {
+		return ""
+	}
+	return p.View().Content
+}
+
+// infoHeaderBlock renders the multi-line panel docked next to the
+// hero thumb on artist / album screens: the one-line tag summary,
+// then a soft-wrapped bio teaser, then a hint at the info modal
+// shortcut. width is the available column count for the right side
+// of the JoinHorizontal — we wrap inside it so long lines don't
+// spill into the next row.
+func (m Model) infoHeaderBlock(width int) string {
+	if width < 10 {
+		width = 10
+	}
+	switch m.level {
+	case levelAlbums:
+		if m.metaLoading && m.artistMeta == nil {
+			return helpStyle.Render(m.spinner.View() + "loading artist info…")
+		}
+		if a := m.artistMeta; a != nil {
+			return m.composeInfoBlock(width, artistHeaderSummary(a), a.Summary)
+		}
+	case levelTracks:
+		if m.metaLoading && m.albumMeta == nil {
+			return helpStyle.Render(m.spinner.View() + "loading album info…")
+		}
+		if a := m.albumMeta; a != nil {
+			return m.composeInfoBlock(width, albumHeaderSummary(a), a.Summary)
+		}
+	}
+	return ""
+}
+
+// composeInfoBlock stacks summary + bio teaser + shortcut hint. The
+// teaser is 3 wrapped lines max; the hint only renders when there's
+// actually a bio (otherwise there's nothing to "read more" of).
+func (m Model) composeInfoBlock(width int, summary, bio string) string {
+	var b strings.Builder
+	if summary != "" {
+		b.WriteString(helpStyle.Render(summary))
+	}
+	teaser, hasBio := bioTeaser(bio, width, 3)
+	if teaser != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(teaser)
+	}
+	if hasBio {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		hintKey := m.keymap.Info.Help().Key
+		b.WriteString(helpStyle.Render("press " + hintKey + " for the full bio"))
+	}
+	return b.String()
+}
+
+// bioTeaser collapses bio whitespace, wraps to width, and returns the
+// first maxLines (with a trailing ellipsis if truncated). hasBio
+// reports whether there was a bio at all so the caller can decide
+// whether to show the "read more" hint.
+func bioTeaser(bio string, width, maxLines int) (text string, hasBio bool) {
+	flat := strings.Join(strings.Fields(bio), " ")
+	if flat == "" {
+		return "", false
+	}
+	wrapped := lipgloss.NewStyle().Width(width).Render(flat)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) <= maxLines {
+		return wrapped, true
+	}
+	out := strings.Join(lines[:maxLines], "\n")
+	out = strings.TrimRight(out, " ") + " …"
+	return out, true
+}
+
 // infoHeaderLine renders the one-line summary shown under the
 // breadcrumbs on screens that have rich metadata (artist's albums or
 // album's tracks). Returns the empty string on other levels so the
@@ -277,12 +409,17 @@ func (m Model) crumbLine() string {
 }
 
 // listHeight is the height in rows of the body region (browser/grid).
-// The view above and below it consumes: header (1), blank spacer (1),
+// Baseline chrome above and below it: header (1), blank spacer (1),
 // now-playing block (2: track line + progress bar), and footer (1) —
-// 5 rows total. We always reserve the bar row so the body doesn't
-// resize between songs that do/don't have a duration.
+// 5 rows total. On browser screens that show a hero thumb (artist /
+// album), the chrome grows by exactly the thumb-block's height; the
+// title + spacer rows are preserved, the image block is rendered
+// underneath them.
 func (m Model) listHeight() int {
 	h := m.height - 5
+	if m.screen == screenBrowser && m.headerThumb() != "" {
+		h -= headerThumbCellsH
+	}
 	if h < 1 {
 		return 1
 	}
@@ -393,20 +530,44 @@ func (m Model) infoModalBox() string {
 
 // infoModalContent assembles the modal body for whichever level the
 // user is on. Returns "" if there's nothing to show — caller uses that
-// as a "don't open the modal" signal.
+// as a "don't open the modal" signal. When artwork is on and we have
+// the bytes, the rendered image is prepended so the bio appears below
+// the thumbnail.
 func (m Model) infoModalContent() string {
+	var (
+		meta string
+		pic  *picture.Model
+	)
 	switch m.level {
 	case levelAlbums:
 		if a := m.artistMeta; a != nil {
-			return formatArtistInfo(a)
+			meta = formatArtistInfo(a)
+			pic = &m.artistModalPic
 		}
 	case levelTracks:
 		if a := m.albumMeta; a != nil {
-			return formatAlbumInfo(a)
+			meta = formatAlbumInfo(a)
+			pic = &m.albumModalPic
 		}
 	}
-	return ""
+	if meta == "" {
+		return ""
+	}
+	if m.cfg.Images && pic != nil {
+		if img := pic.View().Content; img != "" {
+			return img + "\n\n" + meta
+		}
+	}
+	return meta
 }
+
+// modalThumb* are the cell footprint of the artwork shown above the
+// bio in the info modal. Cells are ~2:1 tall:wide so we double the
+// width relative to height to land near square.
+const (
+	modalThumbCellsW = 24
+	modalThumbCellsH = 12
+)
 
 func formatArtistInfo(a *plex.ArtistMetadata) string {
 	var b strings.Builder

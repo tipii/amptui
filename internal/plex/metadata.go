@@ -12,6 +12,7 @@ type ArtistMetadata struct {
 	RatingKey string
 	Title     string
 	Summary   string
+	Thumb     string // server-relative path; use Client.ThumbURL to fetch
 	Genres    []string
 	Moods     []string
 	Countries []string
@@ -26,6 +27,7 @@ type AlbumMetadata struct {
 	Artist    string
 	Year      int
 	Summary   string
+	Thumb     string // server-relative path; use Client.ThumbURL to fetch
 	Studio    string
 	Genres    []string
 	Moods     []string
@@ -38,17 +40,18 @@ type AlbumMetadata struct {
 type metadataResp struct {
 	MediaContainer struct {
 		Metadata []struct {
-			RatingKey   string  `json:"ratingKey"`
-			Title       string  `json:"title"`
-			ParentTitle string  `json:"parentTitle"`
-			Year        int     `json:"year"`
-			Studio      string  `json:"studio"`
-			Summary     string  `json:"summary"`
-			Genre       []tag   `json:"Genre"`
-			Mood        []tag   `json:"Mood"`
-			Country     []tag   `json:"Country"`
-			Style       []tag   `json:"Style"`
-			Similar     []tag   `json:"Similar"`
+			RatingKey   string `json:"ratingKey"`
+			Title       string `json:"title"`
+			ParentTitle string `json:"parentTitle"`
+			Year        int    `json:"year"`
+			Studio      string `json:"studio"`
+			Summary     string `json:"summary"`
+			Thumb       string `json:"thumb"`
+			Genre       []tag  `json:"Genre"`
+			Mood        []tag  `json:"Mood"`
+			Country     []tag  `json:"Country"`
+			Style       []tag  `json:"Style"`
+			Similar     []tag  `json:"Similar"`
 		} `json:"Metadata"`
 	} `json:"MediaContainer"`
 }
@@ -89,6 +92,7 @@ func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*ArtistM
 		RatingKey: m.RatingKey,
 		Title:     m.Title,
 		Summary:   m.Summary,
+		Thumb:     m.Thumb,
 		Genres:    tagsToStrings(m.Genre),
 		Moods:     tagsToStrings(m.Mood),
 		Countries: tagsToStrings(m.Country),
@@ -114,6 +118,7 @@ func (c *Client) AlbumMetadata(ctx context.Context, ratingKey string) (*AlbumMet
 		Artist:    m.ParentTitle,
 		Year:      m.Year,
 		Summary:   m.Summary,
+		Thumb:     m.Thumb,
 		Studio:    m.Studio,
 		Genres:    tagsToStrings(m.Genre),
 		Moods:     tagsToStrings(m.Mood),
