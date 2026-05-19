@@ -75,8 +75,9 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `enter` / `→` / `l`   | Open selected item / play track              |
 | `esc` / `←` / `h`     | Go back                                      |
 | `↑` / `↓` / `j` / `k` | Move selection                               |
-| `tab`                 | Toggle list / grid view (Artists, Albums)    |
+| `tab`                 | Switch between Dashboard and Library         |
 | `/`                   | Filter the current list                      |
+| `i`                   | Artist / album info (bio, genres, similar)   |
 | `space`               | Pause / resume                               |
 | `n` / `p`             | Next / previous in queue                     |
 | `<` / `>`             | Seek −10s / +10s                             |

@@ -184,7 +184,7 @@ func (k KeyMap) helpModalSections() []keySection {
 	return []keySection{
 		{title: "Browse", bindings: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down},
-			{k.SwitchScreen, k.Filter},
+			{k.SwitchScreen, k.Filter, k.Info},
 		}},
 		{title: "Playback", bindings: [][]key.Binding{
 			{k.Pause, k.NextTrack, k.PrevTrack},
