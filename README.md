@@ -132,9 +132,13 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `enter` (while editing) | Save the new value to `config.toml`       |
 | `esc`     | Cancel an edit, or close the settings screen            |
 | `R`       | Re-sync the library cache from Plex                     |
+| `C`       | Clear the image cache (disk + terminal Kitty registry)  |
 
-Server URL or token changes take effect on next launch (the running app
-keeps its existing Plex client).
+First-time setup (no credentials yet): save your server URL + token in
+settings and the app builds its Plex client and kicks off the library
+sync immediately — no restart needed. Re-editing those fields after a
+successful startup still requires a relaunch; the running app keeps
+its existing Plex client.
 
 The library cache is built on first launch (~8s for a 9k-track library),
 persisted to `~/.cache/amptui/<sectionUUID>.json`, and invalidated when
