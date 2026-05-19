@@ -1,13 +1,18 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -52,6 +57,132 @@ func fetchAlbumMeta(client *plex.Client, ratingKey string) tea.Cmd {
 	}
 }
 
+// thumbReadyMsg delivers a decoded thumbnail image. kind selects
+// which Model slot it goes into; decoding happens in the fetch
+// goroutine so the UI thread doesn't block on PNG/JPEG decode.
+// Rendering happens via picture.Model.SetImage in the parent Update,
+// keeping all image-state ownership in picture.Model.
+type thumbReadyMsg struct {
+	kind string // "artist", "album", or "grid:<ratingKey>"
+	img  image.Image
+	err  error
+}
+
+// thumbFetchPixels is the source-image size we ask Plex to transcode
+// to. Big enough to look decent at modal sizes, small enough to keep
+// cache footprint reasonable.
+const thumbFetchPixels = 320
+
+// gridThumbCellsW / H is the cell footprint of a thumbnail inside one
+// grid card. Half-block rendering packs 2 image rows per cell, so a
+// (cellsW × cellsH) block looks visually square when cellsW ≈ cellsH×2
+// (typical 2:1 monospace cells). Sized to fill the card's inner area
+// (cardIdealOuterW-2 wide × cardOuterH-2-1 tall) so the thumb is the
+// dominant visual element with one row left at the bottom for the
+// title.
+const (
+	// 12 image cols × (6 cells × 2 rows) = 12 × 12 image pixels =
+	// visually square. Fills the card's inner area exactly.
+	gridThumbCellsW = cardIdealOuterW - cardBorderCols // 12
+	gridThumbCellsH = cardOuterH - cardBorderCols - 1  // 6
+)
+
+// gridThumbFetchPixels is the source-image size we ask Plex to
+// transcode to for grid thumbnails. Sized comfortably above the
+// rendered pixel target so the half-block downscale has detail to
+// work with.
+const gridThumbFetchPixels = 256
+
+// fetchGridThumb returns a cmd that loads bytes for one grid card's
+// thumb, cache-first. The synthetic /library/metadata/{key}/thumb/0
+// URL lets us fetch by ratingKey without an extra metadata call. The
+// returned thumbReadyMsg uses kind "grid:<ratingKey>" so the handler
+// can route the bytes back into the gridThumbs map.
+func fetchGridThumb(client *plex.Client, ratingKey string) tea.Cmd {
+	if client == nil || ratingKey == "" {
+		return nil
+	}
+	// Cache key: synthetic path so entries don't collide with the
+	// (path,W,H)-keyed fetchThumb entries.
+	cacheKey := "grid/" + ratingKey
+	kind := "grid:" + ratingKey
+	return func() tea.Msg {
+		data, _ := imgcache.Get(cacheKey, 0, 0)
+		if len(data) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
+			defer cancel()
+			var err error
+			data, err = client.FetchImage(ctx, client.ArtworkURL(ratingKey))
+			if err != nil {
+				return thumbReadyMsg{kind: kind, err: err}
+			}
+			_ = imgcache.Put(cacheKey, 0, 0, data)
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return thumbReadyMsg{kind: kind, err: err}
+		}
+		return thumbReadyMsg{kind: kind, img: img}
+	}
+}
+
+
+// gridThumbFetches batches per-card fetches for every item in items
+// that doesn't already have a picture.Model.
+func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
+	if !m.cfg.Images || m.client == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, it := range items {
+		var key string
+		switch v := it.(type) {
+		case artistItem:
+			key = v.artist.RatingKey
+		case albumItem:
+			key = v.album.RatingKey
+		}
+		if key == "" {
+			continue
+		}
+		if _, ok := m.gridPics[key]; ok {
+			continue
+		}
+		cmds = append(cmds, fetchGridThumb(m.client, key))
+	}
+	return tea.Batch(cmds...)
+}
+
+// fetchThumb returns a cmd that loads bytes for thumbPath, cache-first.
+// On miss it asks Plex's transcoder for a thumbFetchPixels-square
+// image and persists the result. The bytes are then rendered at both
+// header and modal sizes in this same goroutine so Update can just
+// store the resulting strings without blocking on decode.
+func fetchThumb(client *plex.Client, thumbPath, kind string) tea.Cmd {
+	if client == nil || thumbPath == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		data, _ := imgcache.Get(thumbPath, thumbFetchPixels, thumbFetchPixels)
+		if len(data) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
+			defer cancel()
+			url := client.ThumbURL(thumbPath, thumbFetchPixels, thumbFetchPixels)
+			var err error
+			data, err = client.FetchImage(ctx, url)
+			if err != nil {
+				return thumbReadyMsg{kind: kind, err: err}
+			}
+			_ = imgcache.Put(thumbPath, thumbFetchPixels, thumbFetchPixels, data)
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return thumbReadyMsg{kind: kind, err: err}
+		}
+		return thumbReadyMsg{kind: kind, img: img}
+	}
+}
+
 type level int
 
 const (
@@ -89,20 +220,36 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	switch it := sel.(type) {
 	case libraryItem:
 		m.pushCrumb(it.lib.Title)
-		m.applyItems(levelArtists, m.artistItems())
-		return m, nil
+		items := m.artistItems()
+		m.applyItems(levelArtists, items)
+		return m, m.gridThumbFetches(items)
 	case artistItem:
 		m.pushCrumb(it.artist.Title)
-		m.applyItems(levelAlbums, m.albumItems(it.artist.RatingKey))
+		items := m.albumItems(it.artist.RatingKey)
+		m.applyItems(levelAlbums, items)
 		m.artistMeta, m.albumMeta = nil, nil
+		cmds := []tea.Cmd{
+			m.artistHeaderPic.SetImage(nil),
+			m.artistModalPic.SetImage(nil),
+			m.albumHeaderPic.SetImage(nil),
+			m.albumModalPic.SetImage(nil),
+		}
 		m.metaLoading = true
-		return m, fetchArtistMeta(m.client, it.artist.RatingKey)
+		cmds = append(cmds,
+			fetchArtistMeta(m.client, it.artist.RatingKey),
+			m.gridThumbFetches(items),
+		)
+		return m, tea.Batch(cmds...)
 	case albumItem:
 		m.pushCrumb(it.album.Title)
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
 		m.albumMeta = nil
 		m.metaLoading = true
-		return m, fetchAlbumMeta(m.client, it.album.RatingKey)
+		return m, tea.Batch(
+			m.albumHeaderPic.SetImage(nil),
+			m.albumModalPic.SetImage(nil),
+			fetchAlbumMeta(m.client, it.album.RatingKey),
+		)
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
 	case trackItem:

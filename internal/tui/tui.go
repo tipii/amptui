@@ -22,6 +22,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
+
 	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/player"
@@ -91,6 +93,24 @@ type Model struct {
 	albumMeta   *plex.AlbumMetadata
 	metaLoading bool
 
+	// Inline-artwork state. artistThumb / albumThumb hold the raw
+	// fetched bytes (decoded on render) for whatever artist/album
+	// the user is currently viewing. imgProtocol is detected once
+	// at startup; the renderer falls back to half-block ANSI when
+	// the terminal has no native protocol.
+	// Image rendering uses ntcharts/picture.Model — a Bubble-Tea-aware
+	// component that handles glyph (half-block) AND Kitty graphics
+	// protocol, including the Ghostty redraw bug we hit when emitting
+	// Kitty sequences ourselves. Each thumbnail surface is its own
+	// model; they share a configured mode + cell pixel size set by
+	// the parent at construction and refreshed via CellSizeEvent.
+	artistHeaderPic picture.Model
+	artistModalPic  picture.Model
+	albumHeaderPic  picture.Model
+	albumModalPic   picture.Model
+	gridPics        map[string]*picture.Model
+	picMode         picture.PictureMode
+
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
 	// the queue is exhausted.
@@ -141,7 +161,11 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		items[i] = libraryItem{lib: l}
 	}
 
-	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	// gridPics is shared with the list delegate so newly-fetched
+	// thumbs surface on the list rows on their next render without
+	// touching the list itself.
+	gridPics := map[string]*picture.Model{}
+	l := list.New(items, newThumbDelegate(gridPics), 0, 0)
 	l.Title = "Libraries"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
@@ -184,6 +208,12 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
 		dashboard:      newDashboardModel(),
+		picMode:         picture.PictureGlyph,
+		gridPics:        gridPics,
+		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
+		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
+		albumHeaderPic:  newSizedPicture(headerThumbCellsW, headerThumbCellsH),
+		albumModalPic:   newSizedPicture(modalThumbCellsW, modalThumbCellsH),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 		gridArtists:    cfg.DefaultViewArtist == "grid",
@@ -233,6 +263,10 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
 	cmds = append(cmds, m.settings.Init())
+	// Ask the terminal for its real cell-pixel dims so the Kitty
+	// path renders at the right scale. picture.Models receive the
+	// reply (uv.CellSizeEvent) via Update routing.
+	cmds = append(cmds, picture.RequestCellSize())
 	// Kick off the library sync AND the dashboard's three live fetches
 	// in the background when we have a Plex client and at least one
 	// library. Missing config drops us on the settings screen with no
@@ -251,4 +285,14 @@ func (m Model) Init() tea.Cmd {
 // tick drives a once-a-second refresh so the now-playing line stays current.
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// newSizedPicture returns a picture.Model pre-sized to the given cell
+// rectangle. Used at New() time for the four fixed-size thumbnail
+// surfaces (artist/album × header/modal); grid pictures are created
+// per-row in routePictureUpdate.
+func newSizedPicture(cols, rows int) picture.Model {
+	p := picture.New()
+	p.SetSize(cols, rows)
+	return p
 }

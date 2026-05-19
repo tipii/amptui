@@ -25,6 +25,11 @@ type Config struct {
 	// Home selects which screen the app opens on: "dashboard" (default,
 	// recent plays / added / playlists) or "library" (artist browser).
 	Home string `toml:"home,omitempty"`
+	// Images toggles inline artwork (artist / album thumbs) in the
+	// info header and modal. Off by default; flip on if your terminal
+	// supports the Kitty graphics protocol or you're happy with the
+	// half-block ANSI fallback.
+	Images bool `toml:"images,omitempty"`
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml

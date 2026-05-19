@@ -308,7 +308,13 @@ func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
 	m.artistMeta, m.albumMeta = nil, nil
 	m.metaLoading = true
-	return m, fetchArtistMeta(m.client, artistKey)
+	return m, tea.Batch(
+		m.artistHeaderPic.SetImage(nil),
+		m.artistModalPic.SetImage(nil),
+		m.albumHeaderPic.SetImage(nil),
+		m.albumModalPic.SetImage(nil),
+		fetchArtistMeta(m.client, artistKey),
+	)
 }
 
 // jumpToAlbum closes the search modal and points the browser at the
@@ -339,7 +345,11 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 	m.applyItems(levelTracks, m.trackItems(albumKey))
 	m.albumMeta = nil
 	m.metaLoading = true
-	return m, fetchAlbumMeta(m.client, albumKey)
+	return m, tea.Batch(
+		m.albumHeaderPic.SetImage(nil),
+		m.albumModalPic.SetImage(nil),
+		fetchAlbumMeta(m.client, albumKey),
+	)
 }
 
 // pushArtistsCrumb pushes a synthetic Artists-level crumb whose cursor

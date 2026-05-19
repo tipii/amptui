@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
+
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -48,16 +50,18 @@ func (m Model) View() tea.View {
 // line, and footer. Modals are composited on top of this.
 func (m Model) browserView() string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("amptui"))
+	title := headerStyle.Render("amptui")
 	if crumbs := m.crumbLine(); crumbs != "" {
-		b.WriteString("  " + crumbStyle.Render(crumbs))
+		title += "  " + crumbStyle.Render(crumbs)
 	}
-	b.WriteString("\n")
-	// Replace what used to be a blank spacer with a one-line info
-	// header on screens that have rich metadata for what they show.
-	// On other screens it stays blank so the overall chrome height
-	// is constant.
-	b.WriteString(m.infoHeaderLine())
+	// Two-row chrome: title + info-summary line. When inline artwork
+	// is on and we have a thumb for the current screen, render it as
+	// a sidecar block sharing those two rows.
+	chrome := title + "\n" + m.infoHeaderLine()
+	if thumb := m.headerThumb(); thumb != "" {
+		chrome = lipgloss.JoinHorizontal(lipgloss.Top, thumb, "  ", chrome)
+	}
+	b.WriteString(chrome)
 	b.WriteString("\n")
 
 	if m.currentGridView() {
@@ -201,6 +205,34 @@ func fmtDur(d time.Duration) string {
 	}
 	d = d.Round(time.Second)
 	return fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// headerThumbCellsW / H is the cell footprint of the small thumbnail
+// shown next to the breadcrumbs on artist / album screens — sized to
+// the two-row chrome height.
+const (
+	headerThumbCellsW = 4
+	headerThumbCellsH = 2
+)
+
+// headerThumb returns the rendered small thumbnail to dock next to
+// the title row, or "" when artwork is off / unavailable / not on
+// a screen that has one.
+func (m Model) headerThumb() string {
+	if !m.cfg.Images {
+		return ""
+	}
+	var p *picture.Model
+	switch m.level {
+	case levelAlbums:
+		p = &m.artistHeaderPic
+	case levelTracks:
+		p = &m.albumHeaderPic
+	}
+	if p == nil {
+		return ""
+	}
+	return p.View().Content
 }
 
 // infoHeaderLine renders the one-line summary shown under the
@@ -393,20 +425,44 @@ func (m Model) infoModalBox() string {
 
 // infoModalContent assembles the modal body for whichever level the
 // user is on. Returns "" if there's nothing to show — caller uses that
-// as a "don't open the modal" signal.
+// as a "don't open the modal" signal. When artwork is on and we have
+// the bytes, the rendered image is prepended so the bio appears below
+// the thumbnail.
 func (m Model) infoModalContent() string {
+	var (
+		meta string
+		pic  *picture.Model
+	)
 	switch m.level {
 	case levelAlbums:
 		if a := m.artistMeta; a != nil {
-			return formatArtistInfo(a)
+			meta = formatArtistInfo(a)
+			pic = &m.artistModalPic
 		}
 	case levelTracks:
 		if a := m.albumMeta; a != nil {
-			return formatAlbumInfo(a)
+			meta = formatAlbumInfo(a)
+			pic = &m.albumModalPic
 		}
 	}
-	return ""
+	if meta == "" {
+		return ""
+	}
+	if m.cfg.Images && pic != nil {
+		if img := pic.View().Content; img != "" {
+			return img + "\n\n" + meta
+		}
+	}
+	return meta
 }
+
+// modalThumb* are the cell footprint of the artwork shown above the
+// bio in the info modal. Cells are ~2:1 tall:wide so we double the
+// width relative to height to land near square.
+const (
+	modalThumbCellsW = 24
+	modalThumbCellsH = 12
+)
 
 func formatArtistInfo(a *plex.ArtistMetadata) string {
 	var b strings.Builder

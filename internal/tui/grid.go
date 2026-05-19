@@ -11,11 +11,17 @@ import (
 // dimensions (border-inclusive), so these values are the total cell size.
 // No gap between cards — adjacent borders touch and form a divider, which
 // lets the row fill the terminal exactly.
+// Card geometry chosen so that a square thumbnail rendered with
+// half-block ANSI (2 image rows per cell) fills the inner area
+// exactly. With cellW = 2 × cellH visually, a card with inner cells
+// W×H = 2H × H displays a square image that takes the full inner
+// area minus one row reserved for the title. outerW = inner+2, outerH
+// = inner+2+1 (title).
 const (
-	cardOuterH      = 5  // total card height in rows (border + content)
-	cardIdealOuterW = 20 // target outer width when picking cols
-	cardMinOuterW   = 14 // floor: room for "Pink Floyd"-length names
-	cardBorderCols  = 2  // border takes 1 col each side
+	cardOuterH      = 13 // 10 thumb rows + 1 title + 2 border
+	cardIdealOuterW = 22 // 20 thumb cols + 2 border (20 cols × 20 image rows = square)
+	cardMinOuterW   = 18
+	cardBorderCols  = 2
 )
 
 // gridLayout picks the column count and a per-card OUTER width so that
@@ -184,7 +190,11 @@ func (m Model) gridBodyView() string {
 			}
 			title, sub := gridCellTexts(items[idx])
 			title = truncate(title, innerW)
-			content := title
+			content := ""
+			if thumb := m.gridCardThumb(items[idx]); thumb != "" {
+				content = thumb + "\n"
+			}
+			content += title
 			if sub != "" {
 				content += "\n" + helpStyle.Render(truncate(sub, innerW))
 			}
@@ -204,6 +214,27 @@ func (m Model) gridBodyView() string {
 	// status bar stay pinned to the bottom of the terminal even when the
 	// grid's content doesn't fill the available space.
 	return lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
+}
+
+// gridCardThumb returns the rendered thumbnail block for one grid
+// card, or "" when artwork is off / not yet fetched / not applicable.
+// picture.Model caches its own glyph render so this is a cheap lookup.
+func (m Model) gridCardThumb(it interface{ FilterValue() string }) string {
+	if !m.cfg.Images {
+		return ""
+	}
+	var key string
+	switch v := it.(type) {
+	case artistItem:
+		key = v.artist.RatingKey
+	case albumItem:
+		key = v.album.RatingKey
+	}
+	pic, ok := m.gridPics[key]
+	if !ok || pic == nil {
+		return ""
+	}
+	return pic.View().Content
 }
 
 // gridCellTexts returns the (title, subtitle) shown inside a grid card.

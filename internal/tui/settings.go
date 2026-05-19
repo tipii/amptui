@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/library"
 )
 
@@ -26,6 +27,7 @@ type settingsValues struct {
 	ViewArtist     string
 	ViewAlbum      string
 	Home           string
+	Images         bool
 }
 
 // settingsOutcome is what the settings sub-model asks its parent to do
@@ -65,6 +67,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
 		Home:           normalizeHome(cfg.Home),
+		Images:         cfg.Images,
 	}
 	return settingsModel{
 		fields: buildSettingsFields(v),
@@ -261,6 +264,10 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 			huh.NewOption("dashboard", "dashboard"),
 			huh.NewOption("library", "library"),
 		).Value(&v.Home),
+		huh.NewConfirm().Title("Inline artwork").
+			Description("Render artist / album thumbnails in the info header and modal.").
+			Affirmative("on").Negative("off").
+			Value(&v.Images),
 	}
 	km := huh.NewDefaultKeyMap()
 	for i, f := range fields {
@@ -341,6 +348,26 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 	} else if libErr != nil {
 		b.WriteString(settingRow("", errStyle.Render("error: "+libErr.Error())))
 	}
+
+	// Image cache footprint — same shape (path / files / size) as the
+	// library cache above so users can see at a glance how much disk
+	// the thumb cache is using and clear it manually if they want.
+	b.WriteString("\n")
+	b.WriteString(sectionStyle.Render("Image cache"))
+	b.WriteString("\n")
+	if imgStats, err := imgcache.GetStats(); err == nil {
+		b.WriteString(settingRow("Path", imgStats.Path))
+		switch {
+		case imgStats.Missing:
+			b.WriteString(settingRow("Status", helpStyle.Render("(empty — no thumbs fetched yet)")))
+		default:
+			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
+			b.WriteString(settingRow("Disk size", humanBytes(imgStats.Bytes)))
+		}
+	} else {
+		b.WriteString(settingRow("", errStyle.Render("error: "+err.Error())))
+	}
+
 	cfgPath, _ := config.Path()
 	b.WriteString("\n")
 	b.WriteString(settingRow("Config file", cfgPath))
