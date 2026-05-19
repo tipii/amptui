@@ -10,11 +10,12 @@ import (
 // text from their Help() output. To change a key, change it here.
 type KeyMap struct {
 	// --- app-wide ---
-	Quit     key.Binding
-	Help     key.Binding
-	Settings key.Binding
-	Refresh  key.Binding
-	Info     key.Binding // 'i' — open the artist/album info modal
+	Quit       key.Binding
+	Help       key.Binding
+	Settings   key.Binding
+	Refresh    key.Binding
+	Info       key.Binding // 'i' — open the artist/album info modal
+	PurgeImgs  key.Binding // 'C' — wipe the image cache from settings
 
 	// --- generic navigation (re-used across screens / modals) ---
 	Up, Down, Left, Right key.Binding
@@ -56,11 +57,12 @@ type KeyMap struct {
 // NewKeyMap returns the default bindings.
 func NewKeyMap() KeyMap {
 	return KeyMap{
-		Quit:     key.NewBinding(key.WithKeys("ctrl+c", "ctrl+q"), key.WithHelp("ctrl+q", "quit")),
-		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Settings: key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings")),
-		Refresh:  key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
-		Info:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "info")),
+		Quit:      key.NewBinding(key.WithKeys("ctrl+c", "ctrl+q"), key.WithHelp("ctrl+q", "quit")),
+		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Settings:  key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings")),
+		Refresh:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
+		Info:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "info")),
+		PurgeImgs: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "clear images")),
 
 		Up:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
@@ -158,7 +160,7 @@ func (k KeyMap) dashboardHelp() helpView {
 // settingsHelp is the help shown on the settings screen (navigation mode).
 func (k KeyMap) settingsHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Refresh, k.Quit},
+		short: []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Refresh, k.PurgeImgs, k.Quit},
 	}
 }
 

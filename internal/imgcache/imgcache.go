@@ -73,6 +73,33 @@ func Put(thumbPath string, width, height int, data []byte) error {
 	return os.Rename(tmp, p)
 }
 
+// Purge removes every cached image file. The directory itself stays
+// so callers don't have to recreate it before the next Put. Errors
+// reading the directory or unlinking individual files are returned;
+// missing-directory is treated as success (already purged).
+func Purge() error {
+	dir, err := Dir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if rerr := os.Remove(filepath.Join(dir, e.Name())); rerr != nil && err == nil {
+			err = rerr
+		}
+	}
+	return err
+}
+
 // Stats is a snapshot of the on-disk cache footprint.
 type Stats struct {
 	Path    string // cache directory

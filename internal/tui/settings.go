@@ -40,6 +40,7 @@ const (
 	settingsOutcomeClose
 	settingsOutcomeRefresh
 	settingsOutcomeCommit
+	settingsOutcomePurgeImgs
 )
 
 // settingsModel owns the settings screen: editable fields, cursor, edit
@@ -116,6 +117,8 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 		return s, s.fields[s.cursor].Focus(), settingsOutcomeNone
 	case key.Matches(msg, km.Refresh):
 		return s, nil, settingsOutcomeRefresh
+	case key.Matches(msg, km.PurgeImgs):
+		return s, nil, settingsOutcomePurgeImgs
 	}
 	return s, nil, settingsOutcomeNone
 }
@@ -365,6 +368,7 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		default:
 			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
 			b.WriteString(settingRow("Disk size", humanBytes(imgStats.Bytes)))
+			b.WriteString(settingRow("", helpStyle.Render("press C to clear (disk + terminal cache)")))
 		}
 	} else {
 		b.WriteString(settingRow("", errStyle.Render("error: "+err.Error())))

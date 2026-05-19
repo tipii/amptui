@@ -13,6 +13,7 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -434,6 +435,15 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, syncLibrary(m.client, active))
 		}
+	case settingsOutcomePurgeImgs:
+		// Wipe disk, drop in-memory picture.Models, and tell the
+		// terminal to drop every Kitty image it's holding. Without
+		// the terminal step the registry would still serve the old
+		// images on the next placement under the same kittyID.
+		_ = imgcache.Purge()
+		m.gridPics = map[string]*picture.Model{}
+		m.listPics = map[string]*picture.Model{}
+		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
 		// Pull the new values from the sub-model, apply runtime effects
 		// (grid view per level), persist, and tell the sub-model whether
