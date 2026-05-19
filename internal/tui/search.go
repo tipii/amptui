@@ -297,24 +297,92 @@ func entryToTrack(e library.Entry) plex.Track {
 }
 
 // jumpToArtist closes the search modal and points the browser at the
-// artist's albums. Resets the crumb trail to a single Libraries frame so
-// `esc` from the new view returns to the library picker.
+// artist's albums. Builds a Libraries → Artists crumb trail so the
+// breadcrumb reads naturally and "back" walks back through the same
+// hierarchy a manual drill-down would have produced.
 func (m Model) jumpToArtist(artistKey string) Model {
 	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
+	m.pushArtistsCrumb(artistKey)
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
 	return m
 }
 
-// jumpToAlbum closes the search modal and points the browser at the album's
-// tracks. See jumpToArtist for the crumb behavior.
+// jumpToAlbum closes the search modal and points the browser at the
+// album's tracks, pushing synthetic Artists and Albums crumbs along
+// the way so the breadcrumb shows "Music / Artist / Album / Tracks"
+// and "back" lands on the artist's album list.
 func (m Model) jumpToAlbum(albumKey string) Model {
 	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
+
+	// Look the album up in the cache so we know its parent artist —
+	// pushArtists/AlbumsCrumb need the artist key to build the right
+	// item lists.
+	if m.library != nil {
+		var artistKey string
+		for _, e := range m.library.Entries {
+			if e.Kind == library.KindAlbum && e.RatingKey == albumKey {
+				artistKey = e.ArtistKey
+				break
+			}
+		}
+		if artistKey != "" {
+			m.pushArtistsCrumb(artistKey)
+			m.pushAlbumsCrumb(artistKey, albumKey)
+		}
+	}
 	m.applyItems(levelTracks, m.trackItems(albumKey))
 	return m
+}
+
+// pushArtistsCrumb pushes a synthetic Artists-level crumb whose cursor
+// is parked on the artist with the given key. Lets "back" from the
+// next level land on a real artist list rather than the picker.
+func (m *Model) pushArtistsCrumb(artistKey string) {
+	items := m.artistItems()
+	idx := 0
+	for i, it := range items {
+		if ai, ok := it.(artistItem); ok && ai.artist.RatingKey == artistKey {
+			idx = i
+			break
+		}
+	}
+	title := ""
+	if ai, ok := items[idx].(artistItem); ok {
+		title = ai.artist.Title
+	}
+	m.crumbs = append(m.crumbs, crumb{
+		level: levelArtists,
+		title: title,
+		items: items,
+		index: idx,
+	})
+}
+
+// pushAlbumsCrumb pushes a synthetic Albums-level crumb whose cursor
+// is parked on the album with the given key.
+func (m *Model) pushAlbumsCrumb(artistKey, albumKey string) {
+	items := m.albumItems(artistKey)
+	idx := 0
+	for i, it := range items {
+		if ai, ok := it.(albumItem); ok && ai.album.RatingKey == albumKey {
+			idx = i
+			break
+		}
+	}
+	title := ""
+	if ai, ok := items[idx].(albumItem); ok {
+		title = ai.album.Title
+	}
+	m.crumbs = append(m.crumbs, crumb{
+		level: levelAlbums,
+		title: title,
+		items: items,
+		index: idx,
+	})
 }
 
 // pushLibrariesCrumb pushes a synthetic Libraries crumb built from m.libs,
