@@ -44,6 +44,9 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "3", Title: "Podcasts"},
 	}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	// Default screen is now dashboard; flip to browser so tests that
+	// assert browser content show through under modals can find it.
+	m.screen = screenBrowser
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -300,6 +303,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 
@@ -335,6 +339,57 @@ func TestArtistGridRenders(t *testing.T) {
 		t.Errorf("expected Al Green and Led Zeppelin to share a row in grid view")
 	}
 	t.Log("\n" + out)
+}
+
+// TestDashboardRenders covers the home screen showing the three section
+// headers and the cursor marker. Tile bodies show "loading…" since no
+// background fetch resolves in this test.
+func TestDashboardRenders(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", Token: "t"}
+	m := New(cfg, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+
+	if m.screen != screenDashboard {
+		t.Fatalf("default screen should be dashboard, got %v", m.screen)
+	}
+
+	out := m.View().Content
+	for _, want := range []string{
+		"Dashboard",
+		"Recently played",
+		"Recently added",
+		"Recent playlists",
+		"loading…",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in dashboard view", want)
+		}
+	}
+	t.Log("\n" + out)
+}
+
+// TestTabSwitchesDashboardAndBrowser drives the Tab key to confirm the
+// two screens flip cleanly without losing any state.
+func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+	if m.screen != screenDashboard {
+		t.Fatalf("default screen should be dashboard, got %v", m.screen)
+	}
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = upd.(Model)
+	if m.screen != screenBrowser {
+		t.Errorf("tab from dashboard should go to browser, got %v", m.screen)
+	}
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = upd.(Model)
+	if m.screen != screenDashboard {
+		t.Errorf("tab from browser should go to dashboard, got %v", m.screen)
+	}
 }
 
 // TestSearchModalAcceptsLetterKeys guards against the regression where the

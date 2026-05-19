@@ -23,6 +23,8 @@ func (m Model) View() tea.View {
 	switch m.screen {
 	case screenSettings:
 		background = m.settingsScreen()
+	case screenDashboard:
+		background = m.dashboardScreen()
 	default:
 		background = m.browserView()
 	}
@@ -71,6 +73,23 @@ func (m Model) browserView() string {
 		footerLeft = m.helpModel.View(m.currentHelp())
 	}
 	b.WriteString(m.footerLine(footerLeft))
+	return b.String()
+}
+
+// dashboardScreen composes the dashboard sub-model's body with the
+// shared chrome (header + now-playing line + footer). All three tiles
+// render their loading / error / data states inside the sub-model;
+// the parent just wraps it.
+func (m Model) dashboardScreen() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("amptui"))
+	b.WriteString("  " + crumbStyle.Render("Dashboard"))
+	b.WriteString("\n\n")
+	b.WriteString(m.dashboard.View(m.width, m.listHeight()-2, m.spinner))
+	b.WriteString("\n")
+	b.WriteString(m.nowPlayingLine())
+	b.WriteString("\n")
+	b.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
 	return b.String()
 }
 

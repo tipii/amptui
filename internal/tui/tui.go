@@ -36,7 +36,8 @@ type tickMsg time.Time
 type screen int
 
 const (
-	screenBrowser screen = iota
+	screenDashboard screen = iota
+	screenBrowser
 	screenSettings
 )
 
@@ -61,6 +62,12 @@ type Model struct {
 	// its huh fields. The parent forwards key/window-size msgs into it and
 	// applies its outcomes (close / refresh / commit).
 	settings settingsModel
+
+	// dashboard is the home-screen sub-model: three live-fetched tiles
+	// (recently played / recently added / recent playlists). Parent
+	// forwards keys when on screenDashboard and acts on outcomes
+	// (play track / open album / open playlist).
+	dashboard dashboardModel
 
 	list         list.Model
 	queueList    list.Model      // shown in the queue modal
@@ -151,6 +158,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		spinner:        sp,
 		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
+		dashboard:      newDashboardModel(),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 		gridArtists:    cfg.DefaultViewArtist == "grid",
@@ -193,15 +201,17 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
 	cmds = append(cmds, m.settings.Init())
-	// Kick off the library sync in the background only when we actually
-	// have a Plex client and at least one library to sync. Missing config
-	// drops us on the settings screen with no background work to do.
+	// Kick off the library sync AND the dashboard's three live fetches
+	// in the background when we have a Plex client and at least one
+	// library. Missing config drops us on the settings screen with no
+	// background work to do.
 	if m.client != nil && len(m.libs) > 0 {
 		active := m.libs[0]
 		if m.startupLibrary != nil {
 			active = *m.startupLibrary
 		}
 		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
+		cmds = append(cmds, m.dashboard.Load(m.client, active.Key))
 	}
 	return tea.Batch(cmds...)
 }

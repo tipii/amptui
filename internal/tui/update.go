@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -79,6 +80,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenSettings {
 			return m.routeSettingsKey(msg)
 		}
+		// Dashboard screen has its own nav (cards + sections); route
+		// there before falling through to browser keys.
+		if m.screen == screenDashboard {
+			return m.routeDashboardKey(msg)
+		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
 			break
@@ -106,8 +112,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, k.Help):
 			m.showHelp = true
 			return m, nil
-		case key.Matches(msg, k.ToggleGrid):
-			m.toggleGrid()
+		case key.Matches(msg, k.SwitchScreen):
+			m.screen = screenDashboard
 			return m, nil
 		case key.Matches(msg, k.Enter):
 			return m.drillDown()
@@ -178,6 +184,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.librarySyncing = false
 		m.libraryErr = msg.err
 		return m, nil
+
+	case dashboardPlaysMsg:
+		m.dashboard.ApplyPlays(msg)
+		return m, nil
+	case dashboardAddedMsg:
+		m.dashboard.ApplyAdded(msg)
+		return m, nil
+	case dashboardPlaylistsMsg:
+		m.dashboard.ApplyPlaylists(msg)
+		return m, nil
+
+	case playlistTracksMsg:
+		// User pressed enter on a playlist tile; tracks just arrived —
+		// play them.
+		if msg.err != nil || len(msg.tracks) == 0 {
+			return m, nil
+		}
+		return m.playTracks(msg.tracks, 0)
 
 	case tickMsg:
 		m = m.advanceIfFinished()
@@ -277,6 +301,111 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case searchOutcomeJumpAlbum:
 		if e := m.search.SelectedEntry(); e != nil {
 			return m.jumpToAlbum(e.RatingKey), cmd
+		}
+	}
+	return m, cmd
+}
+
+// playlistTracksMsg arrives after the parent fires fetchPlaylistTracks
+// in response to a dashboard playlist tile being activated.
+type playlistTracksMsg struct {
+	tracks []plex.Track
+	err    error
+}
+
+func fetchPlaylistTracks(client *plex.Client, ratingKey string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
+		defer cancel()
+		tracks, err := client.PlaylistTracks(ctx, ratingKey)
+		return playlistTracksMsg{tracks: tracks, err: err}
+	}
+}
+
+// routeDashboardKey dispatches a key while the dashboard is the active
+// screen. Global media / modal / navigation keys are handled here;
+// in-tile navigation delegates to the dashboard sub-model and the
+// outcome (play track, open album, open playlist) is applied here
+// because it touches parent state (player, browser crumbs).
+func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := m.keymap
+	switch {
+	case key.Matches(msg, k.Quit):
+		return m, tea.Quit
+	case key.Matches(msg, k.Help):
+		m.showHelp = true
+		return m, nil
+	case key.Matches(msg, k.Settings):
+		m.screen = screenSettings
+		return m, nil
+	case key.Matches(msg, k.SwitchScreen):
+		m.screen = screenBrowser
+		return m, nil
+	case key.Matches(msg, k.OpenSearch):
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Open()
+		return m, cmd
+	case key.Matches(msg, k.OpenQueue):
+		m.openQueue()
+		return m, nil
+	case key.Matches(msg, k.Refresh):
+		// Re-fetch the three dashboard tiles. Only meaningful when we
+		// have a client + a library to query against.
+		if m.client == nil || len(m.libs) == 0 {
+			return m, nil
+		}
+		active := m.libs[0]
+		if m.startupLibrary != nil {
+			active = *m.startupLibrary
+		}
+		return m, m.dashboard.Load(m.client, active.Key)
+	case key.Matches(msg, k.NextTrack):
+		m.playNext()
+		return m, nil
+	case key.Matches(msg, k.PrevTrack):
+		m.playPrev()
+		return m, nil
+	case key.Matches(msg, k.Pause):
+		if m.player != nil {
+			_ = m.player.TogglePause()
+		}
+		return m, nil
+	case key.Matches(msg, k.SeekBack):
+		if m.player != nil {
+			_ = m.player.Seek(-10 * time.Second)
+		}
+		return m, nil
+	case key.Matches(msg, k.SeekForward):
+		if m.player != nil {
+			_ = m.player.Seek(10 * time.Second)
+		}
+		return m, nil
+	}
+
+	// Anything not above belongs to the dashboard sub-model (nav +
+	// enter). Outcomes touch parent state.
+	var (
+		cmd     tea.Cmd
+		outcome dashboardOutcome
+	)
+	m.dashboard, cmd, outcome = m.dashboard.HandleKey(msg, m.keymap)
+	switch outcome {
+	case dashOutcomePlayTrack:
+		if t, ok := m.dashboard.SelectedTrack(); ok {
+			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			return model, tea.Batch(cmd, pcmd)
+		}
+	case dashOutcomeOpenAlbum:
+		if a, ok := m.dashboard.SelectedAlbum(); ok {
+			// Jump the browser to this album's tracks (same pattern as
+			// jumpToAlbum from search) and switch to the browser screen.
+			model := m.jumpToAlbum(a.RatingKey)
+			model.screen = screenBrowser
+			return model, cmd
+		}
+	case dashOutcomeOpenPlaylist:
+		if p, ok := m.dashboard.SelectedPlaylist(); ok {
+			return m, tea.Batch(cmd, fetchPlaylistTracks(m.client, p.RatingKey))
 		}
 	}
 	return m, cmd
