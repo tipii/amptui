@@ -110,7 +110,7 @@ func (m Model) dashboardScreen() string {
 // chrome (now-playing line + footer). The sub-model itself doesn't own
 // those — they're parent-level concerns shared with the browser view.
 func (m Model) settingsScreen() string {
-	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner)
+	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
 	body := m.settings.View(m.listHeight(), stats)
 
 	var b strings.Builder

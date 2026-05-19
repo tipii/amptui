@@ -47,9 +47,13 @@ const (
 )
 
 type Model struct {
-	cfg    config.Config
-	client *plex.Client
-	player *player.Player // may be nil if mpv is unavailable
+	cfg config.Config
+	// playerErr is captured when player.New() fails at startup (e.g. mpv not
+	// on PATH). The TUI takes over the screen before the user can see the
+	// stderr warning, so the settings screen surfaces this reason.
+	playerErr error
+	client    *plex.Client
+	player    *player.Player // may be nil if mpv is unavailable
 
 	// keymap is the single source of truth for keybindings; Update routes
 	// via key.Matches against it and helpModel renders footer/help-modal
@@ -156,8 +160,9 @@ type Model struct {
 // be nil, in which case browsing works but playback is disabled. If
 // defaultLib is non-nil, the UI opens straight into that library, with a
 // "Libraries" crumb pushed so the user can still go back to the picker.
-// cfg is used by the settings screen (read-only display).
-func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.MusicLibrary, defaultLib *plex.MusicLibrary) Model {
+// cfg is used by the settings screen (read-only display). playerErr, if
+// non-nil, is the reason mpv failed to start — surfaced in settings.
+func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr error, libs []plex.MusicLibrary, defaultLib *plex.MusicLibrary) Model {
 	items := make([]list.Item, len(libs))
 	for i, l := range libs {
 		items[i] = libraryItem{lib: l}
@@ -196,6 +201,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 
 	m := Model{
 		cfg:            cfg,
+		playerErr:      playerErr,
 		client:         client,
 		player:         p,
 		keymap:         NewKeyMap(),

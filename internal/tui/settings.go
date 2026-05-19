@@ -326,10 +326,12 @@ func normalizeHome(v string) string {
 	return "library"
 }
 
-// cacheStatsBody renders the read-only Library cache section shown under
-// the editable settings. It lives outside settingsModel because library
-// state is owned by the parent.
-func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model) string {
+// cacheStatsBody renders the read-only status sections shown under the
+// editable settings. It lives outside settingsModel because library and
+// player state is owned by the parent. mpvReady reports whether the mpv
+// subprocess started successfully; playerErr, if non-nil, is the reason
+// it did not.
+func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Library cache"))
 	b.WriteString("\n")
@@ -366,6 +368,23 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		}
 	} else {
 		b.WriteString(settingRow("", errStyle.Render("error: "+err.Error())))
+	}
+
+	// Playback dependency. The stderr warning from main.go scrolls off
+	// behind the TUI, so this is the place users actually see why their
+	// play / enqueue keys are silently no-opping.
+	b.WriteString("\n")
+	b.WriteString(sectionStyle.Render("Playback"))
+	b.WriteString("\n")
+	if mpvReady {
+		b.WriteString(settingRow("mpv", "ready"))
+	} else {
+		reason := "not detected on PATH"
+		if playerErr != nil {
+			reason = playerErr.Error()
+		}
+		b.WriteString(settingRow("mpv", errStyle.Render(reason)))
+		b.WriteString(settingRow("", helpStyle.Render("install mpv (https://mpv.io/) and relaunch to enable playback")))
 	}
 
 	cfgPath, _ := config.Path()
