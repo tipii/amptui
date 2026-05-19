@@ -32,7 +32,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]Playlist, err
 				LeafCount    int    `json:"leafCount"`
 				Duration     int64  `json:"duration"`
 				UpdatedAt    int64  `json:"updatedAt"`
-				Smart        int    `json:"smart"`
+				Smart        bool   `json:"smart"`
 				PlaylistType string `json:"playlistType"`
 			} `json:"Metadata"`
 		} `json:"MediaContainer"`
@@ -55,7 +55,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]Playlist, err
 			LeafCount: m.LeafCount,
 			Duration:  time.Duration(m.Duration) * time.Millisecond,
 			UpdatedAt: time.Unix(m.UpdatedAt, 0),
-			Smart:     m.Smart == 1,
+			Smart:     m.Smart,
 		})
 	}
 	return out, nil
