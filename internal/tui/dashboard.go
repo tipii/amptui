@@ -249,9 +249,9 @@ func (d dashboardModel) View(width, height int, sp spinner.Model) string {
 		b.WriteString(marker + sectionStyle.Render(t.title) + "\n")
 		switch {
 		case t.err != nil:
-			b.WriteString("  " + errStyle.Render("error: "+t.err.Error()))
+			b.WriteString(dashIndent(errStyle.Render("error: " + t.err.Error())))
 		case !t.loaded:
-			b.WriteString("  " + helpStyle.Render(sp.View()+"loading…"))
+			b.WriteString(dashIndent(helpStyle.Render(sp.View() + "loading…")))
 		default:
 			b.WriteString(t.body)
 		}
@@ -264,7 +264,7 @@ func (d dashboardModel) View(width, height int, sp spinner.Model) string {
 
 func (d dashboardModel) renderPlays(width int) string {
 	if len(d.plays) == 0 {
-		return "  " + helpStyle.Render("(nothing yet)")
+		return dashIndent(helpStyle.Render("(nothing yet)"))
 	}
 	return d.renderRow(width, sectionRecentPlays, len(d.plays), func(i int) (string, string) {
 		t := d.plays[i]
@@ -274,7 +274,7 @@ func (d dashboardModel) renderPlays(width int) string {
 
 func (d dashboardModel) renderAdded(width int) string {
 	if len(d.added) == 0 {
-		return "  " + helpStyle.Render("(none)")
+		return dashIndent(helpStyle.Render("(none)"))
 	}
 	return d.renderRow(width, sectionRecentlyAdded, len(d.added), func(i int) (string, string) {
 		a := d.added[i]
@@ -288,7 +288,7 @@ func (d dashboardModel) renderAdded(width int) string {
 
 func (d dashboardModel) renderPlaylists(width int) string {
 	if len(d.playlists) == 0 {
-		return "  " + helpStyle.Render("(no playlists)")
+		return dashIndent(helpStyle.Render("(no playlists)"))
 	}
 	return d.renderRow(width, sectionRecentPlaylists, len(d.playlists), func(i int) (string, string) {
 		p := d.playlists[i]
@@ -331,6 +331,17 @@ func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item fun
 		}
 		cells = append(cells, style.Width(dashCardOuterW).Height(dashCardOuterH).Render(card))
 	}
-	return "  " + lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+	// PaddingLeft pads every line of the joined block — using
+	// "  " + Join would only indent the first line, shifting the
+	// top border right while leaving content and bottom border at
+	// column 0.
+	return dashIndent(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+}
+
+// dashIndent pads every line of s by the dashboard's gutter width.
+// PaddingLeft applies to all rows (where prepending "  " would only
+// indent the first line of a multi-line block).
+func dashIndent(s string) string {
+	return lipgloss.NewStyle().PaddingLeft(2).Render(s)
 }
 
