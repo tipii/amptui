@@ -9,15 +9,18 @@ for audio playback.
 
 ## Status
 
-Early development. Working today:
+Working today:
 
 - [x] Connect to a Plex server (manual token auth)
-- [x] Browse: libraries → artists → albums → tracks
-- [x] Play a track via mpv (pause/resume, seek)
-- [x] Play queue: add track/album, auto-advance, queue modal
-- [x] Queue: next/prev skip, reorder, delete, jump-to-play
-- [x] In-app keybindings modal (`?`)
-- [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; Plex is only touched during sync
+- [x] Browse: libraries → artists → albums → tracks (list or grid)
+- [x] Dashboard home with recent plays, recently added, recent playlists
+- [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
+- [x] Queue modal: reorder, delete, jump-to-play, track progress bar
+- [x] Fuzzy search across the whole library
+- [x] Artist / album info: bio, genres, similar artists (`i` modal)
+- [x] Inline artwork — Kitty graphics on supported terminals, half-block fallback everywhere else
+- [x] Editable settings screen, in-app keybindings modal (`?`)
+- [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; Plex is only touched during sync or info fetches
 - [ ] Scrobble / mark played
 
 ## Requirements
@@ -49,9 +52,19 @@ token = "your-X-Plex-Token-here"
 default_library = "Music"
 
 # Optional: initial render mode at each browser level — "list" or "grid".
-# Tab toggles at runtime. Editable from the settings screen (`,`).
+# Editable from the settings screen (`,`).
 default_view_artist = "grid"
 default_view_album = "list"
+
+# Optional: which screen amptui opens on — "library" (default) or "dashboard".
+# Tab swaps between them at runtime.
+home = "library"
+
+# Optional: render inline artwork (artist / album thumbnails) in the header,
+# info modal, grid cards and album list rows. Off by default; flip on to use
+# the Kitty graphics protocol on supported terminals or the half-block ANSI
+# fallback elsewhere. Cached to ~/.cache/amptui/img/.
+images = false
 ```
 
 All values can also be supplied via environment variables, which override the
@@ -137,6 +150,8 @@ cmd/amptui/        entrypoint: config → connect → launch UI
 internal/config/   TOML + env config loading
 internal/plex/     Plex API client (plexgo SDK + raw-HTTP fallback)
 internal/player/   mpv subprocess driven over its JSON IPC socket
+internal/library/  on-disk cache for a music section (browse + search read from here)
+internal/imgcache/ on-disk thumbnail bytes + terminal-protocol detection
 internal/tui/      Bubble Tea drill-down browser
 ```
 
