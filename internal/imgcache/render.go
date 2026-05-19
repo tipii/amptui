@@ -28,18 +28,24 @@ const (
 )
 
 // Detect returns the best image protocol the current terminal claims
-// to support, inferred from environment variables.
-//
-// For now we always return ProtocolNone (24-bit half-block ANSI) — the
-// Kitty graphics protocol works pixel-perfect on its own but doesn't
-// compose cleanly inside lipgloss-styled cards (APC sequences fight
-// the styling's cursor moves, and Kitty keeps images live across
-// redraws, causing ghosting). Half-block renders correctly in every
-// modern terminal including ghostty, kitty, wezterm, alacritty, etc.
-// Re-enable the Kitty path once we have a clean integration story.
+// to support, inferred from environment variables. picture.Model in
+// the v2 branch handles the Ghostty redraw quirk we hit when emitting
+// Kitty sequences ourselves, so it's safe to flip to Kitty when the
+// terminal advertises support.
 func Detect() Protocol {
-	_ = os.Getenv // keep import; detection heuristics live here when re-enabled
-	_ = strings.Contains
+	if os.Getenv("KITTY_WINDOW_ID") != "" {
+		return ProtocolKitty
+	}
+	if os.Getenv("GHOSTTY_RESOURCES_DIR") != "" {
+		return ProtocolKitty
+	}
+	switch os.Getenv("TERM_PROGRAM") {
+	case "ghostty", "WezTerm":
+		return ProtocolKitty
+	}
+	if term := os.Getenv("TERM"); strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") {
+		return ProtocolKitty
+	}
 	return ProtocolNone
 }
 

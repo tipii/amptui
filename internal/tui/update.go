@@ -242,24 +242,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Hand the decoded image off to the right picture.Model. The
-		// model handles its own size / mode / async render.
+		// model handles its own size / mode / async render. applyPicMode
+		// flips to Kitty mode the first time it sees a model still in
+		// glyph mode while the parent prefers Kitty.
 		var cmds []tea.Cmd
 		switch {
 		case msg.kind == "artist":
 			cmds = append(cmds,
+				m.applyPicMode(&m.artistHeaderPic),
+				m.applyPicMode(&m.artistModalPic),
 				m.artistHeaderPic.SetImage(msg.img),
 				m.artistModalPic.SetImage(msg.img),
 			)
 		case msg.kind == "album":
 			cmds = append(cmds,
+				m.applyPicMode(&m.albumHeaderPic),
+				m.applyPicMode(&m.albumModalPic),
 				m.albumHeaderPic.SetImage(msg.img),
 				m.albumModalPic.SetImage(msg.img),
 			)
 		case strings.HasPrefix(msg.kind, "grid:"):
 			key := strings.TrimPrefix(msg.kind, "grid:")
-			pic := picture.New()
+			pic := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
 			pic.SetSize(gridThumbCellsW, gridThumbCellsH)
-			cmds = append(cmds, pic.SetImage(msg.img))
+			cmds = append(cmds, m.applyPicMode(&pic), pic.SetImage(msg.img))
 			m.gridPics[key] = &pic
 		}
 		return m, tea.Batch(cmds...)

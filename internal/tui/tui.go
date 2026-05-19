@@ -13,6 +13,7 @@
 package tui
 
 import (
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -25,6 +26,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/theopalhol/amptui/internal/config"
+	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/library"
 	"github.com/theopalhol/amptui/internal/player"
 	"github.com/theopalhol/amptui/internal/plex"
@@ -208,7 +210,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
 		dashboard:      newDashboardModel(),
-		picMode:         picture.PictureGlyph,
+		picMode:         pictureModeFromProtocol(imgcache.Detect()),
 		gridPics:        gridPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
@@ -287,12 +289,43 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+// pictureID hands out monotonically-increasing Kitty image IDs.
+// Every picture.Model must hold a distinct ID — Kitty stores one
+// image per ID, so sharing IDs (the picture-default 43) causes the
+// last SetImage to overwrite all prior placements, making every
+// thumbnail look identical. Glyph mode ignores the field, so this
+// is harmless on terminals without Kitty support.
+var pictureID atomic.Int32
+
+func nextPictureID() int {
+	return int(pictureID.Add(1)) + 43 // stay clear of well-known IDs
+}
+
 // newSizedPicture returns a picture.Model pre-sized to the given cell
-// rectangle. Used at New() time for the four fixed-size thumbnail
-// surfaces (artist/album × header/modal); grid pictures are created
-// per-row in routePictureUpdate.
+// rectangle with a unique Kitty image ID.
 func newSizedPicture(cols, rows int) picture.Model {
-	p := picture.New()
+	p := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
 	p.SetSize(cols, rows)
 	return p
+}
+
+// pictureModeFromProtocol maps the imgcache-side terminal protocol
+// to the picture.Model mode. Kept here so the imgcache package
+// doesn't need to depend on the picture types.
+func pictureModeFromProtocol(p imgcache.Protocol) picture.PictureMode {
+	if p == imgcache.ProtocolKitty {
+		return picture.PictureKitty
+	}
+	return picture.PictureGlyph
+}
+
+// applyPicMode toggles a picture.Model into the parent's preferred
+// mode if it's not already there. picture.New() defaults to glyph,
+// so this is a no-op in glyph terminals. Returns any cmd produced
+// by the toggle (the Kitty render kick-off when applicable).
+func (m Model) applyPicMode(p *picture.Model) tea.Cmd {
+	if p.Mode() == m.picMode {
+		return nil
+	}
+	return p.Toggle()
 }
