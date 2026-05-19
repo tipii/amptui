@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/library"
+	"github.com/theopalhol/amptui/internal/plex"
 )
 
 func (m Model) View() tea.View {
@@ -31,6 +32,8 @@ func (m Model) View() tea.View {
 	switch {
 	case m.showHelp:
 		v.SetContent(m.overlayBox(background, m.helpModalBox()))
+	case m.showInfo:
+		v.SetContent(m.overlayBox(background, m.infoModalBox()))
 	case m.search.IsOpen():
 		v.SetContent(m.overlayBox(background, m.searchModalBox()))
 	case m.showQueue:
@@ -49,7 +52,13 @@ func (m Model) browserView() string {
 	if crumbs := m.crumbLine(); crumbs != "" {
 		b.WriteString("  " + crumbStyle.Render(crumbs))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	// Replace what used to be a blank spacer with a one-line info
+	// header on screens that have rich metadata for what they show.
+	// On other screens it stays blank so the overall chrome height
+	// is constant.
+	b.WriteString(m.infoHeaderLine())
+	b.WriteString("\n")
 
 	if m.currentGridView() {
 		b.WriteString(m.gridBodyView())
@@ -194,6 +203,68 @@ func fmtDur(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
+// infoHeaderLine renders the one-line summary shown under the
+// breadcrumbs on screens that have rich metadata (artist's albums or
+// album's tracks). Returns the empty string on other levels so the
+// chrome height stays constant.
+func (m Model) infoHeaderLine() string {
+	switch m.level {
+	case levelAlbums:
+		if m.metaLoading && m.artistMeta == nil {
+			return helpStyle.Render("  " + m.spinner.View() + "loading artist info…")
+		}
+		if a := m.artistMeta; a != nil {
+			return "  " + helpStyle.Render(artistHeaderSummary(a))
+		}
+	case levelTracks:
+		if m.metaLoading && m.albumMeta == nil {
+			return helpStyle.Render("  " + m.spinner.View() + "loading album info…")
+		}
+		if a := m.albumMeta; a != nil {
+			return "  " + helpStyle.Render(albumHeaderSummary(a))
+		}
+	}
+	return ""
+}
+
+func artistHeaderSummary(a *plex.ArtistMetadata) string {
+	parts := make([]string, 0, 3)
+	if len(a.Countries) > 0 {
+		parts = append(parts, a.Countries[0])
+	}
+	tags := append([]string{}, a.Genres...)
+	tags = append(tags, a.Moods...)
+	if n := 3; len(tags) > n {
+		tags = tags[:n]
+	}
+	if len(tags) > 0 {
+		parts = append(parts, strings.Join(tags, ", "))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func albumHeaderSummary(a *plex.AlbumMetadata) string {
+	parts := make([]string, 0, 4)
+	if a.Artist != "" {
+		parts = append(parts, a.Artist)
+	}
+	if a.Year > 0 {
+		parts = append(parts, fmt.Sprintf("%d", a.Year))
+	}
+	if a.Studio != "" {
+		parts = append(parts, a.Studio)
+	}
+	tags := append([]string{}, a.Genres...)
+	tags = append(tags, a.Moods...)
+	if n := 2; len(tags) > n {
+		tags = tags[:n]
+	}
+	if len(tags) > 0 {
+		parts = append(parts, strings.Join(tags, ", "))
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (m Model) crumbLine() string {
 	if len(m.crumbs) == 0 {
 		return ""
@@ -294,14 +365,130 @@ func (m Model) helpModalBox() string {
 	return m.modalFrame(title + "\n" + m.helpViewport.View())
 }
 
+// infoModalBox wraps the per-level metadata body (set via SetContent
+// when the modal opens) in the shared modal frame.
+func (m Model) infoModalBox() string {
+	var heading string
+	switch m.level {
+	case levelAlbums:
+		if a := m.artistMeta; a != nil {
+			heading = headerStyle.Render(a.Title)
+		} else {
+			heading = headerStyle.Render("Artist")
+		}
+	case levelTracks:
+		if a := m.albumMeta; a != nil {
+			heading = headerStyle.Render(a.Title)
+			if a.Artist != "" {
+				heading += helpStyle.Render("  " + a.Artist)
+			}
+		} else {
+			heading = headerStyle.Render("Album")
+		}
+	default:
+		heading = headerStyle.Render("Info")
+	}
+	return m.modalFrame(heading + "\n" + m.infoViewport.View())
+}
+
+// infoModalContent assembles the modal body for whichever level the
+// user is on. Returns "" if there's nothing to show — caller uses that
+// as a "don't open the modal" signal.
+func (m Model) infoModalContent() string {
+	switch m.level {
+	case levelAlbums:
+		if a := m.artistMeta; a != nil {
+			return formatArtistInfo(a)
+		}
+	case levelTracks:
+		if a := m.albumMeta; a != nil {
+			return formatAlbumInfo(a)
+		}
+	}
+	return ""
+}
+
+func formatArtistInfo(a *plex.ArtistMetadata) string {
+	var b strings.Builder
+	if a.Summary != "" {
+		b.WriteString(reflowParagraphs(a.Summary))
+		b.WriteString("\n\n")
+	}
+	writeTags(&b, "Genres", a.Genres)
+	writeTags(&b, "Moods", a.Moods)
+	writeTags(&b, "Styles", a.Styles)
+	writeTags(&b, "Country", a.Countries)
+	writeTags(&b, "Similar", a.Similar)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatAlbumInfo(a *plex.AlbumMetadata) string {
+	var b strings.Builder
+	if a.Summary != "" {
+		b.WriteString(reflowParagraphs(a.Summary))
+		b.WriteString("\n\n")
+	}
+	if a.Year > 0 {
+		b.WriteString(helpStyle.Render("Year: "))
+		b.WriteString(fmt.Sprintf("%d\n", a.Year))
+	}
+	if a.Studio != "" {
+		b.WriteString(helpStyle.Render("Studio: "))
+		b.WriteString(a.Studio + "\n")
+	}
+	if a.Artist != "" {
+		b.WriteString(helpStyle.Render("Artist: "))
+		b.WriteString(a.Artist + "\n")
+	}
+	writeTags(&b, "Genres", a.Genres)
+	writeTags(&b, "Moods", a.Moods)
+	writeTags(&b, "Styles", a.Styles)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// reflowParagraphs preserves paragraph structure while collapsing any
+// in-paragraph whitespace. Plex bios mark paragraph breaks with a
+// single \r\n (not \n\n) and use no in-paragraph soft wraps; we split
+// on the normalized newline, reflow each paragraph's internal
+// whitespace, and rejoin with a blank line so the modal shows the
+// paragraphs visually separated.
+func reflowParagraphs(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	paras := strings.Split(s, "\n")
+	out := make([]string, 0, len(paras))
+	for _, p := range paras {
+		if cleaned := strings.Join(strings.Fields(p), " "); cleaned != "" {
+			out = append(out, cleaned)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+func writeTags(b *strings.Builder, label string, tags []string) {
+	if len(tags) == 0 {
+		return
+	}
+	b.WriteString(helpStyle.Render(label + ": "))
+	b.WriteString(strings.Join(tags, ", "))
+	b.WriteString("\n")
+}
+
 // modalFrame applies the rounded-border modal style with both width and
 // height pinned to the current modalSize. The explicit Height keeps every
 // modal at the same outer size regardless of how much content sits inside
 // — without it, short content (e.g. "no matches" in the search modal)
 // makes the box shrink, which feels jittery as the user types.
+//
+// In lipgloss v2 Style.Width(N) sets the OUTER width including border +
+// padding, so Width(w) lands the modal at exactly modalSize. The callers
+// that set sub-widget widths to mw-4 (queueList, helpViewport,
+// infoViewport) then match the modal's content area (mw - border(2) -
+// padding(2) = mw-4) exactly — without this, the modal re-wrapped each
+// inner line, splitting paragraphs into orphan single-word rows.
 func (m Model) modalFrame(content string) string {
 	w, h := m.modalSize()
-	return modalStyle.Width(w - 2).Height(h - 2).Render(content)
+	return modalStyle.Width(w).Height(h).Render(content)
 }
 
 // helpBodyContent renders the help-modal body from KeyMap.helpModalSections,

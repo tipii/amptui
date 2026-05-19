@@ -300,20 +300,22 @@ func entryToTrack(e library.Entry) plex.Track {
 // artist's albums. Builds a Libraries → Artists crumb trail so the
 // breadcrumb reads naturally and "back" walks back through the same
 // hierarchy a manual drill-down would have produced.
-func (m Model) jumpToArtist(artistKey string) Model {
+func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
 	m.pushArtistsCrumb(artistKey)
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
-	return m
+	m.artistMeta, m.albumMeta = nil, nil
+	m.metaLoading = true
+	return m, fetchArtistMeta(m.client, artistKey)
 }
 
 // jumpToAlbum closes the search modal and points the browser at the
 // album's tracks, pushing synthetic Artists and Albums crumbs along
 // the way so the breadcrumb shows "Music / Artist / Album / Tracks"
 // and "back" lands on the artist's album list.
-func (m Model) jumpToAlbum(albumKey string) Model {
+func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 	m.search = m.search.Close()
 	m.crumbs = m.crumbs[:0]
 	m.pushLibrariesCrumb()
@@ -335,7 +337,9 @@ func (m Model) jumpToAlbum(albumKey string) Model {
 		}
 	}
 	m.applyItems(levelTracks, m.trackItems(albumKey))
-	return m
+	m.albumMeta = nil
+	m.metaLoading = true
+	return m, fetchAlbumMeta(m.client, albumKey)
 }
 
 // pushArtistsCrumb pushes a synthetic Artists-level crumb whose cursor

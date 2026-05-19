@@ -14,6 +14,7 @@ type KeyMap struct {
 	Help     key.Binding
 	Settings key.Binding
 	Refresh  key.Binding
+	Info     key.Binding // 'i' — open the artist/album info modal
 
 	// --- generic navigation (re-used across screens / modals) ---
 	Up, Down, Left, Right key.Binding
@@ -59,6 +60,7 @@ func NewKeyMap() KeyMap {
 		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Settings: key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings")),
 		Refresh:  key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
+		Info:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "info")),
 
 		Up:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
@@ -107,11 +109,11 @@ func (h helpView) FullHelp() [][]key.Binding { return h.full }
 // browserHelp is the help context for the main browser screen.
 func (k KeyMap) browserHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Help, k.OpenSearch, k.Enter, k.SwitchScreen, k.OpenQueue, k.NextTrack, k.PrevTrack, k.Quit},
+		short: []key.Binding{k.Help, k.OpenSearch, k.Enter, k.SwitchScreen, k.OpenQueue, k.Info, k.NextTrack, k.PrevTrack, k.Quit},
 		full: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
-			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue},
+			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue, k.Info},
 			{k.OpenSearch, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}
@@ -136,6 +138,13 @@ func (k KeyMap) searchModalHelp() helpView {
 func (k KeyMap) helpModalHelp() helpView {
 	return helpView{
 		short: []key.Binding{k.Up, k.Down, k.Help, k.Back},
+	}
+}
+
+// infoModalHelp is shown while the artist/album info modal is open.
+func (k KeyMap) infoModalHelp() helpView {
+	return helpView{
+		short: []key.Binding{k.Up, k.Down, k.Info, k.Back},
 	}
 }
 
@@ -199,6 +208,8 @@ func (k KeyMap) helpModalSections() []keySection {
 func (m Model) currentHelp() helpView {
 	k := m.keymap
 	switch {
+	case m.showInfo:
+		return k.infoModalHelp()
 	case m.showHelp:
 		return k.helpModalHelp()
 	case m.search.IsOpen():

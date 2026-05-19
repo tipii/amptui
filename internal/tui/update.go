@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -24,6 +25,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
 		m.helpModel.SetWidth(msg.Width)
+		m.infoViewport.SetWidth(mw - 4)
+		m.infoViewport.SetHeight(mh - 3)
 		// Progress bar fits between the left indent and the right edge.
 		m.progress.SetWidth(msg.Width - 4)
 		// huh fields need WindowSizeMsg too so they can size themselves.
@@ -45,6 +48,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			m.helpViewport, cmd = m.helpViewport.Update(msg)
+			return m, cmd
+		}
+		// The info modal owns input while it is open.
+		if m.showInfo {
+			switch {
+			case key.Matches(msg, k.Quit):
+				return m, tea.Quit
+			case key.Matches(msg, k.Info), key.Matches(msg, k.Back):
+				m.showInfo = false
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.infoViewport, cmd = m.infoViewport.Update(msg)
 			return m, cmd
 		}
 		// The search modal owns input while it is open. The sub-model
@@ -117,6 +133,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, k.SwitchScreen):
 			m.screen = screenDashboard
 			return m, nil
+		case key.Matches(msg, k.Info):
+			if body := m.infoModalContent(); body != "" {
+				// viewport doesn't soft-wrap; lipgloss with Width does.
+				// Wrap to the viewport's visible width so bios reflow
+				// instead of getting truncated mid-word at the edge.
+				w := m.infoViewport.Width()
+				if w < 10 {
+					w = 60
+				}
+				wrapped := lipgloss.NewStyle().Width(w).Render(body)
+				m.infoViewport.SetContent(wrapped)
+				m.infoViewport.GotoTop()
+				m.showInfo = true
+			}
+			return m, nil
 		case key.Matches(msg, k.Enter):
 			return m.drillDown()
 		case key.Matches(msg, k.Back):
@@ -185,6 +216,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case libraryErrMsg:
 		m.librarySyncing = false
 		m.libraryErr = msg.err
+		return m, nil
+
+	case artistMetaMsg:
+		m.metaLoading = false
+		m.artistMeta = msg.meta
+		return m, nil
+	case albumMetaMsg:
+		m.metaLoading = false
+		m.albumMeta = msg.meta
 		return m, nil
 
 	case dashboardPlaysMsg:
@@ -299,11 +339,13 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case searchOutcomeJumpArtist:
 		if e := m.search.SelectedEntry(); e != nil {
-			return m.jumpToArtist(e.RatingKey), cmd
+			model, jcmd := m.jumpToArtist(e.RatingKey)
+			return model, tea.Batch(cmd, jcmd)
 		}
 	case searchOutcomeJumpAlbum:
 		if e := m.search.SelectedEntry(); e != nil {
-			return m.jumpToAlbum(e.RatingKey), cmd
+			model, jcmd := m.jumpToAlbum(e.RatingKey)
+			return model, tea.Batch(cmd, jcmd)
 		}
 	}
 	return m, cmd
@@ -402,9 +444,9 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a, ok := m.dashboard.SelectedAlbum(); ok {
 			// Jump the browser to this album's tracks (same pattern as
 			// jumpToAlbum from search) and switch to the browser screen.
-			model := m.jumpToAlbum(a.RatingKey)
+			model, jcmd := m.jumpToAlbum(a.RatingKey)
 			model.screen = screenBrowser
-			return model, cmd
+			return model, tea.Batch(cmd, jcmd)
 		}
 	case dashOutcomeOpenPlaylist:
 		if p, ok := m.dashboard.SelectedPlaylist(); ok {

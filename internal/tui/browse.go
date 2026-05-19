@@ -1,11 +1,56 @@
 package tui
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/theopalhol/amptui/internal/plex"
 )
+
+// metaFetchTimeout caps the per-screen metadata fetch.
+const metaFetchTimeout = 10 * time.Second
+
+// artistMetaMsg / albumMetaMsg deliver the result of a per-screen
+// metadata fetch fired by drillDown when entering levelAlbums /
+// levelTracks.
+type (
+	artistMetaMsg struct {
+		meta *plex.ArtistMetadata
+		err  error
+	}
+	albumMetaMsg struct {
+		meta *plex.AlbumMetadata
+		err  error
+	}
+)
+
+func fetchArtistMeta(client *plex.Client, ratingKey string) tea.Cmd {
+	if client == nil || ratingKey == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
+		defer cancel()
+		meta, err := client.ArtistMetadata(ctx, ratingKey)
+		return artistMetaMsg{meta: meta, err: err}
+	}
+}
+
+func fetchAlbumMeta(client *plex.Client, ratingKey string) tea.Cmd {
+	if client == nil || ratingKey == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
+		defer cancel()
+		meta, err := client.AlbumMetadata(ctx, ratingKey)
+		return albumMetaMsg{meta: meta, err: err}
+	}
+}
 
 type level int
 
@@ -49,11 +94,15 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	case artistItem:
 		m.pushCrumb(it.artist.Title)
 		m.applyItems(levelAlbums, m.albumItems(it.artist.RatingKey))
-		return m, nil
+		m.artistMeta, m.albumMeta = nil, nil
+		m.metaLoading = true
+		return m, fetchArtistMeta(m.client, it.artist.RatingKey)
 	case albumItem:
 		m.pushCrumb(it.album.Title)
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
-		return m, nil
+		m.albumMeta = nil
+		m.metaLoading = true
+		return m, fetchAlbumMeta(m.client, it.album.RatingKey)
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
 	case trackItem:

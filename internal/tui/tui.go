@@ -73,6 +73,7 @@ type Model struct {
 	list         list.Model
 	queueList    list.Model     // shown in the queue modal
 	helpViewport viewport.Model // scrollable body of the help modal
+	infoViewport viewport.Model // scrollable body of the artist/album info modal
 	spinner      spinner.Model
 	progress     progress.Model // now-playing track-position bar
 
@@ -82,16 +83,26 @@ type Model struct {
 	err        error
 	nowPlaying *plex.Track
 
+	// Rich metadata fetched lazily for the artist whose albums are
+	// being browsed, or the album whose tracks are. Each is nil until
+	// the per-screen fetch resolves; metaLoading drives a "loading…"
+	// hint in the header during the fetch.
+	artistMeta  *plex.ArtistMetadata
+	albumMeta   *plex.AlbumMetadata
+	metaLoading bool
+
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
 	// the queue is exhausted.
 	queue    []plex.Track
 	queueIdx int
 
-	// showQueue / showHelp are true while their modal is open; an open
-	// modal owns input. The search modal's open state lives on m.search.
+	// showQueue / showHelp / showInfo are true while their modal is
+	// open; an open modal owns input. The search modal's open state
+	// lives on m.search.
 	showQueue bool
 	showHelp  bool
+	showInfo  bool
 
 	// search is the fuzzy-finder sub-model; the parent forwards keys via
 	// routeSearchKey and applies its outcomes.
@@ -154,6 +165,9 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	hv := viewport.New()
 	hv.FillHeight = true
 
+	iv := viewport.New()
+	iv.FillHeight = true
+
 	m := Model{
 		cfg:            cfg,
 		client:         client,
@@ -164,6 +178,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		list:           l,
 		queueList:      ql,
 		helpViewport:   hv,
+		infoViewport:   iv,
 		spinner:        sp,
 		progress:       pr,
 		search:         newSearchModel(),
