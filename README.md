@@ -46,34 +46,26 @@ or `go install ./cmd/amptui` for a system-wide install.
 
 ## Configuration
 
-Create `~/.config/amptui/config.toml` (see `config.example.toml`):
+Every setting is editable from inside the app — press `,` to open the
+settings screen, `j`/`k` to move, `enter` to edit, `enter` again to save.
+First-run with no config drops you straight there so you can paste in
+your Plex server URL and `X-Plex-Token`.
 
-```toml
-server_url = "http://192.168.1.10:32400"
-token = "your-X-Plex-Token-here"
+Settings (all optional except the server URL + token):
 
-# Optional: skip the library picker and open straight into this library.
-# Matched against a library's section key or title (case-insensitive).
-default_library = "Music"
+| Setting              | Values                  | Notes                                                                |
+| -------------------- | ----------------------- | -------------------------------------------------------------------- |
+| Server URL           | `http://host:32400`     | Your Plex server. Required.                                          |
+| Token                | `X-Plex-Token`          | See Plex's [auth token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
+| Default library      | name or section key     | Skips the library picker on launch.                                  |
+| Default view artist  | `list` / `grid`         | Initial render mode for the Artists level.                           |
+| Default view album   | `list` / `grid`         | Initial render mode for the Albums level.                            |
+| Home screen          | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
+| Inline artwork       | `off` / `on`            | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 
-# Optional: initial render mode at each browser level — "list" or "grid".
-# Editable from the settings screen (`,`).
-default_view_artist = "grid"
-default_view_album = "list"
-
-# Optional: which screen amptui opens on — "library" (default) or "dashboard".
-# Tab swaps between them at runtime.
-home = "library"
-
-# Optional: render inline artwork (artist / album thumbnails) in the header,
-# info modal, grid cards and album list rows. Off by default; flip on to use
-# the Kitty graphics protocol on supported terminals or the half-block ANSI
-# fallback elsewhere. Cached to ~/.cache/amptui/img/.
-images = false
-```
-
-All values can also be supplied via environment variables, which override the
-config file:
+Anything saved in the app is written to `~/.config/amptui/config.toml`. A
+hand-edited TOML works too — see `config.example.toml` for the full schema.
+Server URL, token, and default library can also be overridden via env vars:
 
 ```bash
 export AMPTUI_SERVER_URL="http://192.168.1.10:32400"
@@ -81,8 +73,25 @@ export AMPTUI_TOKEN="your-X-Plex-Token-here"
 export AMPTUI_DEFAULT_LIBRARY="Music"
 ```
 
-Finding your token: see Plex's guide,
-[Finding an authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+### Inline artwork
+
+When **Inline artwork** is on, amptui renders artist and album thumbnails in
+the breadcrumb header, the `i` info modal, grid cards, and album list rows.
+Rendering picks the best protocol your terminal advertises:
+
+- **Kitty graphics protocol** (pixel-perfect, real images) on:
+  [Kitty](https://sw.kovidgoyal.net/kitty/),
+  [Ghostty](https://ghostty.org/),
+  [WezTerm](https://wezterm.org/),
+  Konsole (recent versions). Detection looks at
+  `$KITTY_WINDOW_ID`, `$GHOSTTY_RESOURCES_DIR`, `$TERM_PROGRAM`, and `$TERM`.
+- **Half-block ANSI fallback** everywhere else (any 24-bit-color terminal
+  including Alacritty, foot, tmux, xterm — works over SSH too).
+
+Thumbnails are fetched on demand via Plex's `/photo/:/transcode` endpoint
+and cached to `~/.cache/amptui/img/` so subsequent views skip the network.
+Press `C` from the settings screen to purge the image cache; the **Image
+cache** section there shows the current path, file count, and disk size.
 
 ## Keybindings
 
