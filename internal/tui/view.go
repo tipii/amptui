@@ -110,7 +110,11 @@ func (m Model) dashboardScreen() string {
 	b.WriteString(headerStyle.Render("amptui"))
 	b.WriteString("  " + crumbStyle.Render("Dashboard"))
 	b.WriteString("\n\n")
-	b.WriteString(m.dashboard.View(m.width, m.listHeight()-2, m.spinner))
+	// Dashboard renders its title + spacer outside the sub-model body,
+	// matching the browser layout, so the body itself gets exactly
+	// listHeight rows. The previous -2 over-compensated and left a
+	// 2-row gap above the now-playing line.
+	b.WriteString(m.dashboard.View(m.width, m.listHeight(), m.spinner))
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
@@ -123,7 +127,16 @@ func (m Model) dashboardScreen() string {
 // those — they're parent-level concerns shared with the browser view.
 func (m Model) settingsScreen() string {
 	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
-	body := m.settings.View(m.listHeight(), stats)
+	// Unlike the browser / dashboard, the settings sub-model renders
+	// its own "amptui Settings /" header INSIDE the padded body. So
+	// pass it the full screen height minus only the now-playing line
+	// + footer (3 rows), not listHeight (which assumes the title
+	// chrome lives outside the body).
+	bodyHeight := m.height - 3
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	body := m.settings.View(bodyHeight, stats)
 
 	var b strings.Builder
 	b.WriteString(body)
@@ -399,12 +412,13 @@ func (m Model) crumbLine() string {
 // Baseline chrome above and below it: header (1), blank spacer (1),
 // now-playing block (2: track line + progress bar), and footer (1) —
 // 5 rows total. On browser screens that show a hero thumb (artist /
-// album), the chrome grows by an extra spacer + thumb rows; subtract
-// those too so the list never overlaps the now-playing line.
+// album), the chrome grows by exactly the thumb-block's height; the
+// title + spacer rows are preserved, the image block is rendered
+// underneath them.
 func (m Model) listHeight() int {
 	h := m.height - 5
 	if m.screen == screenBrowser && m.headerThumb() != "" {
-		h -= 1 + headerThumbCellsH
+		h -= headerThumbCellsH
 	}
 	if h < 1 {
 		return 1
