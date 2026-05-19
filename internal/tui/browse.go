@@ -82,12 +82,6 @@ const (
 	gridThumbCellsH = cardOuterH - cardBorderCols - 1  // 6
 )
 
-// gridThumbFetchPixels is the source-image size we ask Plex to
-// transcode to for grid thumbnails. Sized comfortably above the
-// rendered pixel target so the half-block downscale has detail to
-// work with.
-const gridThumbFetchPixels = 256
-
 // fetchArtwork loads the default thumb for a Plex item by ratingKey,
 // cache-first, through the direct /library/metadata/<key>/thumb URL
 // (no transcoder hop). One synthetic cache key — "grid/<ratingKey>" —

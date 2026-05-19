@@ -101,17 +101,13 @@ type Model struct {
 	albumMeta   *plex.AlbumMetadata
 	metaLoading bool
 
-	// Inline-artwork state. artistThumb / albumThumb hold the raw
-	// fetched bytes (decoded on render) for whatever artist/album
-	// the user is currently viewing. imgProtocol is detected once
-	// at startup; the renderer falls back to half-block ANSI when
-	// the terminal has no native protocol.
-	// Image rendering uses ntcharts/picture.Model — a Bubble-Tea-aware
-	// component that handles glyph (half-block) AND Kitty graphics
-	// protocol, including the Ghostty redraw bug we hit when emitting
-	// Kitty sequences ourselves. Each thumbnail surface is its own
-	// model; they share a configured mode + cell pixel size set by
-	// the parent at construction and refreshed via CellSizeEvent.
+	// Inline-artwork state. Each surface (artist/album hero header,
+	// info modal, grid card, list row) owns a picture.Model — a
+	// Bubble-Tea-aware component from ntcharts that handles glyph
+	// (half-block) AND Kitty graphics protocol, including the
+	// Ghostty redraw bug we hit when emitting Kitty sequences
+	// ourselves. picMode is detected once at startup; surfaces fall
+	// back to half-block on terminals without Kitty support.
 	artistHeaderPic picture.Model
 	artistModalPic  picture.Model
 	albumHeaderPic  picture.Model

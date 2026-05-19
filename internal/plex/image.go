@@ -9,24 +9,6 @@ import (
 	"strings"
 )
 
-// ThumbURL builds an authenticated URL for a Plex image at the given
-// pixel dimensions. Plex's /photo/:/transcode endpoint resizes any
-// server-relative image (artist/album thumb, art, etc.) on the fly —
-// it expects the source as a RELATIVE path in the url= parameter,
-// not a fully-qualified URL.
-// thumbPath is typically the value of the Thumb field on a metadata
-// object, e.g. "/library/metadata/12345/thumb/1700000000".
-func (c *Client) ThumbURL(thumbPath string, width, height int) string {
-	if thumbPath == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s/photo/:/transcode?width=%d&height=%d&url=%s&X-Plex-Token=%s",
-		c.serverURL, width, height,
-		url.QueryEscape(thumbPath),
-		url.QueryEscape(c.token),
-	)
-}
-
 // ArtworkURL returns a direct (non-transcoded) URL for an item's
 // default thumb, looked up by ratingKey. Useful for grid cards where
 // we don't have the full thumb path on hand. The server returns the
