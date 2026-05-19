@@ -53,15 +53,15 @@ your Plex server URL and `X-Plex-Token`.
 
 Settings (all optional except the server URL + token):
 
-| Setting              | Values                  | Notes                                                                |
-| -------------------- | ----------------------- | -------------------------------------------------------------------- |
-| Server URL           | `http://host:32400`     | Your Plex server. Required.                                          |
-| Token                | `X-Plex-Token`          | See Plex's [auth token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
-| Default library      | name or section key     | Skips the library picker on launch.                                  |
-| Default view artist  | `list` / `grid`         | Initial render mode for the Artists level.                           |
-| Default view album   | `list` / `grid`         | Initial render mode for the Albums level.                            |
-| Home screen          | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
-| Inline artwork       | `off` / `on`            | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
+| Setting             | TOML key              | Values                  | Notes                                                                |
+| ------------------- | --------------------- | ----------------------- | -------------------------------------------------------------------- |
+| Server URL          | `server_url`          | `http://host:32400`     | Your Plex server. Required.                                          |
+| Token               | `token`               | `X-Plex-Token`          | See Plex's [auth token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
+| Default library     | `default_library`     | name or section key     | Skips the library picker on launch.                                  |
+| Default view artist | `default_view_artist` | `list` / `grid`         | Initial render mode for the Artists level.                           |
+| Default view album  | `default_view_album`  | `list` / `grid`         | Initial render mode for the Albums level.                            |
+| Home screen         | `home`                | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
+| Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 
 Anything saved in the app is written to `~/.config/amptui/config.toml`. A
 hand-edited TOML works too — see `config.example.toml` for the full schema.
