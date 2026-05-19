@@ -323,9 +323,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			key := strings.TrimPrefix(msg.kind, "grid:")
 			// Build two sized models from the same image: one for the
 			// grid card and a smaller one for the list row. Sharing the
-			// fetch keeps a single cache hit per RatingKey.
-			gp := newSizedPicture(gridThumbCellsW, gridThumbCellsH)
-			lp := newSizedPicture(listThumbCellsW, listThumbCellsH)
+			// fetch keeps a single cache hit per RatingKey. The Kitty
+			// IDs are derived from the RatingKey (one per cell size) so
+			// a revisit reuses the terminal's existing placement — no
+			// stale-image flicker from a randomly-reused ID.
+			gp := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor("grid", key)})
+			gp.SetSize(gridThumbCellsW, gridThumbCellsH)
+			lp := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor("list", key)})
+			lp.SetSize(listThumbCellsW, listThumbCellsH)
 			cmds = append(cmds,
 				m.applyPicMode(&gp), gp.SetImage(msg.img),
 				m.applyPicMode(&lp), lp.SetImage(msg.img),

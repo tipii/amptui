@@ -13,6 +13,8 @@
 package tui
 
 import (
+	"crypto/sha1"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -303,16 +305,34 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-// pictureID hands out monotonically-increasing Kitty image IDs.
-// Every picture.Model must hold a distinct ID — Kitty stores one
-// image per ID, so sharing IDs (the picture-default 43) causes the
-// last SetImage to overwrite all prior placements, making every
-// thumbnail look identical. Glyph mode ignores the field, so this
-// is harmless on terminals without Kitty support.
+// pictureID hands out monotonically-increasing Kitty image IDs for
+// picture.Models that aren't tied to a specific item (header / modal
+// singletons). Every picture.Model must hold a distinct ID — Kitty
+// stores one image per ID, so sharing IDs causes the last SetImage
+// to overwrite all prior placements. Glyph mode ignores the field,
+// so this is harmless on terminals without Kitty support.
 var pictureID atomic.Int32
 
 func nextPictureID() int {
 	return int(pictureID.Add(1)) + 43 // stay clear of well-known IDs
+}
+
+// kittyIDFor returns a deterministic Kitty image ID for the given
+// inputs. The same parts always produce the same ID, so when the
+// terminal has cached an image at this ID from a previous run, the
+// placement renders the correct image immediately — no "fallback →
+// stale image → real image" flicker from a randomly-reused kittyID.
+//
+// IDs are encoded in 24 bits (Kitty packs them into an RGB triple),
+// so collisions are birthday-bounded around ~4k items. The 256 floor
+// keeps us clear of low well-known IDs.
+func kittyIDFor(parts ...string) int {
+	h := sha1.Sum([]byte(strings.Join(parts, "|")))
+	id := int(h[0])<<16 | int(h[1])<<8 | int(h[2])
+	if id < 256 {
+		id += 256
+	}
+	return id
 }
 
 // newSizedPicture returns a picture.Model pre-sized to the given cell
