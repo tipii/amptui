@@ -57,6 +57,25 @@ type (
 	libraryErrMsg   struct{ err error }
 )
 
+// librariesReadyMsg is the result of an async MusicLibraries fetch — fired
+// after the user enters credentials in the settings screen so first-time
+// setup can complete without a restart.
+type librariesReadyMsg struct {
+	libs []plex.MusicLibrary
+	err  error
+}
+
+// fetchLibraries asks the server for its music library sections. Used on
+// first-time setup once the user has entered credentials.
+func fetchLibraries(client *plex.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		libs, err := client.MusicLibraries(ctx)
+		return librariesReadyMsg{libs: libs, err: err}
+	}
+}
+
 // searchFilters lists the kind-filters that Tab cycles through, paired with
 // the labels shown in the modal's filter bar.
 var (
