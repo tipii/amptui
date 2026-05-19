@@ -264,10 +264,10 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 			huh.NewOption("dashboard", "dashboard"),
 			huh.NewOption("library", "library"),
 		).Value(&v.Home),
-		huh.NewConfirm().Title("Inline artwork").
-			Description("Render artist / album thumbnails in the info header and modal.").
-			Affirmative("on").Negative("off").
-			Value(&v.Images),
+		huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
+			huh.NewOption("off", false),
+			huh.NewOption("on", true),
+		).Value(&v.Images),
 	}
 	km := huh.NewDefaultKeyMap()
 	for i, f := range fields {
