@@ -292,6 +292,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.artistHeaderPic.SetImage(msg.img),
 				m.artistModalPic.SetImage(msg.img),
 			)
+			// The list was sized before the thumb existed (headerThumb()
+			// was "") so listHeight returned the no-image budget. Now
+			// that the hero thumb is in, reflow against the taller
+			// chrome or the status bar gets pushed off the terminal.
+			m.list.SetSize(m.width, m.listHeight())
 		case msg.kind == "album":
 			cmds = append(cmds,
 				m.applyPicMode(&m.albumHeaderPic),
@@ -299,12 +304,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.albumHeaderPic.SetImage(msg.img),
 				m.albumModalPic.SetImage(msg.img),
 			)
+			m.list.SetSize(m.width, m.listHeight())
 		case strings.HasPrefix(msg.kind, "grid:"):
 			key := strings.TrimPrefix(msg.kind, "grid:")
-			pic := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
-			pic.SetSize(gridThumbCellsW, gridThumbCellsH)
-			cmds = append(cmds, m.applyPicMode(&pic), pic.SetImage(msg.img))
-			m.gridPics[key] = &pic
+			// Build two sized models from the same image: one for the
+			// grid card and a smaller one for the list row. Sharing the
+			// fetch keeps a single cache hit per RatingKey.
+			gp := newSizedPicture(gridThumbCellsW, gridThumbCellsH)
+			lp := newSizedPicture(listThumbCellsW, listThumbCellsH)
+			cmds = append(cmds,
+				m.applyPicMode(&gp), gp.SetImage(msg.img),
+				m.applyPicMode(&lp), lp.SetImage(msg.img),
+			)
+			m.gridPics[key] = &gp
+			m.listPics[key] = &lp
 		}
 		return m, tea.Batch(cmds...)
 
@@ -374,6 +387,9 @@ func (m *Model) forwardPictureMsg(msg tea.Msg) tea.Cmd {
 	for _, p := range m.gridPics {
 		cmds = append(cmds, p.Update(msg))
 	}
+	for _, p := range m.listPics {
+		cmds = append(cmds, p.Update(msg))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -405,6 +421,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the save succeeded so it can flash the right indicator.
 		v := m.settings.Values()
 		imagesEnabled := !m.cfg.Images && v.Images
+		imagesChanged := m.cfg.Images != v.Images
 		m.cfg.ServerURL = v.ServerURL
 		m.cfg.Token = v.Token
 		m.cfg.DefaultLibrary = v.DefaultLibrary
@@ -415,6 +432,13 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
+		// Toggling Images flips the chrome between the no-image
+		// budget and the hero-thumb budget (an extra spacer + thumb
+		// rows). Resize the list so it doesn't run into the status
+		// bar (on) or leave a gap (off).
+		if imagesChanged {
+			m.list.SetSize(m.width, m.listHeight())
+		}
 		// First-time setup: app started without credentials, user has now
 		// supplied them. Build the Plex client and fetch the library list
 		// in the background so they can leave the settings screen and

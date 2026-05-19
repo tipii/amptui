@@ -54,14 +54,26 @@ func (m Model) browserView() string {
 	if crumbs := m.crumbLine(); crumbs != "" {
 		title += "  " + crumbStyle.Render(crumbs)
 	}
-	// Two-row chrome: title + info-summary line. When inline artwork
-	// is on and we have a thumb for the current screen, render it as
-	// a sidecar block sharing those two rows.
-	chrome := title + "\n" + m.infoHeaderLine()
+	// Chrome layout:
+	//   row 1:   title + breadcrumb (always full-width — image must not
+	//            sit on the same row).
+	//   row 2:   blank spacer.
+	//   row 3+:  on artist / album screens with Images on, the hero
+	//            thumb (N rows tall) docked to the left of the info
+	//            summary. On other screens this collapses to the one-
+	//            line summary directly below the spacer.
+	b.WriteString(title)
+	b.WriteString("\n")
 	if thumb := m.headerThumb(); thumb != "" {
-		chrome = lipgloss.JoinHorizontal(lipgloss.Top, thumb, "  ", chrome)
+		b.WriteString("\n")
+		// Right column gets whatever's left after the thumb + a 2-col
+		// gutter, minus a small safety margin so wrapped lines don't
+		// touch the terminal edge.
+		rightWidth := m.width - headerThumbCellsW - 4
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, thumb, "  ", m.infoHeaderBlock(rightWidth)))
+	} else {
+		b.WriteString(m.infoHeaderLine())
 	}
-	b.WriteString(chrome)
 	b.WriteString("\n")
 
 	if m.currentGridView() {
@@ -207,12 +219,14 @@ func fmtDur(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-// headerThumbCellsW / H is the cell footprint of the small thumbnail
-// shown next to the breadcrumbs on artist / album screens — sized to
-// the two-row chrome height.
+// headerThumbCellsW / H is the cell footprint of the hero thumbnail
+// shown on artist / album screens. It lives in a dedicated block
+// *under* the breadcrumb row (not beside it), so it can be sizeable
+// without crowding the title. 2:1 cell aspect → W=2×H stays
+// visually square.
 const (
-	headerThumbCellsW = 4
-	headerThumbCellsH = 2
+	headerThumbCellsW = 14
+	headerThumbCellsH = 7
 )
 
 // headerThumb returns the rendered small thumbnail to dock next to
@@ -233,6 +247,79 @@ func (m Model) headerThumb() string {
 		return ""
 	}
 	return p.View().Content
+}
+
+// infoHeaderBlock renders the multi-line panel docked next to the
+// hero thumb on artist / album screens: the one-line tag summary,
+// then a soft-wrapped bio teaser, then a hint at the info modal
+// shortcut. width is the available column count for the right side
+// of the JoinHorizontal — we wrap inside it so long lines don't
+// spill into the next row.
+func (m Model) infoHeaderBlock(width int) string {
+	if width < 10 {
+		width = 10
+	}
+	switch m.level {
+	case levelAlbums:
+		if m.metaLoading && m.artistMeta == nil {
+			return helpStyle.Render(m.spinner.View() + "loading artist info…")
+		}
+		if a := m.artistMeta; a != nil {
+			return m.composeInfoBlock(width, artistHeaderSummary(a), a.Summary)
+		}
+	case levelTracks:
+		if m.metaLoading && m.albumMeta == nil {
+			return helpStyle.Render(m.spinner.View() + "loading album info…")
+		}
+		if a := m.albumMeta; a != nil {
+			return m.composeInfoBlock(width, albumHeaderSummary(a), a.Summary)
+		}
+	}
+	return ""
+}
+
+// composeInfoBlock stacks summary + bio teaser + shortcut hint. The
+// teaser is 3 wrapped lines max; the hint only renders when there's
+// actually a bio (otherwise there's nothing to "read more" of).
+func (m Model) composeInfoBlock(width int, summary, bio string) string {
+	var b strings.Builder
+	if summary != "" {
+		b.WriteString(helpStyle.Render(summary))
+	}
+	teaser, hasBio := bioTeaser(bio, width, 3)
+	if teaser != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(teaser)
+	}
+	if hasBio {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		hintKey := m.keymap.Info.Help().Key
+		b.WriteString(helpStyle.Render("press " + hintKey + " for the full bio"))
+	}
+	return b.String()
+}
+
+// bioTeaser collapses bio whitespace, wraps to width, and returns the
+// first maxLines (with a trailing ellipsis if truncated). hasBio
+// reports whether there was a bio at all so the caller can decide
+// whether to show the "read more" hint.
+func bioTeaser(bio string, width, maxLines int) (text string, hasBio bool) {
+	flat := strings.Join(strings.Fields(bio), " ")
+	if flat == "" {
+		return "", false
+	}
+	wrapped := lipgloss.NewStyle().Width(width).Render(flat)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) <= maxLines {
+		return wrapped, true
+	}
+	out := strings.Join(lines[:maxLines], "\n")
+	out = strings.TrimRight(out, " ") + " …"
+	return out, true
 }
 
 // infoHeaderLine renders the one-line summary shown under the
@@ -309,12 +396,16 @@ func (m Model) crumbLine() string {
 }
 
 // listHeight is the height in rows of the body region (browser/grid).
-// The view above and below it consumes: header (1), blank spacer (1),
+// Baseline chrome above and below it: header (1), blank spacer (1),
 // now-playing block (2: track line + progress bar), and footer (1) —
-// 5 rows total. We always reserve the bar row so the body doesn't
-// resize between songs that do/don't have a duration.
+// 5 rows total. On browser screens that show a hero thumb (artist /
+// album), the chrome grows by an extra spacer + thumb rows; subtract
+// those too so the list never overlaps the now-playing line.
 func (m Model) listHeight() int {
 	h := m.height - 5
+	if m.screen == screenBrowser && m.headerThumb() != "" {
+		h -= 1 + headerThumbCellsH
+	}
 	if h < 1 {
 		return 1
 	}

@@ -273,6 +273,10 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	// breadcrumb label for the item the user drilled into, not the page).
 	m.list.Title = m.titleForLevel(c.level)
 	m.list.Select(c.index)
+	// listHeight depends on level (image-bearing levels carry a taller
+	// chrome). Reflow now that we're back on a different level so the
+	// list doesn't keep its previous frame's size.
+	m.list.SetSize(m.width, m.listHeight())
 	return m, nil
 }
 

@@ -115,7 +115,11 @@ type Model struct {
 	albumHeaderPic  picture.Model
 	albumModalPic   picture.Model
 	gridPics        map[string]*picture.Model
-	picMode         picture.PictureMode
+	// listPics holds the small list-view variant of the same thumb,
+	// sized for one bubbles/list row. Built alongside gridPics from the
+	// same fetched image so toggling between list / grid never refetches.
+	listPics map[string]*picture.Model
+	picMode  picture.PictureMode
 
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
@@ -168,11 +172,14 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr err
 		items[i] = libraryItem{lib: l}
 	}
 
-	// gridPics is shared with the list delegate so newly-fetched
-	// thumbs surface on the list rows on their next render without
-	// touching the list itself.
+	// gridPics holds the grid-card-sized thumb per RatingKey; listPics
+	// holds the small list-row variant. The list delegate reads from
+	// listPics so toggling list ⇄ grid renders the right size for the
+	// current view. Both maps are populated from a single fetch (see
+	// thumbReadyMsg "grid:…" handling) so switching never refetches.
 	gridPics := map[string]*picture.Model{}
-	l := list.New(items, newThumbDelegate(gridPics), 0, 0)
+	listPics := map[string]*picture.Model{}
+	l := list.New(items, newThumbDelegate(listPics), 0, 0)
 	l.Title = "Libraries"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
@@ -218,6 +225,7 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr err
 		dashboard:      newDashboardModel(),
 		picMode:         pictureModeFromProtocol(imgcache.Detect()),
 		gridPics:        gridPics,
+		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
 		albumHeaderPic:  newSizedPicture(headerThumbCellsW, headerThumbCellsH),
