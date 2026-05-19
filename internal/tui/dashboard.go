@@ -302,7 +302,10 @@ func (d dashboardModel) renderPlaylists(width int) string {
 
 // renderRow lays out a horizontal strip of cards. Only the cards that
 // fit in the visible window are rendered; the cursor stays in view by
-// shifting the window when it would fall off either edge.
+// shifting the window when it would fall off either edge. Cards are
+// composed manually (see renderDashCard) so widths use go-runewidth's
+// terminal-cell measurement and adjacent cards stay border-aligned
+// even when titles contain ambiguous-width glyphs (♥ ❤ ♡, etc.).
 func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item func(i int) (title, sub string)) string {
 	avail := width - 4 // 2-char indent each side
 	cols := avail / dashCardOuterW
@@ -321,21 +324,10 @@ func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item fun
 	cells := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		title, sub := item(i)
-		card := truncate(title, dashCardOuterW-4)
-		if sub != "" {
-			card += "\n" + helpStyle.Render(truncate(sub, dashCardOuterW-4))
-		}
-		style := cardStyle
-		if i == cursor && d.section == s {
-			style = cardCursorStyle
-		}
-		cells = append(cells, style.Width(dashCardOuterW).Height(dashCardOuterH).Render(card))
+		focused := i == cursor && d.section == s
+		cells = append(cells, renderDashCard(title, sub, dashCardOuterW, dashCardOuterH, focused))
 	}
-	// PaddingLeft pads every line of the joined block — using
-	// "  " + Join would only indent the first line, shifting the
-	// top border right while leaving content and bottom border at
-	// column 0.
-	return dashIndent(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+	return dashIndent(joinCardsHorizontally(cells))
 }
 
 // dashIndent pads every line of s by the dashboard's gutter width.
@@ -344,4 +336,71 @@ func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item fun
 func dashIndent(s string) string {
 	return lipgloss.NewStyle().PaddingLeft(2).Render(s)
 }
+
+// renderDashCard composes one dashboard card from scratch so width
+// math uses terminal-cell measurement throughout (via the helpers in
+// widthsafe.go). See that file's header for why we don't just call
+// lipgloss.NewStyle().Border(...).Width(N).Render(...).
+func renderDashCard(title, sub string, outerW, outerH int, focused bool) string {
+	innerW := outerW - 2 // borders
+	if innerW < 2 {
+		innerW = 2
+	}
+	interiorH := outerH - 2
+	if interiorH < 1 {
+		interiorH = 1
+	}
+
+	titleLine := centerCells(truncateCells(title, innerW), innerW)
+	blank := strings.Repeat(" ", innerW)
+
+	// Interior rows: title and (optional) sub centered vertically.
+	rows := make([]string, interiorH)
+	for i := range rows {
+		rows[i] = blank
+	}
+	switch {
+	case sub == "":
+		mid := (interiorH - 1) / 2
+		rows[mid] = titleLine
+	default:
+		subLine := centerCells(truncateCells(sub, innerW), innerW)
+		mid := (interiorH - 2) / 2
+		rows[mid] = titleLine
+		if mid+1 < interiorH {
+			rows[mid+1] = helpStyle.Render(subLine)
+		}
+	}
+
+	edgeColor := theme.Muted
+	if focused {
+		edgeColor = theme.Accent
+	}
+	edge := lipgloss.NewStyle().Foreground(edgeColor)
+	if focused {
+		// Bold the title line on focused cards (mirrors what
+		// cardCursorStyle used to do via lipgloss).
+		rows[(interiorH-2)/2] = lipgloss.NewStyle().
+			Foreground(edgeColor).Bold(true).Render(titleLine)
+		if sub == "" {
+			rows[(interiorH-1)/2] = lipgloss.NewStyle().
+				Foreground(edgeColor).Bold(true).Render(titleLine)
+		}
+	}
+
+	border := lipgloss.RoundedBorder()
+	top := edge.Render(border.TopLeft + strings.Repeat(border.Top, innerW) + border.TopRight)
+	bot := edge.Render(border.BottomLeft + strings.Repeat(border.Bottom, innerW) + border.BottomRight)
+	left := edge.Render(border.Left)
+	right := edge.Render(border.Right)
+
+	lines := make([]string, 0, outerH)
+	lines = append(lines, top)
+	for _, r := range rows {
+		lines = append(lines, left+r+right)
+	}
+	lines = append(lines, bot)
+	return strings.Join(lines, "\n")
+}
+
 
