@@ -97,8 +97,15 @@ func dialWithRetry(path string, timeout time.Duration) (net.Conn, error) {
 }
 
 // Load starts playback of url, replacing whatever is currently playing.
+// Always unpauses — if the user was paused on the previous track and
+// picked a new one, they want it to play, not silently stay paused.
+// mpv keeps its pause state across loadfile, so we set it explicitly
+// rather than relying on a property-change event that would never fire.
 func (p *Player) Load(url string) error {
 	if err := p.command("loadfile", url, "replace"); err != nil {
+		return err
+	}
+	if err := p.command("set_property", "pause", false); err != nil {
 		return err
 	}
 	// Reset state optimistically; mpv's property observers repopulate it
