@@ -24,6 +24,16 @@ Working today:
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; Plex is only touched during sync or info fetches
 - [ ] Scrobble / mark played
 
+## Roadmap
+
+- **Grid image optimization** — only fetch/render thumbnails for cards
+  currently on screen, loading more as you scroll, instead of fanning out
+  the whole level at once.
+- **Dashboard improvements** — richer tiles, more sections, better layout.
+- **Playlist management** — create, edit, and reorder playlists from the TUI
+  (today they're browse + play only).
+- **Music visualizer screen** — an audio-reactive view while a track plays.
+
 ## Requirements
 
 - Go 1.26+
