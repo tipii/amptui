@@ -14,6 +14,7 @@ type KeyMap struct {
 	Help     key.Binding
 	Settings key.Binding
 	Refresh  key.Binding
+	Info     key.Binding // 'i' — open the artist/album info modal
 
 	// --- generic navigation (re-used across screens / modals) ---
 	Up, Down, Left, Right key.Binding
@@ -21,10 +22,10 @@ type KeyMap struct {
 	Back                  key.Binding
 
 	// --- browser ---
-	Filter     key.Binding
-	ToggleGrid key.Binding
-	OpenQueue  key.Binding
-	OpenSearch key.Binding
+	Filter       key.Binding
+	SwitchScreen key.Binding // tab: dashboard ⇄ library
+	OpenQueue    key.Binding
+	OpenSearch   key.Binding
 
 	// --- playback / queue actions (from browser) ---
 	Pause        key.Binding
@@ -59,6 +60,7 @@ func NewKeyMap() KeyMap {
 		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Settings: key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings")),
 		Refresh:  key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
+		Info:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "info")),
 
 		Up:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
@@ -67,10 +69,10 @@ func NewKeyMap() KeyMap {
 		Enter: key.NewBinding(key.WithKeys("enter", "l"), key.WithHelp("enter", "open")),
 		Back:  key.NewBinding(key.WithKeys("esc", "backspace", "h"), key.WithHelp("esc", "back")),
 
-		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-		ToggleGrid: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "grid")),
-		OpenQueue:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "queue")),
-		OpenSearch: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
+		Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		SwitchScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "dash/lib")),
+		OpenQueue:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "queue")),
+		OpenSearch:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
 
 		Pause:        key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pause")),
 		NextTrack:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
@@ -107,11 +109,11 @@ func (h helpView) FullHelp() [][]key.Binding { return h.full }
 // browserHelp is the help context for the main browser screen.
 func (k KeyMap) browserHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Help, k.OpenSearch, k.Enter, k.ToggleGrid, k.OpenQueue, k.NextTrack, k.PrevTrack, k.Quit},
+		short: []key.Binding{k.Help, k.OpenSearch, k.Enter, k.SwitchScreen, k.OpenQueue, k.Info, k.NextTrack, k.PrevTrack, k.Quit},
 		full: [][]key.Binding{
-			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.ToggleGrid},
+			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
-			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue},
+			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue, k.Info},
 			{k.OpenSearch, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}
@@ -136,6 +138,20 @@ func (k KeyMap) searchModalHelp() helpView {
 func (k KeyMap) helpModalHelp() helpView {
 	return helpView{
 		short: []key.Binding{k.Up, k.Down, k.Help, k.Back},
+	}
+}
+
+// infoModalHelp is shown while the artist/album info modal is open.
+func (k KeyMap) infoModalHelp() helpView {
+	return helpView{
+		short: []key.Binding{k.Up, k.Down, k.Info, k.Back},
+	}
+}
+
+// dashboardHelp is the help shown on the home dashboard screen.
+func (k KeyMap) dashboardHelp() helpView {
+	return helpView{
+		short: []key.Binding{k.Up, k.Down, k.Left, k.Right, k.Enter, k.SwitchScreen, k.OpenSearch, k.Refresh, k.Quit},
 	}
 }
 
@@ -168,7 +184,7 @@ func (k KeyMap) helpModalSections() []keySection {
 	return []keySection{
 		{title: "Browse", bindings: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down},
-			{k.ToggleGrid, k.Filter},
+			{k.SwitchScreen, k.Filter},
 		}},
 		{title: "Playback", bindings: [][]key.Binding{
 			{k.Pause, k.NextTrack, k.PrevTrack},
@@ -192,6 +208,8 @@ func (k KeyMap) helpModalSections() []keySection {
 func (m Model) currentHelp() helpView {
 	k := m.keymap
 	switch {
+	case m.showInfo:
+		return k.infoModalHelp()
 	case m.showHelp:
 		return k.helpModalHelp()
 	case m.search.IsOpen():
@@ -202,6 +220,8 @@ func (m Model) currentHelp() helpView {
 		return k.settingsEditHelp()
 	case m.screen == screenSettings:
 		return k.settingsHelp()
+	case m.screen == screenDashboard:
+		return k.dashboardHelp()
 	default:
 		return k.browserHelp()
 	}

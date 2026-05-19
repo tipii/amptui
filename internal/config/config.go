@@ -22,6 +22,9 @@ type Config struct {
 	// for those browser levels: "list" (default) or "grid".
 	DefaultViewArtist string `toml:"default_view_artist,omitempty"`
 	DefaultViewAlbum  string `toml:"default_view_album,omitempty"`
+	// Home selects which screen the app opens on: "dashboard" (default,
+	// recent plays / added / playlists) or "library" (artist browser).
+	Home string `toml:"home,omitempty"`
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml

@@ -44,6 +44,9 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "3", Title: "Podcasts"},
 	}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	// Default screen is now dashboard; flip to browser so tests that
+	// assert browser content show through under modals can find it.
+	m.screen = screenBrowser
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -300,6 +303,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 
@@ -335,6 +339,126 @@ func TestArtistGridRenders(t *testing.T) {
 		t.Errorf("expected Al Green and Led Zeppelin to share a row in grid view")
 	}
 	t.Log("\n" + out)
+}
+
+// TestDashboardRenders covers the home screen showing the three section
+// headers and the cursor marker. Tile bodies show "loading…" since no
+// background fetch resolves in this test.
+func TestDashboardRenders(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
+	m := New(cfg, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+
+	if m.screen != screenDashboard {
+		t.Fatalf("expected screenDashboard with Home=dashboard, got %v", m.screen)
+	}
+
+	out := m.View().Content
+	for _, want := range []string{
+		"Dashboard",
+		"Recently played",
+		"Recently added",
+		"Recent playlists",
+		"loading…",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in dashboard view", want)
+		}
+	}
+	t.Log("\n" + out)
+}
+
+// TestFormatArtistInfoReflowsBio asserts the bio is split into
+// paragraphs at \r\n (Plex's paragraph marker) with internal
+// whitespace within each paragraph collapsed, then visually
+// separated by a blank line.
+func TestFormatArtistInfoReflowsBio(t *testing.T) {
+	a := &plex.ArtistMetadata{
+		Title: "Al Green",
+		// Two paragraphs separated by \r\n, each with cosmetic
+		// internal whitespace we expect to be collapsed.
+		Summary: "A preeminent R&B singer.\r\n  Green was born in   Forrest City.",
+		Genres:  []string{"R&B"},
+	}
+	out := formatArtistInfo(a)
+	// First chunk of the body (before the bio/tags separator).
+	bio := strings.SplitN(out, "\n\n"+"Genres", 2)[0]
+	wantParagraphs := []string{
+		"A preeminent R&B singer.",
+		"Green was born in Forrest City.",
+	}
+	for _, p := range wantParagraphs {
+		if !strings.Contains(bio, p) {
+			t.Errorf("expected paragraph %q in bio, got:\n%s", p, bio)
+		}
+	}
+	// Paragraphs should be separated by a blank line.
+	if !strings.Contains(bio, "singer.\n\nGreen") {
+		t.Errorf("expected blank-line separator between paragraphs, got:\n%q", bio)
+	}
+}
+
+// TestInfoModalRendersArtistMetadata covers the artist info modal:
+// pressing 'i' on the albums level should open it with the bio +
+// tag lists drawn from the fetched ArtistMetadata.
+func TestInfoModalRendersArtistMetadata(t *testing.T) {
+	m := newQueueModel(t)
+	m.showQueue = false
+	m.level = levelAlbums
+	m.artistMeta = &plex.ArtistMetadata{
+		Title:     "Earth Tongue",
+		Summary:   "Psych-rock duo from Wellington, NZ.",
+		Genres:    []string{"psych rock", "fuzz"},
+		Countries: []string{"New Zealand"},
+		Similar:   []string{"Pond", "King Gizzard"},
+	}
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	m = upd.(Model)
+	if !m.showInfo {
+		t.Fatal("expected info modal to open on 'i'")
+	}
+	out := m.View().Content
+	for _, want := range []string{"Earth Tongue", "Psych-rock duo", "psych rock, fuzz", "Pond, King Gizzard"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in info modal", want)
+		}
+	}
+}
+
+// TestHomeScreenDefaultsToLibrary documents the default startup
+// screen — library, not dashboard. Set Home = "dashboard" to opt
+// in to the dashboard landing page.
+func TestHomeScreenDefaultsToLibrary(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", Token: "t"}
+	m := New(cfg, nil, nil, libs, nil)
+	if m.screen != screenBrowser {
+		t.Errorf("default screen should be library, got %v", m.screen)
+	}
+}
+
+// TestTabSwitchesDashboardAndBrowser drives the Tab key to confirm the
+// two screens flip cleanly without losing any state.
+func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+	if m.screen != screenBrowser {
+		t.Fatalf("default screen should be library, got %v", m.screen)
+	}
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = upd.(Model)
+	if m.screen != screenDashboard {
+		t.Errorf("tab from library should go to dashboard, got %v", m.screen)
+	}
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = upd.(Model)
+	if m.screen != screenBrowser {
+		t.Errorf("tab from dashboard should go to library, got %v", m.screen)
+	}
 }
 
 // TestSearchModalAcceptsLetterKeys guards against the regression where the

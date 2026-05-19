@@ -17,6 +17,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -36,7 +37,8 @@ type tickMsg time.Time
 type screen int
 
 const (
-	screenBrowser screen = iota
+	screenDashboard screen = iota
+	screenBrowser
 	screenSettings
 )
 
@@ -62,10 +64,18 @@ type Model struct {
 	// applies its outcomes (close / refresh / commit).
 	settings settingsModel
 
+	// dashboard is the home-screen sub-model: three live-fetched tiles
+	// (recently played / recently added / recent playlists). Parent
+	// forwards keys when on screenDashboard and acts on outcomes
+	// (play track / open album / open playlist).
+	dashboard dashboardModel
+
 	list         list.Model
-	queueList    list.Model      // shown in the queue modal
-	helpViewport viewport.Model  // scrollable body of the help modal
+	queueList    list.Model     // shown in the queue modal
+	helpViewport viewport.Model // scrollable body of the help modal
+	infoViewport viewport.Model // scrollable body of the artist/album info modal
 	spinner      spinner.Model
+	progress     progress.Model // now-playing track-position bar
 
 	level      level
 	crumbs     []crumb
@@ -73,16 +83,26 @@ type Model struct {
 	err        error
 	nowPlaying *plex.Track
 
+	// Rich metadata fetched lazily for the artist whose albums are
+	// being browsed, or the album whose tracks are. Each is nil until
+	// the per-screen fetch resolves; metaLoading drives a "loading…"
+	// hint in the header during the fetch.
+	artistMeta  *plex.ArtistMetadata
+	albumMeta   *plex.AlbumMetadata
+	metaLoading bool
+
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
 	// the queue is exhausted.
 	queue    []plex.Track
 	queueIdx int
 
-	// showQueue / showHelp are true while their modal is open; an open
-	// modal owns input. The search modal's open state lives on m.search.
+	// showQueue / showHelp / showInfo are true while their modal is
+	// open; an open modal owns input. The search modal's open state
+	// lives on m.search.
 	showQueue bool
 	showHelp  bool
+	showInfo  bool
 
 	// search is the fuzzy-finder sub-model; the parent forwards keys via
 	// routeSearchKey and applies its outcomes.
@@ -135,8 +155,18 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
+	// Track-position bar shown under the now-playing line. ViewAs is
+	// used to render at a specific percent each tick (no animation).
+	pr := progress.New(
+		progress.WithoutPercentage(),
+		progress.WithColors(theme.Accent),
+	)
+
 	hv := viewport.New()
 	hv.FillHeight = true
+
+	iv := viewport.New()
+	iv.FillHeight = true
 
 	m := Model{
 		cfg:            cfg,
@@ -148,9 +178,12 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 		list:           l,
 		queueList:      ql,
 		helpViewport:   hv,
+		infoViewport:   iv,
 		spinner:        sp,
+		progress:       pr,
 		search:         newSearchModel(),
 		settings:       newSettingsModel(cfg),
+		dashboard:      newDashboardModel(),
 		level:          levelLibraries,
 		librarySyncing: true, // Init kicks off the background library sync
 		gridArtists:    cfg.DefaultViewArtist == "grid",
@@ -180,6 +213,13 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 
 	m.helpViewport.SetContent(m.helpBodyContent())
 
+	// Honor the user's preferred home screen. Library is the default
+	// landing page; opt in to the dashboard via cfg.Home = "dashboard".
+	m.screen = screenBrowser
+	if cfg.Home == "dashboard" {
+		m.screen = screenDashboard
+	}
+
 	// If the config is missing/invalid (no server URL or token), there's
 	// nothing to browse — open straight into settings so the user can
 	// enter their credentials inline.
@@ -193,15 +233,17 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, libs []plex.M
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, tick()}
 	cmds = append(cmds, m.settings.Init())
-	// Kick off the library sync in the background only when we actually
-	// have a Plex client and at least one library to sync. Missing config
-	// drops us on the settings screen with no background work to do.
+	// Kick off the library sync AND the dashboard's three live fetches
+	// in the background when we have a Plex client and at least one
+	// library. Missing config drops us on the settings screen with no
+	// background work to do.
 	if m.client != nil && len(m.libs) > 0 {
 		active := m.libs[0]
 		if m.startupLibrary != nil {
 			active = *m.startupLibrary
 		}
 		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
+		cmds = append(cmds, m.dashboard.Load(m.client, active.Key))
 	}
 	return tea.Batch(cmds...)
 }

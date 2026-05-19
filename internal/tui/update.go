@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/plex"
 )
@@ -23,6 +25,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
 		m.helpModel.SetWidth(msg.Width)
+		m.infoViewport.SetWidth(mw - 4)
+		m.infoViewport.SetHeight(mh - 3)
+		// Progress bar fits between the left indent and the right edge.
+		m.progress.SetWidth(msg.Width - 4)
 		// huh fields need WindowSizeMsg too so they can size themselves.
 		var fcmd tea.Cmd
 		m.settings, fcmd = m.settings.ForwardMsg(msg)
@@ -42,6 +48,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			m.helpViewport, cmd = m.helpViewport.Update(msg)
+			return m, cmd
+		}
+		// The info modal owns input while it is open.
+		if m.showInfo {
+			switch {
+			case key.Matches(msg, k.Quit):
+				return m, tea.Quit
+			case key.Matches(msg, k.Info), key.Matches(msg, k.Back):
+				m.showInfo = false
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.infoViewport, cmd = m.infoViewport.Update(msg)
 			return m, cmd
 		}
 		// The search modal owns input while it is open. The sub-model
@@ -79,6 +98,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenSettings {
 			return m.routeSettingsKey(msg)
 		}
+		// Dashboard screen has its own nav (cards + sections); route
+		// there before falling through to browser keys.
+		if m.screen == screenDashboard {
+			return m.routeDashboardKey(msg)
+		}
 		// Let the list own keys while it is filtering (typing a query).
 		if m.list.FilterState() == list.Filtering {
 			break
@@ -106,8 +130,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, k.Help):
 			m.showHelp = true
 			return m, nil
-		case key.Matches(msg, k.ToggleGrid):
-			m.toggleGrid()
+		case key.Matches(msg, k.SwitchScreen):
+			m.screen = screenDashboard
+			return m, nil
+		case key.Matches(msg, k.Info):
+			if body := m.infoModalContent(); body != "" {
+				// viewport doesn't soft-wrap; lipgloss with Width does.
+				// Wrap to the viewport's visible width so bios reflow
+				// instead of getting truncated mid-word at the edge.
+				w := m.infoViewport.Width()
+				if w < 10 {
+					w = 60
+				}
+				wrapped := lipgloss.NewStyle().Width(w).Render(body)
+				m.infoViewport.SetContent(wrapped)
+				m.infoViewport.GotoTop()
+				m.showInfo = true
+			}
 			return m, nil
 		case key.Matches(msg, k.Enter):
 			return m.drillDown()
@@ -179,6 +218,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.libraryErr = msg.err
 		return m, nil
 
+	case artistMetaMsg:
+		m.metaLoading = false
+		m.artistMeta = msg.meta
+		return m, nil
+	case albumMetaMsg:
+		m.metaLoading = false
+		m.albumMeta = msg.meta
+		return m, nil
+
+	case dashboardPlaysMsg:
+		m.dashboard.ApplyPlays(msg)
+		return m, nil
+	case dashboardAddedMsg:
+		m.dashboard.ApplyAdded(msg)
+		return m, nil
+	case dashboardPlaylistsMsg:
+		m.dashboard.ApplyPlaylists(msg)
+		return m, nil
+
+	case playlistTracksMsg:
+		// User pressed enter on a playlist tile; tracks just arrived —
+		// play them.
+		if msg.err != nil || len(msg.tracks) == 0 {
+			return m, nil
+		}
+		return m.playTracks(msg.tracks, 0)
+
 	case tickMsg:
 		m = m.advanceIfFinished()
 		if m.showQueue {
@@ -239,6 +305,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.DefaultLibrary = v.DefaultLibrary
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
+		m.cfg.Home = v.Home
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
@@ -272,11 +339,118 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case searchOutcomeJumpArtist:
 		if e := m.search.SelectedEntry(); e != nil {
-			return m.jumpToArtist(e.RatingKey), cmd
+			model, jcmd := m.jumpToArtist(e.RatingKey)
+			return model, tea.Batch(cmd, jcmd)
 		}
 	case searchOutcomeJumpAlbum:
 		if e := m.search.SelectedEntry(); e != nil {
-			return m.jumpToAlbum(e.RatingKey), cmd
+			model, jcmd := m.jumpToAlbum(e.RatingKey)
+			return model, tea.Batch(cmd, jcmd)
+		}
+	}
+	return m, cmd
+}
+
+// playlistTracksMsg arrives after the parent fires fetchPlaylistTracks
+// in response to a dashboard playlist tile being activated.
+type playlistTracksMsg struct {
+	tracks []plex.Track
+	err    error
+}
+
+func fetchPlaylistTracks(client *plex.Client, ratingKey string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
+		defer cancel()
+		tracks, err := client.PlaylistTracks(ctx, ratingKey)
+		return playlistTracksMsg{tracks: tracks, err: err}
+	}
+}
+
+// routeDashboardKey dispatches a key while the dashboard is the active
+// screen. Global media / modal / navigation keys are handled here;
+// in-tile navigation delegates to the dashboard sub-model and the
+// outcome (play track, open album, open playlist) is applied here
+// because it touches parent state (player, browser crumbs).
+func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := m.keymap
+	switch {
+	case key.Matches(msg, k.Quit):
+		return m, tea.Quit
+	case key.Matches(msg, k.Help):
+		m.showHelp = true
+		return m, nil
+	case key.Matches(msg, k.Settings):
+		m.screen = screenSettings
+		return m, nil
+	case key.Matches(msg, k.SwitchScreen):
+		m.screen = screenBrowser
+		return m, nil
+	case key.Matches(msg, k.OpenSearch):
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Open()
+		return m, cmd
+	case key.Matches(msg, k.OpenQueue):
+		m.openQueue()
+		return m, nil
+	case key.Matches(msg, k.Refresh):
+		// Re-fetch the three dashboard tiles. Only meaningful when we
+		// have a client + a library to query against.
+		if m.client == nil || len(m.libs) == 0 {
+			return m, nil
+		}
+		active := m.libs[0]
+		if m.startupLibrary != nil {
+			active = *m.startupLibrary
+		}
+		return m, m.dashboard.Load(m.client, active.Key)
+	case key.Matches(msg, k.NextTrack):
+		m.playNext()
+		return m, nil
+	case key.Matches(msg, k.PrevTrack):
+		m.playPrev()
+		return m, nil
+	case key.Matches(msg, k.Pause):
+		if m.player != nil {
+			_ = m.player.TogglePause()
+		}
+		return m, nil
+	case key.Matches(msg, k.SeekBack):
+		if m.player != nil {
+			_ = m.player.Seek(-10 * time.Second)
+		}
+		return m, nil
+	case key.Matches(msg, k.SeekForward):
+		if m.player != nil {
+			_ = m.player.Seek(10 * time.Second)
+		}
+		return m, nil
+	}
+
+	// Anything not above belongs to the dashboard sub-model (nav +
+	// enter). Outcomes touch parent state.
+	var (
+		cmd     tea.Cmd
+		outcome dashboardOutcome
+	)
+	m.dashboard, cmd, outcome = m.dashboard.HandleKey(msg, m.keymap)
+	switch outcome {
+	case dashOutcomePlayTrack:
+		if t, ok := m.dashboard.SelectedTrack(); ok {
+			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			return model, tea.Batch(cmd, pcmd)
+		}
+	case dashOutcomeOpenAlbum:
+		if a, ok := m.dashboard.SelectedAlbum(); ok {
+			// Jump the browser to this album's tracks (same pattern as
+			// jumpToAlbum from search) and switch to the browser screen.
+			model, jcmd := m.jumpToAlbum(a.RatingKey)
+			model.screen = screenBrowser
+			return model, tea.Batch(cmd, jcmd)
+		}
+	case dashOutcomeOpenPlaylist:
+		if p, ok := m.dashboard.SelectedPlaylist(); ok {
+			return m, tea.Batch(cmd, fetchPlaylistTracks(m.client, p.RatingKey))
 		}
 	}
 	return m, cmd
