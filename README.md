@@ -7,6 +7,8 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), the
 [plexgo](https://github.com/LukeHagar/plexgo) SDK, and [mpv](https://mpv.io/)
 for audio playback.
 
+![amptui screenshot](docs/img/dashboard.png)
+
 ## Status
 
 Working today:
