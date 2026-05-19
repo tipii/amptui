@@ -346,13 +346,13 @@ func TestArtistGridRenders(t *testing.T) {
 // background fetch resolves in this test.
 func TestDashboardRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t"}
+	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
 	m := New(cfg, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 
 	if m.screen != screenDashboard {
-		t.Fatalf("default screen should be dashboard, got %v", m.screen)
+		t.Fatalf("expected screenDashboard with Home=dashboard, got %v", m.screen)
 	}
 
 	out := m.View().Content
@@ -370,14 +370,15 @@ func TestDashboardRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
-// TestHomeScreenLibraryFromConfig verifies the cfg.Home = "library"
-// setting overrides the dashboard default at startup.
-func TestHomeScreenLibraryFromConfig(t *testing.T) {
+// TestHomeScreenDefaultsToLibrary documents the default startup
+// screen — library, not dashboard. Set Home = "dashboard" to opt
+// in to the dashboard landing page.
+func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "library"}
+	cfg := config.Config{ServerURL: "https://x", Token: "t"}
 	m := New(cfg, nil, nil, libs, nil)
 	if m.screen != screenBrowser {
-		t.Errorf("expected screenBrowser when Home=library, got %v", m.screen)
+		t.Errorf("default screen should be library, got %v", m.screen)
 	}
 }
 
@@ -388,18 +389,18 @@ func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
-	if m.screen != screenDashboard {
-		t.Fatalf("default screen should be dashboard, got %v", m.screen)
+	if m.screen != screenBrowser {
+		t.Fatalf("default screen should be library, got %v", m.screen)
 	}
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = upd.(Model)
-	if m.screen != screenBrowser {
-		t.Errorf("tab from dashboard should go to browser, got %v", m.screen)
+	if m.screen != screenDashboard {
+		t.Errorf("tab from library should go to dashboard, got %v", m.screen)
 	}
 	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = upd.(Model)
-	if m.screen != screenDashboard {
-		t.Errorf("tab from browser should go to dashboard, got %v", m.screen)
+	if m.screen != screenBrowser {
+		t.Errorf("tab from dashboard should go to library, got %v", m.screen)
 	}
 }
 

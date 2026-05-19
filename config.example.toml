@@ -13,6 +13,6 @@ token = "your-X-Plex-Token-here"
 # default_view_artist = "list"
 # default_view_album = "list"
 
-# Optional: which screen amptui opens on — "dashboard" (default) or "library".
+# Optional: which screen amptui opens on — "library" (default) or "dashboard".
 # Tab toggles between them at runtime. Editable from the settings screen (,).
-# home = "dashboard"
+# home = "library"

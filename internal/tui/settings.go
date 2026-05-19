@@ -311,12 +311,12 @@ func normalizeView(v string) string {
 }
 
 // normalizeHome coerces a stored home setting to a known option,
-// defaulting to "dashboard" for empty / unknown values.
+// defaulting to "library" for empty / unknown values.
 func normalizeHome(v string) string {
-	if v == "library" {
-		return "library"
+	if v == "dashboard" {
+		return "dashboard"
 	}
-	return "dashboard"
+	return "library"
 }
 
 // cacheStatsBody renders the read-only Library cache section shown under
