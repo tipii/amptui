@@ -262,18 +262,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case artistMetaMsg:
+		// Hero artwork is fetched in parallel (see drillDown / search
+		// jumps), so meta arrival no longer needs to chain a thumb
+		// fetch — usually the image is already in the picture.Model by
+		// the time the metadata JSON returns.
 		m.metaLoading = false
 		m.artistMeta = msg.meta
-		if m.cfg.Images && msg.meta != nil && msg.meta.Thumb != "" {
-			return m, fetchThumb(m.client, msg.meta.Thumb, "artist")
-		}
 		return m, nil
 	case albumMetaMsg:
 		m.metaLoading = false
 		m.albumMeta = msg.meta
-		if m.cfg.Images && msg.meta != nil && msg.meta.Thumb != "" {
-			return m, fetchThumb(m.client, msg.meta.Thumb, "album")
-		}
 		return m, nil
 	case thumbReadyMsg:
 		if msg.err != nil || msg.img == nil {
@@ -458,11 +456,11 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if items := m.list.Items(); len(items) > 0 {
 				fetches = append(fetches, m.gridThumbFetches(items))
 			}
-			if m.artistMeta != nil && m.artistMeta.Thumb != "" {
-				fetches = append(fetches, fetchThumb(m.client, m.artistMeta.Thumb, "artist"))
+			if m.artistMeta != nil && m.artistMeta.RatingKey != "" {
+				fetches = append(fetches, fetchArtwork(m.client, m.artistMeta.RatingKey, "artist"))
 			}
-			if m.albumMeta != nil && m.albumMeta.Thumb != "" {
-				fetches = append(fetches, fetchThumb(m.client, m.albumMeta.Thumb, "album"))
+			if m.albumMeta != nil && m.albumMeta.RatingKey != "" {
+				fetches = append(fetches, fetchArtwork(m.client, m.albumMeta.RatingKey, "album"))
 			}
 			return m, tea.Batch(append(fetches, cmd)...)
 		}

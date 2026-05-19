@@ -333,6 +333,7 @@ func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 		m.albumHeaderPic.SetImage(nil),
 		m.albumModalPic.SetImage(nil),
 		fetchArtistMeta(m.client, artistKey),
+		fetchArtwork(m.client, artistKey, "artist"),
 	)
 }
 
@@ -368,6 +369,7 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 		m.albumHeaderPic.SetImage(nil),
 		m.albumModalPic.SetImage(nil),
 		fetchAlbumMeta(m.client, albumKey),
+		fetchArtwork(m.client, albumKey, "album"),
 	)
 }
 

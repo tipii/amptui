@@ -68,11 +68,6 @@ type thumbReadyMsg struct {
 	err  error
 }
 
-// thumbFetchPixels is the source-image size we ask Plex to transcode
-// to. Big enough to look decent at modal sizes, small enough to keep
-// cache footprint reasonable.
-const thumbFetchPixels = 320
-
 // gridThumbCellsW / H is the cell footprint of a thumbnail inside one
 // grid card. Half-block rendering packs 2 image rows per cell, so a
 // (cellsW × cellsH) block looks visually square when cellsW ≈ cellsH×2
@@ -93,19 +88,19 @@ const (
 // work with.
 const gridThumbFetchPixels = 256
 
-// fetchGridThumb returns a cmd that loads bytes for one grid card's
-// thumb, cache-first. The synthetic /library/metadata/{key}/thumb/0
-// URL lets us fetch by ratingKey without an extra metadata call. The
-// returned thumbReadyMsg uses kind "grid:<ratingKey>" so the handler
-// can route the bytes back into the gridThumbs map.
-func fetchGridThumb(client *plex.Client, ratingKey string) tea.Cmd {
+// fetchArtwork loads the default thumb for a Plex item by ratingKey,
+// cache-first, through the direct /library/metadata/<key>/thumb URL
+// (no transcoder hop). One synthetic cache key — "grid/<ratingKey>" —
+// is shared across every view that wants this item's artwork (grid
+// card, list row, artist/album header, info modal), so the second
+// caller for a given item hits the on-disk cache instead of Plex.
+// kind is "grid:<key>", "artist", or "album" — used by the parent to
+// route the decoded image into the right picture.Model slot.
+func fetchArtwork(client *plex.Client, ratingKey, kind string) tea.Cmd {
 	if client == nil || ratingKey == "" {
 		return nil
 	}
-	// Cache key: synthetic path so entries don't collide with the
-	// (path,W,H)-keyed fetchThumb entries.
 	cacheKey := "grid/" + ratingKey
-	kind := "grid:" + ratingKey
 	return func() tea.Msg {
 		data, _ := imgcache.Get(cacheKey, 0, 0)
 		if len(data) == 0 {
@@ -148,40 +143,11 @@ func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
 		if _, ok := m.gridPics[key]; ok {
 			continue
 		}
-		cmds = append(cmds, fetchGridThumb(m.client, key))
+		cmds = append(cmds, fetchArtwork(m.client, key, "grid:"+key))
 	}
 	return tea.Batch(cmds...)
 }
 
-// fetchThumb returns a cmd that loads bytes for thumbPath, cache-first.
-// On miss it asks Plex's transcoder for a thumbFetchPixels-square
-// image and persists the result. The bytes are then rendered at both
-// header and modal sizes in this same goroutine so Update can just
-// store the resulting strings without blocking on decode.
-func fetchThumb(client *plex.Client, thumbPath, kind string) tea.Cmd {
-	if client == nil || thumbPath == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		data, _ := imgcache.Get(thumbPath, thumbFetchPixels, thumbFetchPixels)
-		if len(data) == 0 {
-			ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
-			defer cancel()
-			url := client.ThumbURL(thumbPath, thumbFetchPixels, thumbFetchPixels)
-			var err error
-			data, err = client.FetchImage(ctx, url)
-			if err != nil {
-				return thumbReadyMsg{kind: kind, err: err}
-			}
-			_ = imgcache.Put(thumbPath, thumbFetchPixels, thumbFetchPixels, data)
-		}
-		img, _, err := image.Decode(bytes.NewReader(data))
-		if err != nil {
-			return thumbReadyMsg{kind: kind, err: err}
-		}
-		return thumbReadyMsg{kind: kind, img: img}
-	}
-}
 
 type level int
 
@@ -235,8 +201,13 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 			m.albumModalPic.SetImage(nil),
 		}
 		m.metaLoading = true
+		// Hero artwork fetch goes in parallel with the metadata call,
+		// not chained after it — and uses the same "grid/<key>" cache
+		// entry the grid card already populated. A revisit usually
+		// resolves the header from disk before the meta call returns.
 		cmds = append(cmds,
 			fetchArtistMeta(m.client, it.artist.RatingKey),
+			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
 			m.gridThumbFetches(items),
 		)
 		return m, tea.Batch(cmds...)
@@ -249,6 +220,7 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 			m.albumHeaderPic.SetImage(nil),
 			m.albumModalPic.SetImage(nil),
 			fetchAlbumMeta(m.client, it.album.RatingKey),
+			fetchArtwork(m.client, it.album.RatingKey, "album"),
 		)
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
