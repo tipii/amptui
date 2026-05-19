@@ -194,22 +194,18 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		items := m.albumItems(it.artist.RatingKey)
 		m.applyItems(levelAlbums, items)
 		m.artistMeta, m.albumMeta = nil, nil
-		cmds := []tea.Cmd{
-			m.artistHeaderPic.SetImage(nil),
-			m.artistModalPic.SetImage(nil),
-			m.albumHeaderPic.SetImage(nil),
-			m.albumModalPic.SetImage(nil),
-		}
 		m.metaLoading = true
-		// Hero artwork fetch goes in parallel with the metadata call,
-		// not chained after it — and uses the same "grid/<key>" cache
-		// entry the grid card already populated. A revisit usually
-		// resolves the header from disk before the meta call returns.
-		cmds = append(cmds,
+		// No SetImage(nil) here: picture.Model.SetImage docs call out
+		// that synchronously clearing the placeholder grid creates a
+		// visible blank + glyph-fallback frame between renders. We
+		// rely on the next SetImage to overwrite the old image at the
+		// same kittyID in place. When there's no new image (artist
+		// without artwork), the thumbReadyMsg error handler clears.
+		cmds := []tea.Cmd{
 			fetchArtistMeta(m.client, it.artist.RatingKey),
 			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
 			m.gridThumbFetches(items),
-		)
+		}
 		return m, tea.Batch(cmds...)
 	case albumItem:
 		m.pushCrumb(it.album.Title)
@@ -217,8 +213,6 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		m.albumMeta = nil
 		m.metaLoading = true
 		return m, tea.Batch(
-			m.albumHeaderPic.SetImage(nil),
-			m.albumModalPic.SetImage(nil),
 			fetchAlbumMeta(m.client, it.album.RatingKey),
 			fetchArtwork(m.client, it.album.RatingKey, "album"),
 		)

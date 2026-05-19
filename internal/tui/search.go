@@ -327,11 +327,9 @@ func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
 	m.artistMeta, m.albumMeta = nil, nil
 	m.metaLoading = true
+	// No eager SetImage(nil): rely on the new artwork to overwrite the
+	// old image at the same kittyID. See drillDown for the same pattern.
 	return m, tea.Batch(
-		m.artistHeaderPic.SetImage(nil),
-		m.artistModalPic.SetImage(nil),
-		m.albumHeaderPic.SetImage(nil),
-		m.albumModalPic.SetImage(nil),
 		fetchArtistMeta(m.client, artistKey),
 		fetchArtwork(m.client, artistKey, "artist"),
 	)
@@ -366,8 +364,6 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 	m.albumMeta = nil
 	m.metaLoading = true
 	return m, tea.Batch(
-		m.albumHeaderPic.SetImage(nil),
-		m.albumModalPic.SetImage(nil),
 		fetchAlbumMeta(m.client, albumKey),
 		fetchArtwork(m.client, albumKey, "album"),
 	)

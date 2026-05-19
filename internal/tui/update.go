@@ -275,6 +275,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case thumbReadyMsg:
 		if msg.err != nil || msg.img == nil {
+			// No artwork for this item — clear any stale image left on
+			// the header from the previous artist/album so we don't show
+			// the wrong cover. (Grid pics are keyed by ratingKey and
+			// just never get an entry created; no stale state to clear.)
+			switch msg.kind {
+			case "artist":
+				return m, tea.Batch(
+					m.artistHeaderPic.SetImage(nil),
+					m.artistModalPic.SetImage(nil),
+				)
+			case "album":
+				return m, tea.Batch(
+					m.albumHeaderPic.SetImage(nil),
+					m.albumModalPic.SetImage(nil),
+				)
+			}
 			return m, nil
 		}
 		// Hand the decoded image off to the right picture.Model. The
