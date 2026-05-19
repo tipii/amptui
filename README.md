@@ -3,9 +3,8 @@
 A terminal UI Plex client focused exclusively on music — browse your library,
 queue tracks, and play them, all from the keyboard.
 
-Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), the
-[plexgo](https://github.com/LukeHagar/plexgo) SDK, and [mpv](https://mpv.io/)
-for audio playback.
+Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), a small
+hand-written Plex HTTP client, and [mpv](https://mpv.io/) for audio playback.
 
 ![amptui screenshot](docs/img/dashboard.png)
 
@@ -166,7 +165,7 @@ bar; the browser opens into the cache once the sync finishes.
 ```
 cmd/amptui/        entrypoint: config → connect → launch UI
 internal/config/   TOML + env config loading
-internal/plex/     Plex API client (plexgo SDK + raw-HTTP fallback)
+internal/plex/     Plex HTTP client (hand-written, no SDK)
 internal/player/   mpv subprocess driven over its JSON IPC socket
 internal/library/  on-disk cache for a music section (browse + search read from here)
 internal/imgcache/ on-disk thumbnail bytes + terminal-protocol detection
