@@ -10,7 +10,6 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/NimbleMarkets/ntcharts/v2 v2.0.4-0.20260501213006-4dfb43b8563d
 	github.com/sahilm/fuzzy v0.1.2
-	golang.org/x/image v0.40.0
 )
 
 require (
@@ -36,6 +35,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
