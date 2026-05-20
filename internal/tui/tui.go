@@ -85,7 +85,11 @@ type Model struct {
 	helpViewport viewport.Model // scrollable body of the help modal
 	infoViewport viewport.Model // scrollable body of the artist/album info modal
 	spinner      spinner.Model
-	progress     progress.Model // now-playing track-position bar
+	// progress is the now-playing track-position bar (original bubbles
+	// styling: accent ▌ fill, ░ empty track). progressBar recolors the
+	// buffered-ahead ░ cells to accent so they read as a faint dotted
+	// region between the playhead and the unbuffered tail.
+	progress progress.Model
 
 	level      level
 	crumbs     []crumb
@@ -191,8 +195,8 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr err
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
-	// Track-position bar shown under the now-playing line. ViewAs is
-	// used to render at a specific percent each tick (no animation).
+	// Now-playing position bar — default bubbles styling (accent ▌
+	// fill, ░ empty). progressBar tints the buffered-ahead empties.
 	pr := progress.New(
 		progress.WithoutPercentage(),
 		progress.WithColors(theme.Accent),
@@ -205,22 +209,22 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr err
 	iv.FillHeight = true
 
 	m := Model{
-		cfg:            cfg,
-		playerErr:      playerErr,
-		client:         client,
-		player:         p,
-		keymap:         NewKeyMap(),
-		helpModel:      help.New(),
-		libs:           libs,
-		list:           l,
-		queueList:      ql,
-		helpViewport:   hv,
-		infoViewport:   iv,
-		spinner:        sp,
-		progress:       pr,
-		search:         newSearchModel(),
-		settings:       newSettingsModel(cfg),
-		dashboard:      newDashboardModel(),
+		cfg:             cfg,
+		playerErr:       playerErr,
+		client:          client,
+		player:          p,
+		keymap:          NewKeyMap(),
+		helpModel:       help.New(),
+		libs:            libs,
+		list:            l,
+		queueList:       ql,
+		helpViewport:    hv,
+		infoViewport:    iv,
+		spinner:         sp,
+		progress:        pr,
+		search:          newSearchModel(),
+		settings:        newSettingsModel(cfg),
+		dashboard:       newDashboardModel(),
 		picMode:         pictureModeFromProtocol(imgcache.Detect()),
 		gridPics:        gridPics,
 		listPics:        listPics,
@@ -228,10 +232,10 @@ func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr err
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
 		albumHeaderPic:  newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		albumModalPic:   newSizedPicture(modalThumbCellsW, modalThumbCellsH),
-		level:          levelLibraries,
-		librarySyncing: true, // Init kicks off the background library sync
-		gridArtists:    cfg.DefaultViewArtist == "grid",
-		gridAlbums:     cfg.DefaultViewAlbum == "grid",
+		level:           levelLibraries,
+		librarySyncing:  true, // Init kicks off the background library sync
+		gridArtists:     cfg.DefaultViewArtist == "grid",
+		gridAlbums:      cfg.DefaultViewAlbum == "grid",
 	}
 
 	if defaultLib != nil {

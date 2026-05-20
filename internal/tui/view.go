@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
@@ -199,7 +200,7 @@ func (m Model) nowPlayingLine() string {
 	t := m.nowPlaying
 
 	var status, clock string
-	var pct float64
+	var playPct, bufPct float64
 	if m.player != nil {
 		s := m.player.State()
 		clock = fmt.Sprintf("  %s / %s", fmtDur(s.Position), fmtDur(t.Duration))
@@ -207,21 +208,65 @@ func (m Model) nowPlayingLine() string {
 			status = " [paused]"
 		}
 		if t.Duration > 0 {
-			pct = float64(s.Position) / float64(t.Duration)
-			if pct < 0 {
-				pct = 0
-			} else if pct > 1 {
-				pct = 1
-			}
+			playPct = clampFraction(float64(s.Position) / float64(t.Duration))
+			bufPct = clampFraction(float64(s.CacheTime) / float64(t.Duration))
 		}
 	}
 	line := npStyle.Render(fmt.Sprintf("♪ %s — %s%s%s",
 		t.Artist, t.Title, clock, status))
 	bar := ""
 	if t.Duration > 0 {
-		bar = m.progress.ViewAs(pct)
+		bar = m.progressBar(playPct, bufPct)
 	}
 	return line + "\n" + bar
+}
+
+// cellsFor converts a 0..1 fraction to a cell count, rounding to the
+// nearest cell and snapping to the full width once the fraction is
+// within a cell of complete — otherwise integer truncation leaves a
+// permanent grey sliver at the right edge because mpv's time/cache
+// values approach but never exactly equal the duration.
+func cellsFor(pct float64, width int) int {
+	n := int(pct*float64(width) + 0.5)
+	if n > width {
+		n = width
+	}
+	if pct >= 1 || width-n <= 1 && pct > 0.98 {
+		n = width
+	}
+	return n
+}
+
+func clampFraction(f float64) float64 {
+	if f < 0 {
+		return 0
+	}
+	if f > 1 {
+		return 1
+	}
+	return f
+}
+
+// progressBar renders the original bubbles position bar, then recolors
+// the buffered-ahead empty cells (between the playhead and the cache
+// frontier) to a faint accent — distinct from the played fill and the
+// grey not-yet-buffered tail, while preserving the bar's original look.
+func (m Model) progressBar(playPct, bufPct float64) string {
+	if bufPct < playPct {
+		bufPct = playPct
+	}
+	bar := m.progress.ViewAs(playPct)
+	width := m.progress.Width()
+	played := cellsFor(playPct, width)
+	buffered := cellsFor(bufPct, width)
+	if buffered <= played {
+		return bar
+	}
+	prefix := ansi.Truncate(bar, played, "")
+	tail := ansi.Cut(bar, buffered, width)
+	mid := lipgloss.NewStyle().Foreground(theme.Accent).Faint(true).
+		Render(strings.Repeat("░", buffered-played))
+	return prefix + mid + tail
 }
 
 func fmtDur(d time.Duration) string {

@@ -32,6 +32,15 @@ type State struct {
 	// queue delegation this is the source of truth for "which track" —
 	// mpv owns advancement, prefetch, and gapless transitions.
 	PlaylistPos int
+	// Buffering is true while playback is stalled waiting for the
+	// network cache to refill (mpv's paused-for-cache). Distinct from
+	// Paused, which is a user-initiated pause.
+	Buffering bool
+	// CacheTime is the absolute timestamp the demuxer cache holds data
+	// up to (mpv's demuxer-cache-time) — i.e. how far ahead of the
+	// start the track has buffered. Compare against Duration for a
+	// "buffered" fraction on the progress bar.
+	CacheTime time.Duration
 }
 
 // Player owns the mpv subprocess and its IPC connection.
@@ -90,6 +99,8 @@ func New() (*Player, error) {
 	p.observe(3, "pause")
 	p.observe(4, "idle-active")
 	p.observe(5, "playlist-pos")
+	p.observe(6, "paused-for-cache")
+	p.observe(7, "demuxer-cache-time")
 	return p, nil
 }
 
@@ -295,6 +306,16 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 			p.state.PlaylistPos = pos
 		} else {
 			p.state.PlaylistPos = -1
+		}
+	case "paused-for-cache":
+		var buffering bool
+		if json.Unmarshal(data, &buffering) == nil {
+			p.state.Buffering = buffering
+		}
+	case "demuxer-cache-time":
+		var secs float64
+		if json.Unmarshal(data, &secs) == nil {
+			p.state.CacheTime = time.Duration(secs * float64(time.Second))
 		}
 	}
 }
