@@ -115,7 +115,6 @@ func fetchArtwork(client *plex.Client, ratingKey, kind string) tea.Cmd {
 	}
 }
 
-
 // gridThumbFetches batches per-card fetches for every item in items
 // that doesn't already have a picture.Model.
 func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
@@ -141,7 +140,6 @@ func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
 	}
 	return tea.Batch(cmds...)
 }
-
 
 type level int
 

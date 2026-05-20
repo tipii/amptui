@@ -16,6 +16,7 @@ import (
 	"github.com/theopalhol/amptui/internal/config"
 	"github.com/theopalhol/amptui/internal/imgcache"
 	"github.com/theopalhol/amptui/internal/library"
+	"github.com/theopalhol/amptui/internal/textutil"
 )
 
 // settingsValues holds the strings bound to each huh field. Stored on the
@@ -367,7 +368,7 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 			b.WriteString(settingRow("Status", helpStyle.Render("(empty — no thumbs fetched yet)")))
 		default:
 			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
-			b.WriteString(settingRow("Disk size", humanBytes(imgStats.Bytes)))
+			b.WriteString(settingRow("Disk size", textutil.HumanBytes(imgStats.Bytes)))
 			b.WriteString(settingRow("", helpStyle.Render("press C to clear (disk + terminal cache)")))
 		}
 	} else {
@@ -412,20 +413,7 @@ func formatSyncedAt(t time.Time) string {
 		return helpStyle.Render("(unknown)")
 	}
 	d := time.Since(t).Round(time.Second)
-	return t.Format("2006-01-02 15:04:05") + helpStyle.Render(fmt.Sprintf("  (%s ago)", humanDuration(d)))
-}
-
-func humanDuration(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
+	return t.Format("2006-01-02 15:04:05") + helpStyle.Render(fmt.Sprintf("  (%s ago)", textutil.HumanDuration(d)))
 }
 
 func entryBreakdown(l *library.Library) string {
@@ -443,26 +431,5 @@ func cacheSize(path string) string {
 	if err != nil {
 		return helpStyle.Render("(no file)")
 	}
-	return humanBytes(info.Size())
-}
-
-func humanBytes(n int64) string {
-	const k = 1024
-	if n < k {
-		return fmt.Sprintf("%d B", n)
-	}
-	if n < k*k {
-		return fmt.Sprintf("%.1f KB", float64(n)/k)
-	}
-	if n < k*k*k {
-		return fmt.Sprintf("%.1f MB", float64(n)/(k*k))
-	}
-	return fmt.Sprintf("%.2f GB", float64(n)/(k*k*k))
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return textutil.HumanBytes(info.Size())
 }

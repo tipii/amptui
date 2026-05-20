@@ -10,12 +10,12 @@ import (
 // text from their Help() output. To change a key, change it here.
 type KeyMap struct {
 	// --- app-wide ---
-	Quit       key.Binding
-	Help       key.Binding
-	Settings   key.Binding
-	Refresh    key.Binding
-	Info       key.Binding // 'i' — open the artist/album info modal
-	PurgeImgs  key.Binding // 'C' — wipe the image cache from settings
+	Quit      key.Binding
+	Help      key.Binding
+	Settings  key.Binding
+	Refresh   key.Binding
+	Info      key.Binding // 'i' — open the artist/album info modal
+	PurgeImgs key.Binding // 'C' — wipe the image cache from settings
 
 	// --- generic navigation (re-used across screens / modals) ---
 	Up, Down, Left, Right key.Binding
