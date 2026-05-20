@@ -360,7 +360,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.playTracks(msg.tracks, 0)
 
 	case tickMsg:
-		m = m.advanceIfFinished()
+		m = m.syncFromPlayer()
 		if m.showQueue {
 			idx := m.queueList.Index()
 			m.rebuildQueueList()

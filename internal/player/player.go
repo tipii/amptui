@@ -27,6 +27,11 @@ type State struct {
 	Duration time.Duration
 	// Idle is true when mpv has no file loaded (e.g. playback finished).
 	Idle bool
+	// PlaylistPos is the index of the entry mpv is currently playing
+	// within its internal playlist, or -1 when nothing is loaded. With
+	// queue delegation this is the source of truth for "which track" —
+	// mpv owns advancement, prefetch, and gapless transitions.
+	PlaylistPos int
 }
 
 // Player owns the mpv subprocess and its IPC connection.
@@ -58,6 +63,11 @@ func New() (*Player, error) {
 		"--no-video",
 		"--no-terminal",
 		"--no-config",
+		// Let mpv own the queue: prefetch opens the demuxer and starts
+		// buffering the next playlist entry before the current ends,
+		// and gapless-audio removes the silent gap at track boundaries.
+		"--prefetch-playlist=yes",
+		"--gapless-audio=yes",
 		"--input-ipc-server="+socketPath,
 	)
 	if err := cmd.Start(); err != nil {
@@ -71,6 +81,7 @@ func New() (*Player, error) {
 	}
 
 	p := &Player{cmd: cmd, socketPath: socketPath, conn: conn}
+	p.state.PlaylistPos = -1
 	go p.readLoop()
 
 	// Ask mpv to push updates for the properties we surface in State().
@@ -78,6 +89,7 @@ func New() (*Player, error) {
 	p.observe(2, "duration")
 	p.observe(3, "pause")
 	p.observe(4, "idle-active")
+	p.observe(5, "playlist-pos")
 	return p, nil
 }
 
@@ -96,26 +108,77 @@ func dialWithRetry(path string, timeout time.Duration) (net.Conn, error) {
 	}
 }
 
-// Load starts playback of url, replacing whatever is currently playing.
-// Always unpauses — if the user was paused on the previous track and
-// picked a new one, they want it to play, not silently stay paused.
-// mpv keeps its pause state across loadfile, so we set it explicitly
-// rather than relying on a property-change event that would never fire.
-func (p *Player) Load(url string) error {
-	if err := p.command("loadfile", url, "replace"); err != nil {
+// LoadList replaces mpv's playlist with urls and starts playback at
+// index start. mpv then owns advancement, prefetch, and gapless
+// transitions between entries; callers observe State().PlaylistPos to
+// learn which entry is playing. Always unpauses so a fresh selection
+// plays rather than silently inheriting a prior paused state.
+func (p *Player) LoadList(urls []string, start int) error {
+	if len(urls) == 0 {
+		return p.Stop()
+	}
+	if start < 0 || start >= len(urls) {
+		start = 0
+	}
+	// stop empties the playlist and idles mpv; appending then builds the
+	// new list without auto-playing, so setting playlist-pos lands on
+	// exactly the entry we want with no index-0 glitch.
+	if err := p.command("stop"); err != nil {
 		return err
+	}
+	for _, u := range urls {
+		if err := p.command("loadfile", u, "append"); err != nil {
+			return err
+		}
 	}
 	if err := p.command("set_property", "pause", false); err != nil {
 		return err
 	}
-	// Reset state optimistically; mpv's property observers repopulate it
-	// within a moment. This closes the window where State().Idle would
-	// still read true from the previous track right after a load.
+	if err := p.command("set_property", "playlist-pos", start); err != nil {
+		return err
+	}
 	p.stateMu.Lock()
-	p.state = State{}
+	p.state = State{PlaylistPos: start}
 	p.stateMu.Unlock()
 	return nil
 }
+
+// Append adds url to the end of mpv's playlist. If mpv is idle (empty
+// queue), playback starts at the appended entry.
+func (p *Player) Append(url string) error {
+	idle := p.State().Idle || p.State().PlaylistPos < 0
+	mode := "append"
+	if idle {
+		mode = "append-play"
+	}
+	return p.command("loadfile", url, mode)
+}
+
+// PlayIndex jumps playback to playlist entry i.
+func (p *Player) PlayIndex(i int) error {
+	return p.command("set_property", "playlist-pos", i)
+}
+
+// RemoveIndex drops playlist entry i. mpv handles the case where i is
+// the currently-playing entry (advances to the next).
+func (p *Player) RemoveIndex(i int) error {
+	return p.command("playlist-remove", i)
+}
+
+// MoveIndex moves playlist entry from to index to. mpv's playlist-move
+// inserts the entry at index1 *before* index2, so to land an item at a
+// strictly higher index we target to+1.
+func (p *Player) MoveIndex(from, to int) error {
+	dst := to
+	if to > from {
+		dst = to + 1
+	}
+	return p.command("playlist-move", from, dst)
+}
+
+// Next / Prev step through the playlist.
+func (p *Player) Next() error { return p.command("playlist-next") }
+func (p *Player) Prev() error { return p.command("playlist-prev") }
 
 // TogglePause flips the paused state.
 func (p *Player) TogglePause() error {
@@ -124,6 +187,9 @@ func (p *Player) TogglePause() error {
 
 // Stop clears the playlist and stops playback.
 func (p *Player) Stop() error {
+	p.stateMu.Lock()
+	p.state = State{PlaylistPos: -1}
+	p.stateMu.Unlock()
 	return p.command("stop")
 }
 
@@ -221,6 +287,14 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 		var idle bool
 		if json.Unmarshal(data, &idle) == nil {
 			p.state.Idle = idle
+		}
+	case "playlist-pos":
+		// mpv sends null / -1 when nothing is loaded.
+		var pos int
+		if json.Unmarshal(data, &pos) == nil {
+			p.state.PlaylistPos = pos
+		} else {
+			p.state.PlaylistPos = -1
 		}
 	}
 }

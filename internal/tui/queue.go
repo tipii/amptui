@@ -2,7 +2,6 @@ package tui
 
 import (
 	"errors"
-	"fmt"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -10,8 +9,28 @@ import (
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
+// Queue playback is delegated to mpv: m.queue mirrors mpv's internal
+// playlist (same order), and mpv owns advancement, prefetch, and
+// gapless transitions. m.queueIdx is kept in sync with mpv's
+// playlist-pos by syncFromPlayer on each tick — every queue mutation
+// applies the same change to both m.queue and the mpv playlist so the
+// indices stay aligned.
+
+// streamURLs maps the current queue to playable URLs, 1:1 so the slice
+// index matches mpv's playlist index.
+func (m Model) streamURLs() []string {
+	urls := make([]string, len(m.queue))
+	if m.client == nil {
+		return urls
+	}
+	for i, t := range m.queue {
+		urls[i] = m.client.StreamURL(t)
+	}
+	return urls
+}
+
 // playTracks sets the playback queue to tracks and starts at index start
-// (playing from there to the end of the queue).
+// (mpv plays from there through the rest of the queue).
 func (m Model) playTracks(tracks []plex.Track, start int) (tea.Model, tea.Cmd) {
 	if m.player == nil {
 		m.err = errors.New("playback unavailable: mpv is not running")
@@ -22,34 +41,27 @@ func (m Model) playTracks(tracks []plex.Track, start int) (tea.Model, tea.Cmd) {
 	}
 	m.queue = tracks
 	m.queueIdx = start
-	m.loadCurrent()
+	m.loadQueue(start)
 	return m, nil
 }
 
-// loadCurrent loads queue[queueIdx] into the player and updates nowPlaying.
-// On failure it sets m.err and leaves nowPlaying unchanged. No-ops if the
-// player or client haven't been wired (e.g. in tests).
-func (m *Model) loadCurrent() {
+// loadQueue hands the whole queue to mpv, starting at index start, and
+// sets nowPlaying optimistically. No-ops without a player/client.
+func (m *Model) loadQueue(start int) {
 	if m.player == nil || m.client == nil {
 		return
 	}
-	t := m.queue[m.queueIdx]
-	url := m.client.StreamURL(t)
-	if url == "" {
-		m.err = errors.New("track has no playable media")
+	if err := m.player.LoadList(m.streamURLs(), start); err != nil {
+		m.err = err
 		return
 	}
-	if err := m.player.Load(url); err != nil {
-		m.err = fmt.Errorf("playback: %w", err)
-		return
-	}
-	track := t
-	m.nowPlaying = &track
+	t := m.queue[start]
+	m.nowPlaying = &t
 	m.err = nil
 }
 
-// enqueue appends tracks to the playback queue. If nothing is currently
-// playing, playback starts from the first appended track.
+// enqueue appends tracks to the playback queue (and to mpv's playlist).
+// If nothing is playing, mpv starts at the first appended track.
 func (m *Model) enqueue(tracks ...plex.Track) {
 	if len(tracks) == 0 {
 		return
@@ -60,9 +72,17 @@ func (m *Model) enqueue(tracks ...plex.Track) {
 	}
 	wasEmpty := len(m.queue) == 0
 	m.queue = append(m.queue, tracks...)
+	if m.client != nil {
+		for _, t := range tracks {
+			if u := m.client.StreamURL(t); u != "" {
+				_ = m.player.Append(u)
+			}
+		}
+	}
 	if wasEmpty {
 		m.queueIdx = 0
-		m.loadCurrent()
+		t := m.queue[0]
+		m.nowPlaying = &t
 	}
 }
 
@@ -104,27 +124,22 @@ func (m *Model) rebuildQueueList() {
 	m.queueList.SetItems(items)
 }
 
-// playNext skips to the next track in the queue, if any.
+// playNext / playPrev delegate to mpv; syncFromPlayer reflects the new
+// position back into queueIdx / nowPlaying on the next tick.
 func (m *Model) playNext() {
-	if m.player == nil || m.queueIdx+1 >= len(m.queue) {
-		return
+	if m.player != nil {
+		_ = m.player.Next()
 	}
-	m.queueIdx++
-	m.loadCurrent()
 }
 
-// playPrev jumps to the previous track in the queue, if any.
 func (m *Model) playPrev() {
-	if m.player == nil || m.queueIdx <= 0 || len(m.queue) == 0 {
-		return
+	if m.player != nil {
+		_ = m.player.Prev()
 	}
-	m.queueIdx--
-	m.loadCurrent()
 }
 
-// moveQueueItem shifts the track at the queue-list cursor by delta positions
-// (+1 down, -1 up) within the queue. queueIdx is kept pointing at the
-// currently-playing track regardless of the move.
+// moveQueueItem shifts the track at the queue-list cursor by delta
+// positions (+1 down, -1 up), applying the same swap to mpv's playlist.
 func (m *Model) moveQueueItem(delta int) {
 	i := m.queueList.Index()
 	j := i + delta
@@ -132,6 +147,11 @@ func (m *Model) moveQueueItem(delta int) {
 		return
 	}
 	m.queue[i], m.queue[j] = m.queue[j], m.queue[i]
+	if m.player != nil {
+		_ = m.player.MoveIndex(i, j)
+	}
+	// Keep queueIdx pointing at the playing track across the swap;
+	// syncFromPlayer reconciles against mpv shortly regardless.
 	switch {
 	case m.queueIdx == i:
 		m.queueIdx = j
@@ -142,37 +162,24 @@ func (m *Model) moveQueueItem(delta int) {
 	m.queueList.Select(j)
 }
 
-// deleteQueueItem removes the track at the cursor from the queue. If the
-// removed track was the one playing, playback advances to the next track,
-// or stops if the queue is now empty.
+// deleteQueueItem removes the track at the cursor from the queue and
+// mpv's playlist. mpv advances on its own if the playing entry was the
+// one removed; syncFromPlayer updates nowPlaying afterward.
 func (m *Model) deleteQueueItem() {
 	i := m.queueList.Index()
 	if i < 0 || i >= len(m.queue) {
 		return
 	}
-	playingRemoved := i == m.queueIdx
 	m.queue = append(m.queue[:i], m.queue[i+1:]...)
+	if m.player != nil {
+		_ = m.player.RemoveIndex(i)
+	}
 	if i < m.queueIdx {
 		m.queueIdx--
 	}
-	switch {
-	case playingRemoved && len(m.queue) == 0:
+	if len(m.queue) == 0 {
 		m.nowPlaying = nil
 		m.queueIdx = 0
-		if m.player != nil {
-			_ = m.player.Stop()
-		}
-	case playingRemoved && i >= len(m.queue):
-		// Removed the last track (which was playing).
-		m.nowPlaying = nil
-		m.queue = nil
-		m.queueIdx = 0
-		if m.player != nil {
-			_ = m.player.Stop()
-		}
-	case playingRemoved:
-		m.queueIdx = i
-		m.loadCurrent()
 	}
 	m.rebuildQueueList()
 	if i >= len(m.queue) && len(m.queue) > 0 {
@@ -186,28 +193,35 @@ func (m *Model) playQueueItem() {
 	if i < 0 || i >= len(m.queue) || m.player == nil {
 		return
 	}
+	_ = m.player.PlayIndex(i)
 	m.queueIdx = i
-	m.loadCurrent()
+	t := m.queue[i]
+	m.nowPlaying = &t
 	m.rebuildQueueList()
 }
 
-// advanceIfFinished checks whether the current track has ended and, if so,
-// plays the next queued track or clears the now-playing state.
-func (m Model) advanceIfFinished() Model {
-	if m.player == nil || m.nowPlaying == nil {
+// syncFromPlayer reconciles queueIdx / nowPlaying with mpv's current
+// playlist position. mpv owns advancement (auto-advance, prefetch,
+// gapless), so this is how the UI learns a track changed. When the
+// playlist is exhausted (mpv idle, playlist-pos < 0) the now-playing
+// state is cleared.
+func (m Model) syncFromPlayer() Model {
+	if m.player == nil || len(m.queue) == 0 {
 		return m
 	}
-	if !m.player.State().Idle {
-		return m
+	st := m.player.State()
+	switch {
+	case st.PlaylistPos >= 0 && st.PlaylistPos < len(m.queue):
+		if st.PlaylistPos != m.queueIdx || m.nowPlaying == nil {
+			m.queueIdx = st.PlaylistPos
+			t := m.queue[m.queueIdx]
+			m.nowPlaying = &t
+		}
+	case st.Idle && st.PlaylistPos < 0 && m.nowPlaying != nil:
+		// Playlist exhausted.
+		m.nowPlaying = nil
+		m.queue = nil
+		m.queueIdx = 0
 	}
-	if m.queueIdx+1 < len(m.queue) {
-		m.queueIdx++
-		m.loadCurrent()
-		return m
-	}
-	// Queue exhausted: clear the now-playing line.
-	m.nowPlaying = nil
-	m.queue = nil
-	m.queueIdx = 0
 	return m
 }
