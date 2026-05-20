@@ -33,6 +33,12 @@ Working today:
 - **Playlist management** — create, edit, and reorder playlists from the TUI
   (today they're browse + play only).
 - **Music visualizer screen** — an audio-reactive view while a track plays.
+- **Jellyfin support** — abstract the backend behind an interface so amptui
+  drives either Plex or Jellyfin depending on what's configured. Jellyfin's
+  REST API maps cleanly onto the same model (token auth, hierarchical
+  artists → albums → tracks via `/Items`, `Overview`/`Genres`/similar-items
+  metadata, direct `/Items/{id}/Images/Primary` artwork, and an
+  `/Audio/{id}/universal` stream URL mpv can play).
 
 ## Requirements
 
