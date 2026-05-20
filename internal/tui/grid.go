@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/theopalhol/amptui/internal/textutil"
 )
 
 // Card geometry. lipgloss v2's Style.Width / Style.Height set the OUTER
@@ -189,14 +191,14 @@ func (m Model) gridBodyView() string {
 				break
 			}
 			title, sub := gridCellTexts(items[idx])
-			title = truncate(title, innerW)
+			title = textutil.Truncate(title, innerW)
 			content := ""
 			if thumb := m.gridCardThumb(items[idx]); thumb != "" {
 				content = thumb + "\n"
 			}
 			content += title
 			if sub != "" {
-				content += "\n" + helpStyle.Render(truncate(sub, innerW))
+				content += "\n" + helpStyle.Render(textutil.Truncate(sub, innerW))
 			}
 			style := normal
 			if idx == m.gridCursor {
@@ -264,17 +266,4 @@ func gridCellTexts(item interface{ FilterValue() string }) (title, sub string) {
 	}
 	title = item.FilterValue()
 	return
-}
-
-// truncate cuts s to at most n runes, appending an ellipsis when it had to
-// drop content.
-func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	if n <= 1 {
-		return string(runes[:n])
-	}
-	return string(runes[:n-1]) + "…"
 }

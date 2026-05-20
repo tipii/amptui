@@ -4,12 +4,17 @@
 //
 // The package is split across several files:
 //
-//   - tui.go     Model, styles, New, Init, tick
-//   - update.go  Update loop and input routing
-//   - view.go    rendering: View, modals, footer
-//   - browse.go  drill-down navigation and async Plex fetches
-//   - queue.go   playback queue and modal operations
-//   - items.go   bubbles/list item types
+//   - tui.go        Model, New, Init, tick
+//   - update.go     Update loop and input routing
+//   - view.go       screen composition + shared layout helpers
+//   - nowplaying.go the now-playing block and track-position bar
+//   - info.go       artist/album metadata header + the `i` info modal
+//   - modals.go     the shared modal frame + queue/search/help bodies
+//   - browse.go     drill-down navigation and async Plex fetches
+//   - queue.go      playback queue delegated to mpv
+//   - grid.go       artist/album grid rendering
+//   - theme.go      colors + styles
+//   - items.go      bubbles/list item types
 package tui
 
 import (

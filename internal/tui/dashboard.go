@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/theopalhol/amptui/internal/textutil"
 )
 
 // dashboardSection is one of the three horizontal tiles on the home screen.
@@ -39,17 +40,26 @@ const (
 type dashboardOutcome int
 
 const (
-	dashOutcomeNone dashboardOutcome = iota
-	dashOutcomePlayTrack    // selected: plex.Track
-	dashOutcomeOpenAlbum    // selected: plex.RecentlyAddedAlbum
-	dashOutcomeOpenPlaylist // selected: plex.Playlist
+	dashOutcomeNone         dashboardOutcome = iota
+	dashOutcomePlayTrack                     // selected: plex.Track
+	dashOutcomeOpenAlbum                     // selected: plex.RecentlyAddedAlbum
+	dashOutcomeOpenPlaylist                  // selected: plex.Playlist
 )
 
 // Messages from the per-section background fetches.
 type (
-	dashboardPlaysMsg     struct{ tracks []plex.Track; err error }
-	dashboardAddedMsg     struct{ albums []plex.RecentlyAddedAlbum; err error }
-	dashboardPlaylistsMsg struct{ playlists []plex.Playlist; err error }
+	dashboardPlaysMsg struct {
+		tracks []plex.Track
+		err    error
+	}
+	dashboardAddedMsg struct {
+		albums []plex.RecentlyAddedAlbum
+		err    error
+	}
+	dashboardPlaylistsMsg struct {
+		playlists []plex.Playlist
+		err       error
+	}
 )
 
 // dashboardModel owns the home screen: three horizontal tiles of recent
@@ -299,7 +309,7 @@ func (d dashboardModel) renderPlaylists(width int) string {
 		// Plex's default playlists (e.g. "❤️ Tracks") embed glyphs that
 		// lipgloss measures wrong; safeText drops them so the card
 		// borders stay aligned.
-		return safeText(p.Title), sub
+		return textutil.SafeText(p.Title), sub
 	})
 }
 
@@ -345,4 +355,3 @@ func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item fun
 func dashIndent(s string) string {
 	return lipgloss.NewStyle().PaddingLeft(2).Render(s)
 }
-
