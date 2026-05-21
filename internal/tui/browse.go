@@ -180,7 +180,7 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		m.pushCrumb(it.lib.Title)
 		items := m.artistItems()
 		m.applyItems(levelArtists, items)
-		return m, m.gridThumbFetches(items)
+		return m, m.visibleArtworkFetches()
 	case artistItem:
 		m.pushCrumb(it.artist.Title)
 		items := m.albumItems(it.artist.RatingKey)
@@ -202,7 +202,7 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{
 			fetchArtistMeta(m.client, it.artist.RatingKey),
 			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
-			m.gridThumbFetches(items),
+			m.visibleArtworkFetches(),
 		}
 		return m, tea.Batch(cmds...)
 	case albumItem:

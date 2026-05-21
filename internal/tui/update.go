@@ -36,7 +36,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// huh fields need WindowSizeMsg too so they can size themselves.
 		var fcmd tea.Cmd
 		m.settings, fcmd = m.settings.ForwardMsg(msg)
-		return m, fcmd
+		// A larger window exposes more cards/rows; fetch artwork for the
+		// newly-visible window (deduped).
+		return m, tea.Batch(fcmd, m.visibleArtworkFetches())
 
 	case tea.KeyPressMsg:
 		k := m.keymap
@@ -112,20 +114,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		// Grid cursor navigation (only meaningful at supported levels).
+		// Each move may scroll new cards into view, so kick off artwork
+		// fetches for the freshly-visible window (deduped against what's
+		// already loaded).
 		if m.currentGridView() {
 			switch {
 			case key.Matches(msg, k.Up):
 				m.moveGridCursor(-1, 0)
-				return m, nil
+				return m, m.visibleArtworkFetches()
 			case key.Matches(msg, k.Down):
 				m.moveGridCursor(1, 0)
-				return m, nil
+				return m, m.visibleArtworkFetches()
 			case key.Matches(msg, k.Left):
 				m.moveGridCursor(0, -1)
-				return m, nil
+				return m, m.visibleArtworkFetches()
 			case key.Matches(msg, k.Right):
 				m.moveGridCursor(0, 1)
-				return m, nil
+				return m, m.visibleArtworkFetches()
 			}
 		}
 		switch {
@@ -254,9 +259,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.refreshCurrentLevel()
 		}
-		// If we just landed on a grid-bearing level, kick off the
-		// thumb fetches.
-		return m, m.gridThumbFetches(m.list.Items())
+		// If we just landed on a grid-bearing level, kick off thumb
+		// fetches for the on-screen window only.
+		return m, m.visibleArtworkFetches()
 	case libraryErrMsg:
 		m.librarySyncing = false
 		m.libraryErr = msg.err
@@ -389,7 +394,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, tea.Batch(cmd, fieldsCmd, picCmd)
+	// A key may have paged the list; fetch artwork for the page now on
+	// screen (no-op when nothing new scrolled in).
+	var artCmd tea.Cmd
+	if _, isKey := msg.(tea.KeyPressMsg); isKey {
+		artCmd = m.visibleArtworkFetches()
+	}
+	return m, tea.Batch(cmd, fieldsCmd, picCmd, artCmd)
 }
 
 // forwardPictureMsg fans msg out to every picture.Model the parent
@@ -484,9 +495,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// they show up without requiring a navigation round-trip.
 		if imagesEnabled {
 			var fetches []tea.Cmd
-			if items := m.list.Items(); len(items) > 0 {
-				fetches = append(fetches, m.gridThumbFetches(items))
-			}
+			fetches = append(fetches, m.visibleArtworkFetches())
 			if m.artistMeta != nil && m.artistMeta.RatingKey != "" {
 				fetches = append(fetches, fetchArtwork(m.client, m.artistMeta.RatingKey, "artist"))
 			}

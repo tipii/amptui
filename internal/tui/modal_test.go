@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,6 +301,40 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 
 // TestArtistGridRenders verifies that toggling grid view at the Artists
 // level produces a multi-column layout and highlights the cursor cell.
+// TestVisibleItemsWindowsGrid confirms the grid only reports the
+// on-screen window (plus a one-row margin), not the whole level — the
+// basis for lazy artwork loading.
+func TestVisibleItemsWindowsGrid(t *testing.T) {
+	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m.screen = screenBrowser
+	// Short terminal so only a couple of card rows fit.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
+	m = updated.(Model)
+
+	items := make([]list.Item, 200)
+	for i := range items {
+		items[i] = artistItem{artist: library.Artist{
+			RatingKey: fmt.Sprintf("ar%d", i),
+			Title:     fmt.Sprintf("Artist %d", i),
+		}}
+	}
+	m.applyItems(levelArtists, items)
+	m.toggleGrid()
+
+	vis := m.visibleItems()
+	if len(vis) == 0 {
+		t.Fatal("expected some visible items")
+	}
+	if len(vis) >= len(items) {
+		t.Errorf("visibleItems should window the grid; got %d of %d", len(vis), len(items))
+	}
+	// The first card must be in the initial window.
+	if first, ok := vis[0].(artistItem); !ok || first.artist.RatingKey != "ar0" {
+		t.Errorf("expected window to start at ar0, got %#v", vis[0])
+	}
+}
+
 func TestArtistGridRenders(t *testing.T) {
 	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
