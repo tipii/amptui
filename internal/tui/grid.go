@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/theopalhol/amptui/internal/textutil"
@@ -122,6 +124,61 @@ func (m *Model) moveGridCursor(drow, dcol int) {
 	}
 	m.gridCursor = c
 	m.ensureCursorVisible()
+}
+
+// visibleItems returns the items currently on screen — the grid
+// viewport's rows in grid mode, the paginator's current page in list
+// mode — plus a one-row/page prefetch margin. Artwork is fetched only
+// for these (see visibleArtworkFetches) so a level with hundreds of
+// items doesn't fan out hundreds of requests on entry; the rest load
+// lazily as the user scrolls.
+func (m Model) visibleItems() []list.Item {
+	if m.currentGridView() {
+		items := m.list.Items()
+		if len(items) == 0 {
+			return nil
+		}
+		cols := gridCols(m.width)
+		if cols < 1 {
+			cols = 1
+		}
+		const marginRows = 1
+		startRow := m.gridScrollTop - marginRows
+		if startRow < 0 {
+			startRow = 0
+		}
+		endRow := m.gridScrollTop + m.gridVisibleRows() + marginRows
+		start := clampInt(startRow*cols, 0, len(items))
+		end := clampInt(endRow*cols, 0, len(items))
+		return items[start:end]
+	}
+	// List mode: the bubbles list paginates, so the current page's
+	// slice of the (possibly filtered) items is what's on screen.
+	vis := m.list.VisibleItems()
+	if len(vis) == 0 {
+		return nil
+	}
+	start, end := m.list.Paginator.GetSliceBounds(len(vis))
+	start = clampInt(start, 0, len(vis))
+	end = clampInt(end, 0, len(vis))
+	return vis[start:end]
+}
+
+// visibleArtworkFetches fetches artwork only for the on-screen items.
+// gridThumbFetches dedups against models we already hold, so this is
+// cheap to call after every scroll, resize, or level change.
+func (m Model) visibleArtworkFetches() tea.Cmd {
+	return m.gridThumbFetches(m.visibleItems())
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // gridVisibleRows is how many card rows fit in the body region.
