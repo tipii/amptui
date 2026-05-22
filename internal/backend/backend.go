@@ -17,7 +17,7 @@ import (
 // unusable client.
 func New(cfg config.Config) media.Backend {
 	if cfg.IsJellyfin() {
-		return jellyfin.New(cfg.ServerURL, cfg.Username, cfg.Password)
+		return jellyfin.New(cfg.ServerURL, cfg.JellyfinUsername, cfg.JellyfinPassword)
 	}
-	return plex.New(cfg.ServerURL, cfg.Token)
+	return plex.New(cfg.ServerURL, cfg.PlexToken)
 }

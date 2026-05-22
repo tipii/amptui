@@ -465,9 +465,9 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		imagesChanged := m.cfg.Images != v.Images
 		m.cfg.Backend = v.Backend
 		m.cfg.ServerURL = v.ServerURL
-		m.cfg.Token = v.Token
-		m.cfg.Username = v.Username
-		m.cfg.Password = v.Password
+		m.cfg.PlexToken = v.Token
+		m.cfg.JellyfinUsername = v.Username
+		m.cfg.JellyfinPassword = v.Password
 		m.cfg.DefaultLibrary = v.DefaultLibrary
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum

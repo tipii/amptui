@@ -17,13 +17,14 @@ type Config struct {
 	// ServerURL is the base URL of the media server, e.g.
 	// http://192.168.1.10:32400 (Plex) or http://192.168.1.10:8096 (Jellyfin).
 	ServerURL string `toml:"server_url"`
-	// Token is the X-Plex-Token used to authenticate against a Plex server.
-	Token string `toml:"token"`
-	// Username / Password authenticate against a Jellyfin server. Jellyfin
-	// exchanges them for an access token (and a userId, which most of its
-	// API calls require) at startup.
-	Username string `toml:"username,omitempty"`
-	Password string `toml:"password,omitempty"`
+	// PlexToken is the X-Plex-Token used to authenticate against a Plex
+	// server (backend = "plex").
+	PlexToken string `toml:"plex_token,omitempty"`
+	// JellyfinUsername / JellyfinPassword authenticate against a Jellyfin
+	// server (backend = "jellyfin"). Jellyfin exchanges them for an access
+	// token (and a userId, which most of its API calls require) at startup.
+	JellyfinUsername string `toml:"jellyfin_username,omitempty"`
+	JellyfinPassword string `toml:"jellyfin_password,omitempty"`
 	// DefaultLibrary, if set, makes the UI open straight into that music
 	// library instead of the library picker. Matched against a section's
 	// key or title (case-insensitive). Optional.
@@ -100,14 +101,14 @@ func Load() (Config, error) {
 	if v := os.Getenv("AMPTUI_SERVER_URL"); v != "" {
 		c.ServerURL = v
 	}
-	if v := os.Getenv("AMPTUI_TOKEN"); v != "" {
-		c.Token = v
+	if v := os.Getenv("AMPTUI_PLEX_TOKEN"); v != "" {
+		c.PlexToken = v
 	}
-	if v := os.Getenv("AMPTUI_USERNAME"); v != "" {
-		c.Username = v
+	if v := os.Getenv("AMPTUI_JELLYFIN_USERNAME"); v != "" {
+		c.JellyfinUsername = v
 	}
-	if v := os.Getenv("AMPTUI_PASSWORD"); v != "" {
-		c.Password = v
+	if v := os.Getenv("AMPTUI_JELLYFIN_PASSWORD"); v != "" {
+		c.JellyfinPassword = v
 	}
 	if v := os.Getenv("AMPTUI_DEFAULT_LIBRARY"); v != "" {
 		c.DefaultLibrary = v
@@ -128,9 +129,9 @@ func (c Config) IsValid() bool {
 		return false
 	}
 	if c.IsJellyfin() {
-		return c.Username != "" && c.Password != ""
+		return c.JellyfinUsername != "" && c.JellyfinPassword != ""
 	}
-	return c.Token != ""
+	return c.PlexToken != ""
 }
 
 // Save writes c to the config file, creating the directory if needed.

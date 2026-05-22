@@ -7,12 +7,12 @@ backend = "plex"
 server_url = "http://192.168.1.10:32400"
 
 # Plex auth (backend = "plex"): an X-Plex-Token.
-token = "your-X-Plex-Token-here"
+plex_token = "your-X-Plex-Token-here"
 
 # Jellyfin auth (backend = "jellyfin"): username + password, exchanged for
 # an access token + user id at startup. (Jellyfin's default port is 8096.)
-# username = "you"
-# password = "secret"
+# jellyfin_username = "you"
+# jellyfin_password = "secret"
 
 # Optional: open straight into this music library instead of the picker.
 # Matched against a library's section key or title (case-insensitive).

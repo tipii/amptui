@@ -44,7 +44,7 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
 	}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	// Default screen is now dashboard; flip to browser so tests that
 	// assert browser content show through under modals can find it.
 	m.screen = screenBrowser
@@ -164,7 +164,7 @@ func TestSettingsScreenRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music", UUID: "uuid-test"}}
 	cfg := config.Config{
 		ServerURL:      "https://plex.example.dev",
-		Token:          "abcdef1234567890wxyz",
+		PlexToken:      "abcdef1234567890wxyz",
 		DefaultLibrary: "Music",
 	}
 	m := New(cfg, nil, nil, nil, libs, nil)
@@ -219,7 +219,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{
 		ServerURL:         "https://x",
-		Token:             "abcd",
+		PlexToken:         "abcd",
 		DefaultViewArtist: "list",
 	}
 	m := New(cfg, nil, nil, nil, libs, nil)
@@ -320,7 +320,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // basis for lazy artwork loading.
 func TestVisibleItemsWindowsGrid(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser
 	// Short terminal so only a couple of card rows fit.
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
@@ -351,7 +351,7 @@ func TestVisibleItemsWindowsGrid(t *testing.T) {
 
 func TestArtistGridRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -395,7 +395,7 @@ func TestArtistGridRenders(t *testing.T) {
 // background fetch resolves in this test.
 func TestDashboardRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t", Home: "dashboard"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
@@ -481,7 +481,7 @@ func TestInfoModalRendersArtistMetadata(t *testing.T) {
 // in to the dashboard landing page.
 func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t"}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	if m.screen != screenBrowser {
 		t.Errorf("default screen should be library, got %v", m.screen)
@@ -492,7 +492,7 @@ func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 // two screens flip cleanly without losing any state.
 func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 	if m.screen != screenBrowser {
@@ -541,7 +541,7 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 // (they're aliases for Enter/Back via the navigation KeyMap).
 func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	cfg := config.Config{ServerURL: "", PlexToken: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
@@ -581,7 +581,7 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 // committing garbage to config.toml.
 func TestSettingsValidationBlocksCommit(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	cfg := config.Config{ServerURL: "", PlexToken: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)

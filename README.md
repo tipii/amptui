@@ -66,17 +66,17 @@ Settings (the required ones depend on the backend — see below):
 | ------------------- | --------------------- | ----------------------- | -------------------------------------------------------------------- |
 | Backend             | `backend`             | `plex` / `jellyfin`     | Which server type to drive. Defaults to `plex`.                      |
 | Server URL          | `server_url`          | `http://host:32400`     | Your server. Required. (Jellyfin is usually port `8096`.)            |
-| Token               | `token`               | `X-Plex-Token`          | **Plex only.** See Plex's [auth token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
-| Username            | `username`            | account name            | **Jellyfin only.**                                                   |
-| Password            | `password`            | account password        | **Jellyfin only.** Exchanged for a token + user id at startup.       |
+| Plex token          | `plex_token`          | `X-Plex-Token`          | **Plex only.** See Plex's [auth token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
+| Jellyfin username   | `jellyfin_username`   | account name            | **Jellyfin only.**                                                   |
+| Jellyfin password   | `jellyfin_password`   | account password        | **Jellyfin only.** Exchanged for a token + user id at startup.       |
 | Default library     | `default_library`     | name or section key     | Skips the library picker on launch.                                  |
 | Default view artist | `default_view_artist` | `list` / `grid`         | Initial render mode for the Artists level.                           |
 | Default view album  | `default_view_album`  | `list` / `grid`         | Initial render mode for the Albums level.                            |
 | Home screen         | `home`                | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 
-**Plex** needs `server_url` + `token`. **Jellyfin** needs `server_url` +
-`username` + `password`. Note that Jellyfin has no content-version counter,
+**Plex** needs `server_url` + `plex_token`. **Jellyfin** needs `server_url` +
+`jellyfin_username` + `jellyfin_password`. Note that Jellyfin has no content-version counter,
 so amptui can't auto-detect library changes — press `R` to re-sync the cache
 after adding music. Jellyfin bio/genre metadata is also only as complete as
 what the server has scraped.
@@ -88,9 +88,9 @@ Settings can also be overridden via env vars:
 ```bash
 export AMPTUI_BACKEND="jellyfin"
 export AMPTUI_SERVER_URL="http://192.168.1.10:8096"
-export AMPTUI_TOKEN="your-X-Plex-Token-here"   # Plex
-export AMPTUI_USERNAME="you"                    # Jellyfin
-export AMPTUI_PASSWORD="secret"                 # Jellyfin
+export AMPTUI_PLEX_TOKEN="your-X-Plex-Token-here"   # Plex
+export AMPTUI_JELLYFIN_USERNAME="you"               # Jellyfin
+export AMPTUI_JELLYFIN_PASSWORD="secret"            # Jellyfin
 export AMPTUI_DEFAULT_LIBRARY="Music"
 ```
 

@@ -68,9 +68,9 @@ func newSettingsModel(cfg config.Config) settingsModel {
 	v := &settingsValues{
 		Backend:        normalizeBackend(cfg.Backend),
 		ServerURL:      cfg.ServerURL,
-		Token:          cfg.Token,
-		Username:       cfg.Username,
-		Password:       cfg.Password,
+		Token:          cfg.PlexToken,
+		Username:       cfg.JellyfinUsername,
+		Password:       cfg.JellyfinPassword,
 		DefaultLibrary: cfg.DefaultLibrary,
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
@@ -267,9 +267,9 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 			huh.NewOption("jellyfin", "jellyfin"),
 		).Value(&v.Backend),
 		huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL),
-		huh.NewInput().Title("Token").Description("Plex only.").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
-		huh.NewInput().Title("Username").Description("Jellyfin only.").Value(&v.Username),
-		huh.NewInput().Title("Password").Description("Jellyfin only.").EchoMode(huh.EchoModePassword).Value(&v.Password),
+		huh.NewInput().Title("Token (Plex)").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
+		huh.NewInput().Title("Username (Jellyfin)").Value(&v.Username),
+		huh.NewInput().Title("Password (Jellyfin)").EchoMode(huh.EchoModePassword).Value(&v.Password),
 		huh.NewInput().
 			Title("Default library").
 			Description("Section name or key. Leave empty to show the picker on startup.").
