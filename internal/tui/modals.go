@@ -6,8 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/textutil"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/textutil"
 )
 
 // modalSize returns the outer dimensions of a modal box — roughly 70% of

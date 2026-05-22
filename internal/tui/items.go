@@ -3,8 +3,8 @@ package tui
 import (
 	"fmt"
 
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // Each list row implements bubbles/list.Item. Title is the primary line,

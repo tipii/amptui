@@ -5,7 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // Queue playback is delegated to mpv: m.queue mirrors mpv's internal

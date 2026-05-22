@@ -12,8 +12,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // metaFetchTimeout caps the per-screen metadata fetch.

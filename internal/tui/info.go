@@ -8,8 +8,8 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/theopalhol/amptui/internal/media"
-	"github.com/theopalhol/amptui/internal/textutil"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/textutil"
 )
 
 // headerThumbCellsW / H is the cell footprint of the hero thumbnail

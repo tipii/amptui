@@ -10,11 +10,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/media"
-	"github.com/theopalhol/amptui/internal/player"
-	"github.com/theopalhol/amptui/internal/plex"
-	"github.com/theopalhol/amptui/internal/tui"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/player"
+	"github.com/tipii/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/tui"
 )
 
 func main() {

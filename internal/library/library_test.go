@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // mkLib builds a small in-memory library for ranking and browse tests.

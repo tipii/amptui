@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to track

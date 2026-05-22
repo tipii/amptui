@@ -1,4 +1,4 @@
-module github.com/theopalhol/amptui
+module github.com/tipii/amptui
 
 go 1.26.2
 

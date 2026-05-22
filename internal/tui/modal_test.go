@@ -12,9 +12,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp

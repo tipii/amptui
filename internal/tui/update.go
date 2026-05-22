@@ -13,9 +13,9 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/media"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/plex"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

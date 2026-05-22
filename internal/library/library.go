@@ -16,7 +16,7 @@ import (
 
 	"github.com/sahilm/fuzzy"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // Kind is the type of a library entry (used by Search to filter).

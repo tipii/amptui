@@ -11,8 +11,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // librarySyncTimeout caps the cold-start library fetch when no cache exists.

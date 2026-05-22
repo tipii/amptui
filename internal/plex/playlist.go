@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // AudioPlaylists returns audio playlists sorted by most-recently-updated,

@@ -32,11 +32,11 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/media"
-	"github.com/theopalhol/amptui/internal/player"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/player"
 )
 
 // tickMsg is delivered every second to refresh the now-playing line and

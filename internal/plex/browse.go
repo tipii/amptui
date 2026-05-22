@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // trackMetadata is the JSON shape for the section-wide LibraryTracks fetch.

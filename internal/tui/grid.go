@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/textutil"
+	"github.com/tipii/amptui/internal/textutil"
 )
 
 // Card geometry. lipgloss v2's Style.Width / Style.Height set the OUTER

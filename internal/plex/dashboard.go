@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/media"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // RecentlyAddedAlbums fetches the most-recently-added albums in a section.

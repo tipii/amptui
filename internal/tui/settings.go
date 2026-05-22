@@ -13,10 +13,10 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/textutil"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/textutil"
 )
 
 // settingsValues holds the strings bound to each huh field. Stored on the

@@ -11,8 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/media"
-	"github.com/theopalhol/amptui/internal/textutil"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/textutil"
 )
 
 // dashboardSection is one of the three horizontal tiles on the home screen.
