@@ -199,13 +199,63 @@ func TestSettingsScreenRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// settingsScreen renders just the settings body for a given config.
+func settingsScreen(t *testing.T, cfg config.Config) string {
+	t.Helper()
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(cfg, nil, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.librarySyncing = false
+	m.screen = screenSettings
+	return m.View().Content
+}
+
+// TestSettingsBackendFieldVisibility verifies the credential fields shown
+// track the selected backend: Plex shows the token field and hides the
+// Jellyfin user/pass, and vice versa.
+func TestSettingsBackendFieldVisibility(t *testing.T) {
+	plex := settingsScreen(t, config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"})
+	if !strings.Contains(plex, "Token (Plex)") {
+		t.Error("plex backend should show the Token (Plex) field")
+	}
+	if strings.Contains(plex, "(Jellyfin)") {
+		t.Error("plex backend should hide the Jellyfin credential fields")
+	}
+
+	jelly := settingsScreen(t, config.Config{Backend: "jellyfin", ServerURL: "https://x", JellyfinUsername: "u", JellyfinPassword: "p"})
+	if !strings.Contains(jelly, "Username (Jellyfin)") || !strings.Contains(jelly, "Password (Jellyfin)") {
+		t.Error("jellyfin backend should show the username/password fields")
+	}
+	if strings.Contains(jelly, "Token (Plex)") {
+		t.Error("jellyfin backend should hide the Token (Plex) field")
+	}
+}
+
+// TestSettingsNavSkipsHiddenFields confirms Down from the visible Plex
+// token jumps over the hidden Jellyfin fields to Default library.
+func TestSettingsNavSkipsHiddenFields(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenSettings
+
+	m.settings.cursor = settingsFieldIndex(t, m, "Token (Plex)")
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = upd.(Model)
+	if got, want := m.settings.cursor, settingsFieldIndex(t, m, "Default library"); got != want {
+		t.Errorf("Down from Token should skip hidden Jellyfin fields to Default library (%d), got %d", want, got)
+	}
+}
+
 // settingsFieldIndex returns the index of the settings field whose
 // rendered view contains title. Lets tests target a field by name so they
 // don't break when fields are reordered or added.
 func settingsFieldIndex(t *testing.T, m Model, title string) int {
 	t.Helper()
 	for i, f := range m.settings.fields {
-		if strings.Contains(f.View(), title) {
+		if strings.Contains(f.field.View(), title) {
 			return i
 		}
 	}
@@ -230,7 +280,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 
 	// Run each field's Init cmd through Update so updateFieldMsg fires.
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
@@ -546,7 +596,7 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
@@ -586,7 +636,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
