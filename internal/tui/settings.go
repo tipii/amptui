@@ -22,8 +22,11 @@ import (
 // settingsValues holds the strings bound to each huh field. Stored on the
 // settings sub-model so the pointers remain stable across renders.
 type settingsValues struct {
+	Backend        string
 	ServerURL      string
 	Token          string
+	Username       string
+	Password       string
 	DefaultLibrary string
 	ViewArtist     string
 	ViewAlbum      string
@@ -63,8 +66,11 @@ type settingsModel struct {
 // out via values() when the parent commits.
 func newSettingsModel(cfg config.Config) settingsModel {
 	v := &settingsValues{
+		Backend:        normalizeBackend(cfg.Backend),
 		ServerURL:      cfg.ServerURL,
 		Token:          cfg.Token,
+		Username:       cfg.Username,
+		Password:       cfg.Password,
 		DefaultLibrary: cfg.DefaultLibrary,
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
@@ -256,8 +262,14 @@ func buildSettingsFields(v *settingsValues) []huh.Field {
 		huh.NewOption("grid", "grid"),
 	}
 	fields := []huh.Field{
+		huh.NewSelect[string]().Title("Backend").Height(3).Options(
+			huh.NewOption("plex", "plex"),
+			huh.NewOption("jellyfin", "jellyfin"),
+		).Value(&v.Backend),
 		huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL),
-		huh.NewInput().Title("Token").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
+		huh.NewInput().Title("Token").Description("Plex only.").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
+		huh.NewInput().Title("Username").Description("Jellyfin only.").Value(&v.Username),
+		huh.NewInput().Title("Password").Description("Jellyfin only.").EchoMode(huh.EchoModePassword).Value(&v.Password),
 		huh.NewInput().
 			Title("Default library").
 			Description("Section name or key. Leave empty to show the picker on startup.").
@@ -310,6 +322,15 @@ func validateToken(s string) error {
 		return fmt.Errorf("token must not contain whitespace")
 	}
 	return nil
+}
+
+// normalizeBackend coerces a stored backend setting to a known option,
+// defaulting to "plex" for empty / unknown values.
+func normalizeBackend(v string) string {
+	if v == "jellyfin" {
+		return "jellyfin"
+	}
+	return "plex"
 }
 
 // normalizeView coerces a stored view setting to a known option, defaulting

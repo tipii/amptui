@@ -199,6 +199,20 @@ func TestSettingsScreenRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// settingsFieldIndex returns the index of the settings field whose
+// rendered view contains title. Lets tests target a field by name so they
+// don't break when fields are reordered or added.
+func settingsFieldIndex(t *testing.T, m Model, title string) int {
+	t.Helper()
+	for i, f := range m.settings.fields {
+		if strings.Contains(f.View(), title) {
+			return i
+		}
+	}
+	t.Fatalf("no settings field with title %q", title)
+	return -1
+}
+
 // TestSettingsSelectEdit drives j/k inside an open Select to confirm the
 // per-field edit-mode navigation actually toggles the bound value.
 func TestSettingsSelectEdit(t *testing.T) {
@@ -224,10 +238,10 @@ func TestSettingsSelectEdit(t *testing.T) {
 		}
 	}
 
-	// Enter settings, move cursor to the "Default view (Artists)" field
-	// (index 3 in our slice), press enter to edit.
+	// Enter settings, move cursor to the "Default view (Artists)" field,
+	// press enter to edit.
 	m.screen = screenSettings
-	m.settings.cursor = 3
+	m.settings.cursor = settingsFieldIndex(t, m, "Default view (Artists)")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 	if !m.settings.editing {
@@ -540,9 +554,9 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 		}
 	}
 
-	// Cursor on ServerURL (index 0), press enter to start editing.
+	// Cursor on Server URL, press enter to start editing.
 	m.screen = screenSettings
-	m.settings.cursor = 0
+	m.settings.cursor = settingsFieldIndex(t, m, "Server URL")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 	if !m.settings.editing {
@@ -581,7 +595,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	}
 
 	m.screen = screenSettings
-	m.settings.cursor = 0
+	m.settings.cursor = settingsFieldIndex(t, m, "Server URL")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 

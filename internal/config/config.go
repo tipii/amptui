@@ -10,10 +10,20 @@ import (
 )
 
 type Config struct {
-	// ServerURL is the base URL of the Plex Media Server, e.g. http://192.168.1.10:32400
+	// Backend selects which server amptui drives: "plex" (default) or
+	// "jellyfin". It picks both the client implementation and which of
+	// the credential fields below are required (see IsValid).
+	Backend string `toml:"backend,omitempty"`
+	// ServerURL is the base URL of the media server, e.g.
+	// http://192.168.1.10:32400 (Plex) or http://192.168.1.10:8096 (Jellyfin).
 	ServerURL string `toml:"server_url"`
-	// Token is the X-Plex-Token used to authenticate against the server.
+	// Token is the X-Plex-Token used to authenticate against a Plex server.
 	Token string `toml:"token"`
+	// Username / Password authenticate against a Jellyfin server. Jellyfin
+	// exchanges them for an access token (and a userId, which most of its
+	// API calls require) at startup.
+	Username string `toml:"username,omitempty"`
+	Password string `toml:"password,omitempty"`
 	// DefaultLibrary, if set, makes the UI open straight into that music
 	// library instead of the library picker. Matched against a section's
 	// key or title (case-insensitive). Optional.
@@ -84,11 +94,20 @@ func Load() (Config, error) {
 		}
 	}
 
+	if v := os.Getenv("AMPTUI_BACKEND"); v != "" {
+		c.Backend = v
+	}
 	if v := os.Getenv("AMPTUI_SERVER_URL"); v != "" {
 		c.ServerURL = v
 	}
 	if v := os.Getenv("AMPTUI_TOKEN"); v != "" {
 		c.Token = v
+	}
+	if v := os.Getenv("AMPTUI_USERNAME"); v != "" {
+		c.Username = v
+	}
+	if v := os.Getenv("AMPTUI_PASSWORD"); v != "" {
+		c.Password = v
 	}
 	if v := os.Getenv("AMPTUI_DEFAULT_LIBRARY"); v != "" {
 		c.DefaultLibrary = v
@@ -96,11 +115,22 @@ func Load() (Config, error) {
 	return c, nil
 }
 
+// IsJellyfin reports whether the configured backend is Jellyfin. Plex is
+// the default for any unset or unrecognized value.
+func (c Config) IsJellyfin() bool { return c.Backend == "jellyfin" }
+
 // IsValid reports whether the config has the minimum required fields to
-// reach a Plex server (URL + token). Used by the app to decide whether to
-// connect at startup or open the settings screen for the user to fill in.
+// reach its backend: URL + token for Plex, URL + username + password for
+// Jellyfin. Used by the app to decide whether to connect at startup or
+// open the settings screen for the user to fill in.
 func (c Config) IsValid() bool {
-	return c.ServerURL != "" && c.Token != ""
+	if c.ServerURL == "" {
+		return false
+	}
+	if c.IsJellyfin() {
+		return c.Username != "" && c.Password != ""
+	}
+	return c.Token != ""
 }
 
 // Save writes c to the config file, creating the directory if needed.

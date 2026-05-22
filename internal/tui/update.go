@@ -13,9 +13,9 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
+	"github.com/tipii/amptui/internal/backend"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
-	"github.com/tipii/amptui/internal/plex"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -463,8 +463,11 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		v := m.settings.Values()
 		imagesEnabled := !m.cfg.Images && v.Images
 		imagesChanged := m.cfg.Images != v.Images
+		m.cfg.Backend = v.Backend
 		m.cfg.ServerURL = v.ServerURL
 		m.cfg.Token = v.Token
+		m.cfg.Username = v.Username
+		m.cfg.Password = v.Password
 		m.cfg.DefaultLibrary = v.DefaultLibrary
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
@@ -481,12 +484,12 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.list.SetSize(m.width, m.listHeight())
 		}
 		// First-time setup: app started without credentials, user has now
-		// supplied them. Build the Plex client and fetch the library list
-		// in the background so they can leave the settings screen and
+		// supplied them. Build the backend client and fetch the library
+		// list in the background so they can leave the settings screen and
 		// browse without restarting. Re-edits after a successful startup
 		// still require a relaunch (we don't tear down an existing client).
 		if m.client == nil && m.cfg.IsValid() {
-			m.client = plex.New(m.cfg.ServerURL, m.cfg.Token)
+			m.client = backend.New(m.cfg)
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, fetchLibraries(m.client))
