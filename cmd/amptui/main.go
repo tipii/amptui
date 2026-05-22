@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/tipii/amptui/internal/backend"
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/player"
-	"github.com/tipii/amptui/internal/plex"
 	"github.com/tipii/amptui/internal/tui"
 )
 
@@ -38,7 +38,7 @@ func run() error {
 		defaultLib *media.MusicLibrary
 	)
 	if cfg.IsValid() {
-		client = plex.New(cfg.ServerURL, cfg.Token)
+		client = backend.New(cfg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		var err error

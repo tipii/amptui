@@ -1,8 +1,18 @@
-# Copy to $XDG_CONFIG_HOME/amptui/config.toml (usually ~/.config/amptui/config.toml)
-# Both values can also be supplied via AMPTUI_SERVER_URL / AMPTUI_TOKEN env vars.
+# Copy to $XDG_CONFIG_HOME/amptui/config.toml (usually ~/.config/amptui/config.toml).
+# Every value can also be supplied via AMPTUI_* env vars (see the README).
+
+# Which server type to drive: "plex" (default) or "jellyfin".
+backend = "plex"
 
 server_url = "http://192.168.1.10:32400"
-token = "your-X-Plex-Token-here"
+
+# Plex auth (backend = "plex"): an X-Plex-Token.
+plex_token = "your-X-Plex-Token-here"
+
+# Jellyfin auth (backend = "jellyfin"): username + password, exchanged for
+# an access token + user id at startup. (Jellyfin's default port is 8096.)
+# jellyfin_username = "you"
+# jellyfin_password = "secret"
 
 # Optional: open straight into this music library instead of the picker.
 # Matched against a library's section key or title (case-insensitive).

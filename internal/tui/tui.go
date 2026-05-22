@@ -72,6 +72,10 @@ type Model struct {
 	// so search jumps can synthesize a Libraries crumb at any depth.
 	libs []media.MusicLibrary
 
+	// serverName is the backend's friendly name, fetched async at startup
+	// and shown as the first segment of the browser breadcrumb.
+	serverName string
+
 	screen screen
 
 	// settings is the sub-model that owns the settings screen state and
@@ -294,6 +298,9 @@ func (m Model) Init() tea.Cmd {
 	// in the background when we have a Plex client and at least one
 	// library. Missing config drops us on the settings screen with no
 	// background work to do.
+	if m.client != nil {
+		cmds = append(cmds, fetchServerName(m.client))
+	}
 	if m.client != nil && len(m.libs) > 0 {
 		active := m.libs[0]
 		if m.startupLibrary != nil {

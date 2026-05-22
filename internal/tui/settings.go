@@ -22,8 +22,11 @@ import (
 // settingsValues holds the strings bound to each huh field. Stored on the
 // settings sub-model so the pointers remain stable across renders.
 type settingsValues struct {
+	Backend        string
 	ServerURL      string
 	Token          string
+	Username       string
+	Password       string
 	DefaultLibrary string
 	ViewArtist     string
 	ViewAlbum      string
@@ -49,13 +52,44 @@ const (
 // (passed in to Update) and the read-only library snapshot (passed in to
 // View for cache stats). Cross-cutting actions — close, refresh, commit
 // — are surfaced as settingsOutcome values that the parent acts on.
+// settingsField pairs a huh field with an optional visibility predicate.
+// Fields whose visible() returns false (e.g. the Plex token while the
+// Jellyfin backend is selected) are skipped by both navigation and
+// rendering — they still exist and keep their bound value, they're just
+// hidden until relevant. A nil predicate means always visible.
+type settingsField struct {
+	field   huh.Field
+	visible func(v *settingsValues) bool
+}
+
 type settingsModel struct {
-	fields  []huh.Field
+	fields  []settingsField
 	values  *settingsValues
 	cursor  int
 	editing bool
 	savedAt time.Time
 	err     error
+	// relaunch is set once the user changes a connection setting under a
+	// running client; the View then shows a persistent relaunch notice.
+	relaunch bool
+}
+
+// fieldVisible reports whether the field at index i should be shown given
+// the current values (the selected backend, mainly).
+func (s settingsModel) fieldVisible(i int) bool {
+	f := s.fields[i]
+	return f.visible == nil || f.visible(s.values)
+}
+
+// nextVisible returns the next visible field index from `from` moving in
+// dir (+1 / -1), or `from` itself if there's no visible field that way.
+func (s settingsModel) nextVisible(from, dir int) int {
+	for i := from + dir; i >= 0 && i < len(s.fields); i += dir {
+		if s.fieldVisible(i) {
+			return i
+		}
+	}
+	return from
 }
 
 // newSettingsModel builds the sub-model from an initial config snapshot.
@@ -63,8 +97,11 @@ type settingsModel struct {
 // out via values() when the parent commits.
 func newSettingsModel(cfg config.Config) settingsModel {
 	v := &settingsValues{
+		Backend:        normalizeBackend(cfg.Backend),
 		ServerURL:      cfg.ServerURL,
-		Token:          cfg.Token,
+		Token:          cfg.PlexToken,
+		Username:       cfg.JellyfinUsername,
+		Password:       cfg.JellyfinPassword,
 		DefaultLibrary: cfg.DefaultLibrary,
 		ViewArtist:     normalizeView(cfg.DefaultViewArtist),
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
@@ -82,7 +119,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 func (s settingsModel) Init() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(s.fields))
 	for _, f := range s.fields {
-		cmds = append(cmds, f.Init())
+		cmds = append(cmds, f.field.Init())
 	}
 	return tea.Batch(cmds...)
 }
@@ -101,21 +138,17 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 	case key.Matches(msg, km.Settings), key.Matches(msg, km.Back):
 		return s, nil, settingsOutcomeClose
 	case key.Matches(msg, km.Up):
-		if s.cursor > 0 {
-			s.cursor--
-		}
+		s.cursor = s.nextVisible(s.cursor, -1)
 		return s, nil, settingsOutcomeNone
 	case key.Matches(msg, km.Down):
-		if s.cursor < len(s.fields)-1 {
-			s.cursor++
-		}
+		s.cursor = s.nextVisible(s.cursor, +1)
 		return s, nil, settingsOutcomeNone
 	case key.Matches(msg, km.Enter):
 		if s.cursor < 0 || s.cursor >= len(s.fields) {
 			return s, nil, settingsOutcomeNone
 		}
 		s.editing = true
-		return s, s.fields[s.cursor].Focus(), settingsOutcomeNone
+		return s, s.fields[s.cursor].field.Focus(), settingsOutcomeNone
 	case key.Matches(msg, km.Refresh):
 		return s, nil, settingsOutcomeRefresh
 	case key.Matches(msg, km.PurgeImgs):
@@ -133,20 +166,26 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 		return s, tea.Quit, settingsOutcomeNone
 	}
 
-	updated, cmd := s.fields[s.cursor].Update(msg)
+	updated, cmd := s.fields[s.cursor].field.Update(msg)
 	if f, ok := updated.(huh.Field); ok {
-		s.fields[s.cursor] = f
+		s.fields[s.cursor].field = f
 	}
 
 	// Input* bindings (arrows / enter / esc only) so vim-letter aliases
 	// on Enter/Back don't trigger commit when the user types "l" or "h"
 	// into the field they're editing.
 	if key.Matches(msg, km.InputEnter) || key.Matches(msg, km.InputBack) {
-		if s.fields[s.cursor].Error() != nil {
+		if s.fields[s.cursor].field.Error() != nil {
 			return s, cmd, settingsOutcomeNone
 		}
-		blurCmd := s.fields[s.cursor].Blur()
+		blurCmd := s.fields[s.cursor].field.Blur()
 		s.editing = false
+		// Editing the Backend select may have hidden the field the cursor
+		// sits on (it doesn't today — backend is always visible — but keep
+		// the cursor on a visible field defensively).
+		if !s.fieldVisible(s.cursor) {
+			s.cursor = s.nextVisible(s.cursor, -1)
+		}
 		return s, tea.Batch(cmd, blurCmd), settingsOutcomeCommit
 	}
 	return s, cmd, settingsOutcomeNone
@@ -158,9 +197,9 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 func (s settingsModel) ForwardMsg(msg tea.Msg) (settingsModel, tea.Cmd) {
 	var cmds []tea.Cmd
 	for i, f := range s.fields {
-		updated, c := f.Update(msg)
+		updated, c := f.field.Update(msg)
 		if fld, ok := updated.(huh.Field); ok {
-			s.fields[i] = fld
+			s.fields[i].field = fld
 		}
 		if c != nil {
 			cmds = append(cmds, c)
@@ -177,6 +216,10 @@ func (s *settingsModel) MarkSaved(err error) {
 		s.savedAt = time.Now()
 	}
 }
+
+// NoteRelaunchRequired marks that a connection setting changed under a
+// running client, so the View shows a persistent relaunch notice.
+func (s *settingsModel) NoteRelaunchRequired() { s.relaunch = true }
 
 // Values returns the current bound values so the parent can copy them
 // into its own config on commit.
@@ -204,14 +247,22 @@ func (s settingsModel) View(bodyHeight int, statsBody string) string {
 
 	b.WriteString(sectionStyle.Render("Server"))
 	b.WriteString("\n")
-	for i, f := range s.fields {
-		b.WriteString(s.renderField(i, f))
+	for i := range s.fields {
+		if !s.fieldVisible(i) {
+			continue
+		}
+		b.WriteString(s.renderField(i, s.fields[i].field))
 	}
 	switch {
 	case s.err != nil:
 		b.WriteString("\n" + errStyle.Render("save error: "+s.err.Error()))
 	case time.Since(s.savedAt) < 2*time.Second:
 		b.WriteString("\n" + npStyle.Render("saved ✓"))
+	}
+	// Persistent until relaunch — connection changes are saved but the
+	// running client keeps the old ones.
+	if s.relaunch {
+		b.WriteString("\n" + errStyle.Render("⚠ relaunch amptui for the new server / credentials to take effect"))
 	}
 
 	b.WriteString("\n\n")
@@ -250,32 +301,43 @@ func (s settingsModel) renderField(i int, f huh.Field) string {
 // huh's default keymap must be applied manually (Form/Group normally do
 // this; without it, key.Matches finds nothing in the field's zero-valued
 // keymap and navigation silently does nothing).
-func buildSettingsFields(v *settingsValues) []huh.Field {
+func buildSettingsFields(v *settingsValues) []settingsField {
 	viewOpts := []huh.Option[string]{
 		huh.NewOption("list", "list"),
 		huh.NewOption("grid", "grid"),
 	}
-	fields := []huh.Field{
-		huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL),
-		huh.NewInput().Title("Token").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
-		huh.NewInput().
+	isPlex := func(v *settingsValues) bool { return v.Backend != "jellyfin" }
+	isJellyfin := func(v *settingsValues) bool { return v.Backend == "jellyfin" }
+	fields := []settingsField{
+		{field: huh.NewSelect[string]().Title("Backend").Height(3).Options(
+			huh.NewOption("plex", "plex"),
+			huh.NewOption("jellyfin", "jellyfin"),
+		).Value(&v.Backend)},
+		{field: huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL)},
+		{field: huh.NewInput().Title("Token (Plex)").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
+			visible: isPlex},
+		{field: huh.NewInput().Title("Username (Jellyfin)").Value(&v.Username),
+			visible: isJellyfin},
+		{field: huh.NewInput().Title("Password (Jellyfin)").EchoMode(huh.EchoModePassword).Value(&v.Password),
+			visible: isJellyfin},
+		{field: huh.NewInput().
 			Title("Default library").
 			Description("Section name or key. Leave empty to show the picker on startup.").
-			Value(&v.DefaultLibrary),
-		huh.NewSelect[string]().Title("Default view (Artists)").Height(3).Options(viewOpts...).Value(&v.ViewArtist),
-		huh.NewSelect[string]().Title("Default view (Albums)").Height(3).Options(viewOpts...).Value(&v.ViewAlbum),
-		huh.NewSelect[string]().Title("Home screen").Height(3).Options(
+			Value(&v.DefaultLibrary)},
+		{field: huh.NewSelect[string]().Title("Default view (Artists)").Height(3).Options(viewOpts...).Value(&v.ViewArtist)},
+		{field: huh.NewSelect[string]().Title("Default view (Albums)").Height(3).Options(viewOpts...).Value(&v.ViewAlbum)},
+		{field: huh.NewSelect[string]().Title("Home screen").Height(3).Options(
 			huh.NewOption("dashboard", "dashboard"),
 			huh.NewOption("library", "library"),
-		).Value(&v.Home),
-		huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
+		).Value(&v.Home)},
+		{field: huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
 			huh.NewOption("off", false),
 			huh.NewOption("on", true),
-		).Value(&v.Images),
+		).Value(&v.Images)},
 	}
 	km := huh.NewDefaultKeyMap()
-	for i, f := range fields {
-		fields[i] = f.WithKeyMap(km)
+	for i := range fields {
+		fields[i].field = fields[i].field.WithKeyMap(km)
 	}
 	return fields
 }
@@ -310,6 +372,15 @@ func validateToken(s string) error {
 		return fmt.Errorf("token must not contain whitespace")
 	}
 	return nil
+}
+
+// normalizeBackend coerces a stored backend setting to a known option,
+// defaulting to "plex" for empty / unknown values.
+func normalizeBackend(v string) string {
+	if v == "jellyfin" {
+		return "jellyfin"
+	}
+	return "plex"
 }
 
 // normalizeView coerces a stored view setting to a known option, defaulting

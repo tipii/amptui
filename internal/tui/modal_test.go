@@ -15,6 +15,7 @@ import (
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/plex"
 )
 
 // TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp
@@ -44,7 +45,7 @@ func newQueueModel(t *testing.T) Model {
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
 	}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	// Default screen is now dashboard; flip to browser so tests that
 	// assert browser content show through under modals can find it.
 	m.screen = screenBrowser
@@ -164,7 +165,7 @@ func TestSettingsScreenRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music", UUID: "uuid-test"}}
 	cfg := config.Config{
 		ServerURL:      "https://plex.example.dev",
-		Token:          "abcdef1234567890wxyz",
+		PlexToken:      "abcdef1234567890wxyz",
 		DefaultLibrary: "Music",
 	}
 	m := New(cfg, nil, nil, nil, libs, nil)
@@ -199,13 +200,77 @@ func TestSettingsScreenRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
+// settingsScreen renders just the settings body for a given config.
+func settingsScreen(t *testing.T, cfg config.Config) string {
+	t.Helper()
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(cfg, nil, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.librarySyncing = false
+	m.screen = screenSettings
+	return m.View().Content
+}
+
+// TestSettingsBackendFieldVisibility verifies the credential fields shown
+// track the selected backend: Plex shows the token field and hides the
+// Jellyfin user/pass, and vice versa.
+func TestSettingsBackendFieldVisibility(t *testing.T) {
+	plex := settingsScreen(t, config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"})
+	if !strings.Contains(plex, "Token (Plex)") {
+		t.Error("plex backend should show the Token (Plex) field")
+	}
+	if strings.Contains(plex, "(Jellyfin)") {
+		t.Error("plex backend should hide the Jellyfin credential fields")
+	}
+
+	jelly := settingsScreen(t, config.Config{Backend: "jellyfin", ServerURL: "https://x", JellyfinUsername: "u", JellyfinPassword: "p"})
+	if !strings.Contains(jelly, "Username (Jellyfin)") || !strings.Contains(jelly, "Password (Jellyfin)") {
+		t.Error("jellyfin backend should show the username/password fields")
+	}
+	if strings.Contains(jelly, "Token (Plex)") {
+		t.Error("jellyfin backend should hide the Token (Plex) field")
+	}
+}
+
+// TestSettingsNavSkipsHiddenFields confirms Down from the visible Plex
+// token jumps over the hidden Jellyfin fields to Default library.
+func TestSettingsNavSkipsHiddenFields(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	m := New(config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenSettings
+
+	m.settings.cursor = settingsFieldIndex(t, m, "Token (Plex)")
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = upd.(Model)
+	if got, want := m.settings.cursor, settingsFieldIndex(t, m, "Default library"); got != want {
+		t.Errorf("Down from Token should skip hidden Jellyfin fields to Default library (%d), got %d", want, got)
+	}
+}
+
+// settingsFieldIndex returns the index of the settings field whose
+// rendered view contains title. Lets tests target a field by name so they
+// don't break when fields are reordered or added.
+func settingsFieldIndex(t *testing.T, m Model, title string) int {
+	t.Helper()
+	for i, f := range m.settings.fields {
+		if strings.Contains(f.field.View(), title) {
+			return i
+		}
+	}
+	t.Fatalf("no settings field with title %q", title)
+	return -1
+}
+
 // TestSettingsSelectEdit drives j/k inside an open Select to confirm the
 // per-field edit-mode navigation actually toggles the bound value.
 func TestSettingsSelectEdit(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{
 		ServerURL:         "https://x",
-		Token:             "abcd",
+		PlexToken:         "abcd",
 		DefaultViewArtist: "list",
 	}
 	m := New(cfg, nil, nil, nil, libs, nil)
@@ -216,7 +281,7 @@ func TestSettingsSelectEdit(t *testing.T) {
 
 	// Run each field's Init cmd through Update so updateFieldMsg fires.
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
@@ -224,10 +289,10 @@ func TestSettingsSelectEdit(t *testing.T) {
 		}
 	}
 
-	// Enter settings, move cursor to the "Default view (Artists)" field
-	// (index 3 in our slice), press enter to edit.
+	// Enter settings, move cursor to the "Default view (Artists)" field,
+	// press enter to edit.
 	m.screen = screenSettings
-	m.settings.cursor = 3
+	m.settings.cursor = settingsFieldIndex(t, m, "Default view (Artists)")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 	if !m.settings.editing {
@@ -249,6 +314,45 @@ func TestSettingsSelectEdit(t *testing.T) {
 	}
 	if !m.gridArtists {
 		t.Errorf("gridArtists should be true after committing 'grid'")
+	}
+}
+
+// TestSettingsConnectionChangeWarnsRelaunch verifies that switching the
+// backend under a running client flags a relaunch and surfaces the notice.
+func TestSettingsConnectionChangeWarnsRelaunch(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"}
+	// A non-nil client makes this a re-edit (not first-time setup).
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	for _, f := range m.settings.fields {
+		if c := f.field.Init(); c != nil {
+			if msg := c(); msg != nil {
+				upd, _ := m.Update(msg)
+				m = upd.(Model)
+			}
+		}
+	}
+
+	// Edit the Backend select: plex → jellyfin, then commit.
+	m.screen = screenSettings
+	m.settings.cursor = settingsFieldIndex(t, m, "Backend")
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+	upd, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = upd.(Model)
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+
+	if m.cfg.Backend != "jellyfin" {
+		t.Fatalf("backend should be jellyfin after commit, got %q", m.cfg.Backend)
+	}
+	if !m.settings.relaunch {
+		t.Error("connection change under a running client should flag relaunch")
+	}
+	if !strings.Contains(m.View().Content, "relaunch") {
+		t.Error("settings view should surface the relaunch notice")
 	}
 }
 
@@ -306,7 +410,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // basis for lazy artwork loading.
 func TestVisibleItemsWindowsGrid(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser
 	// Short terminal so only a couple of card rows fit.
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
@@ -337,7 +441,7 @@ func TestVisibleItemsWindowsGrid(t *testing.T) {
 
 func TestArtistGridRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
@@ -381,7 +485,7 @@ func TestArtistGridRenders(t *testing.T) {
 // background fetch resolves in this test.
 func TestDashboardRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t", Home: "dashboard"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
@@ -467,7 +571,7 @@ func TestInfoModalRendersArtistMetadata(t *testing.T) {
 // in to the dashboard landing page.
 func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "https://x", Token: "t"}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	if m.screen != screenBrowser {
 		t.Errorf("default screen should be library, got %v", m.screen)
@@ -478,7 +582,7 @@ func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 // two screens flip cleanly without losing any state.
 func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
+	m := New(config.Config{ServerURL: "https://x", PlexToken: "t"}, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
 	if m.screen != screenBrowser {
@@ -527,12 +631,12 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 // (they're aliases for Enter/Back via the navigation KeyMap).
 func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	cfg := config.Config{ServerURL: "", PlexToken: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
@@ -540,9 +644,9 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 		}
 	}
 
-	// Cursor on ServerURL (index 0), press enter to start editing.
+	// Cursor on Server URL, press enter to start editing.
 	m.screen = screenSettings
-	m.settings.cursor = 0
+	m.settings.cursor = settingsFieldIndex(t, m, "Server URL")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 	if !m.settings.editing {
@@ -567,12 +671,12 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 // committing garbage to config.toml.
 func TestSettingsValidationBlocksCommit(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
-	cfg := config.Config{ServerURL: "", Token: "abcd"}
+	cfg := config.Config{ServerURL: "", PlexToken: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	for _, f := range m.settings.fields {
-		if c := f.Init(); c != nil {
+		if c := f.field.Init(); c != nil {
 			if msg := c(); msg != nil {
 				upd, _ := m.Update(msg)
 				m = upd.(Model)
@@ -581,7 +685,7 @@ func TestSettingsValidationBlocksCommit(t *testing.T) {
 	}
 
 	m.screen = screenSettings
-	m.settings.cursor = 0
+	m.settings.cursor = settingsFieldIndex(t, m, "Server URL")
 	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = upd.(Model)
 
