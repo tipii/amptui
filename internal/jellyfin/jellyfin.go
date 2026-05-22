@@ -164,6 +164,31 @@ type itemsResponse struct {
 	TotalRecordCount int       `json:"TotalRecordCount"`
 }
 
+// ServerName returns the server's display name from the public system-info
+// endpoint. It needs no auth, so it doubles as an early connectivity check.
+func (c *Client) ServerName(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serverURL+"/System/Info/Public", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET /System/Info/Public: %s", resp.Status)
+	}
+	var info struct {
+		ServerName string `json:"ServerName"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return "", err
+	}
+	return info.ServerName, nil
+}
+
 // MusicLibraries returns the server's music libraries (Views whose
 // CollectionType is "music").
 func (c *Client) MusicLibraries(ctx context.Context) ([]media.MusicLibrary, error) {

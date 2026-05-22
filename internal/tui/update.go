@@ -210,6 +210,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case serverNameMsg:
+		m.serverName = msg.name
+		return m, nil
+
 	case librariesReadyMsg:
 		// Result of the first-time-setup fetch kicked off by the settings
 		// commit. Populate the picker list, resolve the active library
@@ -492,7 +496,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.client = backend.New(m.cfg)
 			m.librarySyncing = true
 			m.libraryErr = nil
-			return m, tea.Batch(cmd, fetchLibraries(m.client))
+			return m, tea.Batch(cmd, fetchLibraries(m.client), fetchServerName(m.client))
 		}
 		// If the user just flipped Inline artwork on, the current
 		// screen has no thumbs yet — kick off the fetches now so

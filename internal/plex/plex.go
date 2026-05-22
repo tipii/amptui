@@ -62,6 +62,19 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	return json.NewDecoder(resp.Body).Decode(v)
 }
 
+// ServerName returns the server's friendlyName from the root endpoint.
+func (c *Client) ServerName(ctx context.Context) (string, error) {
+	var body struct {
+		MediaContainer struct {
+			FriendlyName string `json:"friendlyName"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.getJSON(ctx, "/", &body); err != nil {
+		return "", err
+	}
+	return body.MediaContainer.FriendlyName, nil
+}
+
 // MusicLibraries returns the server's music library sections.
 func (c *Client) MusicLibraries(ctx context.Context) ([]media.MusicLibrary, error) {
 	var body struct {

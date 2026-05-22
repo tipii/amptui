@@ -76,6 +76,23 @@ func fetchLibraries(client media.Backend) tea.Cmd {
 	}
 }
 
+// serverNameMsg carries the backend's friendly name for the breadcrumb.
+type serverNameMsg struct{ name string }
+
+// fetchServerName resolves the backend's display name in the background.
+// Failures are swallowed (the breadcrumb just omits the name).
+func fetchServerName(client media.Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		name, err := client.ServerName(ctx)
+		if err != nil {
+			return serverNameMsg{}
+		}
+		return serverNameMsg{name: name}
+	}
+}
+
 // searchFilters lists the kind-filters that Tab cycles through, paired with
 // the labels shown in the modal's filter bar.
 var (

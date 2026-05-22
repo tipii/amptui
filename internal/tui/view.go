@@ -189,12 +189,15 @@ func (m Model) overlayBox(background, box string) string {
 }
 
 func (m Model) crumbLine() string {
-	if len(m.crumbs) == 0 {
-		return ""
+	parts := make([]string, 0, len(m.crumbs)+1)
+	if m.serverName != "" {
+		parts = append(parts, m.serverName)
 	}
-	parts := make([]string, len(m.crumbs))
-	for i, c := range m.crumbs {
-		parts[i] = c.title
+	for _, c := range m.crumbs {
+		parts = append(parts, c.title)
+	}
+	if len(parts) == 0 {
+		return ""
 	}
 	return strings.Join(parts, " / ") + " /"
 }

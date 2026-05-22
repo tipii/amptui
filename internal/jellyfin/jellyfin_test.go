@@ -66,6 +66,9 @@ const testToken = "test-access-token"
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.HandleFunc("/System/Info/Public", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"ServerName": "jellytest"})
+	})
 	mux.HandleFunc("/Users/AuthenticateByName", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("auth method = %s", r.Method)
@@ -101,6 +104,19 @@ func newTestServer(t *testing.T) *httptest.Server {
 		})
 	}))
 	return httptest.NewServer(mux)
+}
+
+func TestServerName(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	c := New(srv.URL, "u", "p")
+	name, err := c.ServerName(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "jellytest" {
+		t.Errorf("ServerName = %q, want jellytest", name)
+	}
 }
 
 func TestMusicLibrariesFiltersToMusic(t *testing.T) {

@@ -99,6 +99,9 @@ type Playlist struct {
 // Backend is the server abstraction amptui drives. Plex and Jellyfin
 // each implement it; the cache and UI depend only on this interface.
 type Backend interface {
+	// ServerName returns the server's friendly/display name (shown in the
+	// breadcrumb). Empty string if the server doesn't advertise one.
+	ServerName(ctx context.Context) (string, error)
 	// MusicLibraries returns the server's music libraries.
 	MusicLibraries(ctx context.Context) ([]MusicLibrary, error)
 	// LibraryTracks returns every track in a library (paginated
