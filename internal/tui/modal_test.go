@@ -15,6 +15,7 @@ import (
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/plex"
 )
 
 // TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp
@@ -313,6 +314,45 @@ func TestSettingsSelectEdit(t *testing.T) {
 	}
 	if !m.gridArtists {
 		t.Errorf("gridArtists should be true after committing 'grid'")
+	}
+}
+
+// TestSettingsConnectionChangeWarnsRelaunch verifies that switching the
+// backend under a running client flags a relaunch and surfaces the notice.
+func TestSettingsConnectionChangeWarnsRelaunch(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"}
+	// A non-nil client makes this a re-edit (not first-time setup).
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	for _, f := range m.settings.fields {
+		if c := f.field.Init(); c != nil {
+			if msg := c(); msg != nil {
+				upd, _ := m.Update(msg)
+				m = upd.(Model)
+			}
+		}
+	}
+
+	// Edit the Backend select: plex → jellyfin, then commit.
+	m.screen = screenSettings
+	m.settings.cursor = settingsFieldIndex(t, m, "Backend")
+	upd, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+	upd, _ = m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = upd.(Model)
+	upd, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = upd.(Model)
+
+	if m.cfg.Backend != "jellyfin" {
+		t.Fatalf("backend should be jellyfin after commit, got %q", m.cfg.Backend)
+	}
+	if !m.settings.relaunch {
+		t.Error("connection change under a running client should flag relaunch")
+	}
+	if !strings.Contains(m.View().Content, "relaunch") {
+		t.Error("settings view should surface the relaunch notice")
 	}
 }
 

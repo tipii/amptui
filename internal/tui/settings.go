@@ -69,6 +69,9 @@ type settingsModel struct {
 	editing bool
 	savedAt time.Time
 	err     error
+	// relaunch is set once the user changes a connection setting under a
+	// running client; the View then shows a persistent relaunch notice.
+	relaunch bool
 }
 
 // fieldVisible reports whether the field at index i should be shown given
@@ -214,6 +217,10 @@ func (s *settingsModel) MarkSaved(err error) {
 	}
 }
 
+// NoteRelaunchRequired marks that a connection setting changed under a
+// running client, so the View shows a persistent relaunch notice.
+func (s *settingsModel) NoteRelaunchRequired() { s.relaunch = true }
+
 // Values returns the current bound values so the parent can copy them
 // into its own config on commit.
 func (s settingsModel) Values() settingsValues { return *s.values }
@@ -251,6 +258,11 @@ func (s settingsModel) View(bodyHeight int, statsBody string) string {
 		b.WriteString("\n" + errStyle.Render("save error: "+s.err.Error()))
 	case time.Since(s.savedAt) < 2*time.Second:
 		b.WriteString("\n" + npStyle.Render("saved ✓"))
+	}
+	// Persistent until relaunch — connection changes are saved but the
+	// running client keeps the old ones.
+	if s.relaunch {
+		b.WriteString("\n" + errStyle.Render("⚠ relaunch amptui for the new server / credentials to take effect"))
 	}
 
 	b.WriteString("\n\n")

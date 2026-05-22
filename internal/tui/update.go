@@ -467,6 +467,16 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		v := m.settings.Values()
 		imagesEnabled := !m.cfg.Images && v.Images
 		imagesChanged := m.cfg.Images != v.Images
+		// Connection fields can't be swapped under a running client without
+		// a fragile teardown (cache is keyed per backend, the queue holds
+		// the old backend's stream URLs, etc.). Detect a change here — vs
+		// the config the live client was built from — so we can tell the
+		// user a relaunch is needed.
+		connChanged := m.cfg.Backend != v.Backend ||
+			m.cfg.ServerURL != v.ServerURL ||
+			m.cfg.PlexToken != v.Token ||
+			m.cfg.JellyfinUsername != v.Username ||
+			m.cfg.JellyfinPassword != v.Password
 		m.cfg.Backend = v.Backend
 		m.cfg.ServerURL = v.ServerURL
 		m.cfg.PlexToken = v.Token
@@ -480,6 +490,12 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
+		// A live client with changed connection settings keeps using the
+		// old ones — flag a relaunch (the value is saved, so it takes
+		// effect next launch).
+		if m.client != nil && connChanged {
+			m.settings.NoteRelaunchRequired()
+		}
 		// Toggling Images flips the chrome between the no-image
 		// budget and the hero-thumb budget (an extra spacer + thumb
 		// rows). Resize the list so it doesn't run into the status
@@ -490,8 +506,8 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// First-time setup: app started without credentials, user has now
 		// supplied them. Build the backend client and fetch the library
 		// list in the background so they can leave the settings screen and
-		// browse without restarting. Re-edits after a successful startup
-		// still require a relaunch (we don't tear down an existing client).
+		// browse without restarting. Connection re-edits after a client
+		// already exists don't rebuild it — they flag a relaunch above.
 		if m.client == nil && m.cfg.IsValid() {
 			m.client = backend.New(m.cfg)
 			m.librarySyncing = true
