@@ -30,7 +30,7 @@ import (
 const (
 	clientName = "amptui"
 	deviceID   = "amptui"
-	version    = "0.1"
+	version    = "0.2"
 )
 
 // Compile-time assertion that the client satisfies the backend interface.
