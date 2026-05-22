@@ -1,7 +1,7 @@
-// Package library is the cache layer for a Plex music section. It owns the
+// Package library is the cache layer for a music library. It owns the
 // on-disk snapshot of the library and is the single source of truth for the
 // rest of the app — browse, search, counts, everything reads from here.
-// Plex is only contacted during Sync.
+// The backend (Plex or Jellyfin) is only contacted during Sync.
 package library
 
 import (
@@ -16,7 +16,7 @@ import (
 
 	"github.com/sahilm/fuzzy"
 
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // Kind is the type of a library entry (used by Search to filter).
@@ -64,7 +64,7 @@ type Entry struct {
 // of silently serving stale-shape data.
 const CacheSchemaVersion = 2
 
-// Library is the in-memory cache of a Plex music section, persisted to
+// Library is the in-memory cache of a music library, persisted to
 // ~/.cache/amptui/<sectionUUID>.json.
 type Library struct {
 	SchemaVersion    int       `json:"schema_version"`
@@ -99,22 +99,22 @@ type Album struct {
 	TrackCount int
 }
 
-// Track aliases plex.Track so callers don't need to import the plex package
-// just for the type. The library returns rich tracks (PartKey populated)
-// suitable for handing to the player.
-type Track = plex.Track
+// Track aliases media.Track so callers don't need to import the media
+// package just for the type. The library returns rich tracks (PartKey
+// populated) suitable for handing to the player.
+type Track = media.Track
 
-// Sync fetches the latest tracks from Plex, builds the derived caches, and
-// persists the result. Returns the fresh, ready-to-use library.
-func Sync(ctx context.Context, client *plex.Client, plexLib plex.MusicLibrary) (*Library, error) {
-	tracks, err := client.LibraryTracks(ctx, plexLib.Key)
+// Sync fetches the latest tracks from the backend, builds the derived
+// caches, and persists the result. Returns the fresh, ready-to-use library.
+func Sync(ctx context.Context, backend media.Backend, lib media.MusicLibrary) (*Library, error) {
+	tracks, err := backend.LibraryTracks(ctx, lib.Key)
 	if err != nil {
 		return nil, fmt.Errorf("fetching library tracks: %w", err)
 	}
 	l := buildFromTracks(tracks)
 	l.SchemaVersion = CacheSchemaVersion
-	l.SectionUUID = plexLib.UUID
-	l.ContentChangedAt = plexLib.ContentChangedAt
+	l.SectionUUID = lib.UUID
+	l.ContentChangedAt = lib.ContentChangedAt
 	_ = l.Save() // best effort; an unwritable cache shouldn't block usage
 	return l, nil
 }
@@ -122,7 +122,7 @@ func Sync(ctx context.Context, client *plex.Client, plexLib plex.MusicLibrary) (
 // buildFromTracks is the pure derivation step: one Entry per track, plus
 // deduped artist and album entries from the parent context, plus the count
 // maps. Split out so tests can exercise it without hitting the network.
-func buildFromTracks(tracks []plex.Track) *Library {
+func buildFromTracks(tracks []media.Track) *Library {
 	artistTitle := map[string]string{}
 	albumByKey := map[string]Entry{}
 	trackEntries := make([]Entry, 0, len(tracks))
@@ -195,11 +195,11 @@ func buildFromTracks(tracks []plex.Track) *Library {
 
 // IsFresh reports whether this cache still matches the server's current
 // content version for plexLib AND was built with the current schema.
-func (l *Library) IsFresh(plexLib plex.MusicLibrary) bool {
+func (l *Library) IsFresh(lib media.MusicLibrary) bool {
 	return l != nil &&
 		l.SchemaVersion == CacheSchemaVersion &&
-		l.SectionUUID == plexLib.UUID &&
-		l.ContentChangedAt == plexLib.ContentChangedAt
+		l.SectionUUID == lib.UUID &&
+		l.ContentChangedAt == lib.ContentChangedAt
 }
 
 // CachePath is the on-disk location for a cache of the given section UUID.

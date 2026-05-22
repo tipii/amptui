@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tipii/amptui/internal/media"
 )
 
 // clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to track
@@ -60,19 +62,8 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	return json.NewDecoder(resp.Body).Decode(v)
 }
 
-// MusicLibrary is a Plex library section of type "artist" (a music library).
-type MusicLibrary struct {
-	// Key is the section ID used in subsequent library calls.
-	Key   string
-	Title string
-	UUID  string
-	// ContentChangedAt is Plex's monotonic counter for the section's content
-	// version — use it to invalidate a local cache when it changes.
-	ContentChangedAt int64
-}
-
 // MusicLibraries returns the server's music library sections.
-func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
+func (c *Client) MusicLibraries(ctx context.Context) ([]media.MusicLibrary, error) {
 	var body struct {
 		MediaContainer struct {
 			Directory []struct {
@@ -88,12 +79,12 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]MusicLibrary, error) {
 		return nil, err
 	}
 
-	var libs []MusicLibrary
+	var libs []media.MusicLibrary
 	for _, d := range body.MediaContainer.Directory {
 		if d.Type != "artist" {
 			continue
 		}
-		libs = append(libs, MusicLibrary{
+		libs = append(libs, media.MusicLibrary{
 			Key:              d.Key,
 			Title:            d.Title,
 			UUID:             d.UUID,

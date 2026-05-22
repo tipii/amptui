@@ -1,4 +1,4 @@
-module github.com/theopalhol/amptui
+module github.com/tipii/amptui
 
 go 1.26.2
 
@@ -9,6 +9,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/BurntSushi/toml v1.6.0
 	github.com/NimbleMarkets/ntcharts/v2 v2.0.4-0.20260501213006-4dfb43b8563d
+	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/sahilm/fuzzy v0.1.2
 )
 
@@ -19,7 +20,6 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be // indirect
-	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect

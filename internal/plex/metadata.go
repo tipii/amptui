@@ -4,35 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+
+	"github.com/tipii/amptui/internal/media"
 )
-
-// ArtistMetadata is the rich-metadata view of an artist — bio, tags,
-// origin, similar acts. Returned by ArtistMetadata(ratingKey).
-type ArtistMetadata struct {
-	RatingKey string
-	Title     string
-	Summary   string
-	Thumb     string // server-relative path; use Client.ThumbURL to fetch
-	Genres    []string
-	Moods     []string
-	Countries []string
-	Styles    []string
-	Similar   []string
-}
-
-// AlbumMetadata is the rich-metadata view of an album.
-type AlbumMetadata struct {
-	RatingKey string
-	Title     string
-	Artist    string
-	Year      int
-	Summary   string
-	Thumb     string // server-relative path; use Client.ThumbURL to fetch
-	Studio    string
-	Genres    []string
-	Moods     []string
-	Styles    []string
-}
 
 // metadataResp is the JSON shape Plex returns for both artist and album
 // metadata calls — the tagged subarrays are present per entity but unused
@@ -77,7 +51,7 @@ func tagsToStrings(ts []tag) []string {
 // Country, Style and Similar require the includeBands / includeRelated
 // query parameters; we ask for both unconditionally — Plex ignores
 // unknown flags and the response is small.
-func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*ArtistMetadata, error) {
+func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*media.ArtistMetadata, error) {
 	path := fmt.Sprintf("/library/metadata/%s?includeBands=1&includeRelated=1",
 		url.PathEscape(ratingKey))
 	var body metadataResp
@@ -88,7 +62,7 @@ func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*ArtistM
 		return nil, fmt.Errorf("artist %s: no metadata returned", ratingKey)
 	}
 	m := body.MediaContainer.Metadata[0]
-	return &ArtistMetadata{
+	return &media.ArtistMetadata{
 		RatingKey: m.RatingKey,
 		Title:     m.Title,
 		Summary:   m.Summary,
@@ -102,7 +76,7 @@ func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*ArtistM
 }
 
 // AlbumMetadata fetches one album's full metadata.
-func (c *Client) AlbumMetadata(ctx context.Context, ratingKey string) (*AlbumMetadata, error) {
+func (c *Client) AlbumMetadata(ctx context.Context, ratingKey string) (*media.AlbumMetadata, error) {
 	path := fmt.Sprintf("/library/metadata/%s", url.PathEscape(ratingKey))
 	var body metadataResp
 	if err := c.getJSON(ctx, path, &body); err != nil {
@@ -112,7 +86,7 @@ func (c *Client) AlbumMetadata(ctx context.Context, ratingKey string) (*AlbumMet
 		return nil, fmt.Errorf("album %s: no metadata returned", ratingKey)
 	}
 	m := body.MediaContainer.Metadata[0]
-	return &AlbumMetadata{
+	return &media.AlbumMetadata{
 		RatingKey: m.RatingKey,
 		Title:     m.Title,
 		Artist:    m.ParentTitle,

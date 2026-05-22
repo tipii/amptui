@@ -11,8 +11,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // librarySyncTimeout caps the cold-start library fetch when no cache exists.
@@ -24,7 +24,7 @@ const searchResultLimit = 200
 // loadOrSyncLibrary returns a Cmd that loads the cache from disk when fresh,
 // otherwise syncs from Plex and persists. Result arrives as libraryReadyMsg
 // or libraryErrMsg.
-func loadOrSyncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
+func loadOrSyncLibrary(client media.Backend, plexLib media.MusicLibrary) tea.Cmd {
 	return func() tea.Msg {
 		if l, err := library.Load(plexLib.UUID); err == nil && l.IsFresh(plexLib) {
 			return libraryReadyMsg{lib: l}
@@ -35,13 +35,13 @@ func loadOrSyncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
 
 // syncLibrary forces a re-sync from Plex, bypassing the on-disk cache.
 // Used by the manual refresh key (R).
-func syncLibrary(client *plex.Client, plexLib plex.MusicLibrary) tea.Cmd {
+func syncLibrary(client media.Backend, plexLib media.MusicLibrary) tea.Cmd {
 	return func() tea.Msg {
 		return runSync(client, plexLib)
 	}
 }
 
-func runSync(client *plex.Client, plexLib plex.MusicLibrary) tea.Msg {
+func runSync(client media.Backend, plexLib media.MusicLibrary) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), librarySyncTimeout)
 	defer cancel()
 	l, err := library.Sync(ctx, client, plexLib)
@@ -61,13 +61,13 @@ type (
 // after the user enters credentials in the settings screen so first-time
 // setup can complete without a restart.
 type librariesReadyMsg struct {
-	libs []plex.MusicLibrary
+	libs []media.MusicLibrary
 	err  error
 }
 
 // fetchLibraries asks the server for its music library sections. Used on
 // first-time setup once the user has entered credentials.
-func fetchLibraries(client *plex.Client) tea.Cmd {
+func fetchLibraries(client media.Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -298,10 +298,10 @@ func (s searchModel) resultsView(innerWidth, resultsHeight int) string {
 	return b.String()
 }
 
-// entryToTrack reconstructs a plex.Track from a library Entry so it can be
+// entryToTrack reconstructs a media.Track from a library Entry so it can be
 // fed into playTracks / enqueue.
-func entryToTrack(e library.Entry) plex.Track {
-	return plex.Track{
+func entryToTrack(e library.Entry) media.Track {
+	return media.Track{
 		RatingKey:       e.RatingKey,
 		Title:           e.Title,
 		Album:           e.Album,

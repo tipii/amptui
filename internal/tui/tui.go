@@ -32,11 +32,11 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/player"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/player"
 )
 
 // tickMsg is delivered every second to refresh the now-playing line and
@@ -59,7 +59,7 @@ type Model struct {
 	// on PATH). The TUI takes over the screen before the user can see the
 	// stderr warning, so the settings screen surfaces this reason.
 	playerErr error
-	client    *plex.Client
+	client    media.Backend
 	player    *player.Player // may be nil if mpv is unavailable
 
 	// keymap is the single source of truth for keybindings; Update routes
@@ -70,7 +70,7 @@ type Model struct {
 
 	// libs is the full list of music libraries on the server, kept around
 	// so search jumps can synthesize a Libraries crumb at any depth.
-	libs []plex.MusicLibrary
+	libs []media.MusicLibrary
 
 	screen screen
 
@@ -100,14 +100,14 @@ type Model struct {
 	crumbs     []crumb
 	loading    bool
 	err        error
-	nowPlaying *plex.Track
+	nowPlaying *media.Track
 
 	// Rich metadata fetched lazily for the artist whose albums are
 	// being browsed, or the album whose tracks are. Each is nil until
 	// the per-screen fetch resolves; metaLoading drives a "loading…"
 	// hint in the header during the fetch.
-	artistMeta  *plex.ArtistMetadata
-	albumMeta   *plex.AlbumMetadata
+	artistMeta  *media.ArtistMetadata
+	albumMeta   *media.AlbumMetadata
 	metaLoading bool
 
 	// Inline-artwork state. Each surface (artist/album hero header,
@@ -131,7 +131,7 @@ type Model struct {
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
 	// the queue is exhausted.
-	queue    []plex.Track
+	queue    []media.Track
 	queueIdx int
 
 	// showQueue / showHelp / showInfo are true while their modal is
@@ -162,7 +162,7 @@ type Model struct {
 
 	// startupLibrary, if set, is fetched on Init so the UI opens straight
 	// into that library instead of the picker.
-	startupLibrary *plex.MusicLibrary
+	startupLibrary *media.MusicLibrary
 
 	width, height int
 }
@@ -173,7 +173,7 @@ type Model struct {
 // "Libraries" crumb pushed so the user can still go back to the picker.
 // cfg is used by the settings screen (read-only display). playerErr, if
 // non-nil, is the reason mpv failed to start — surfaced in settings.
-func New(cfg config.Config, client *plex.Client, p *player.Player, playerErr error, libs []plex.MusicLibrary, defaultLib *plex.MusicLibrary) Model {
+func New(cfg config.Config, client media.Backend, p *player.Player, playerErr error, libs []media.MusicLibrary, defaultLib *media.MusicLibrary) Model {
 	items := make([]list.Item, len(libs))
 	for i, l := range libs {
 		items[i] = libraryItem{lib: l}

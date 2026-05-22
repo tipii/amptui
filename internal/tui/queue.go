@@ -5,8 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // Queue playback is delegated to mpv: m.queue mirrors mpv's internal
@@ -31,7 +30,7 @@ func (m Model) streamURLs() []string {
 
 // playTracks sets the playback queue to tracks and starts at index start
 // (mpv plays from there through the rest of the queue).
-func (m Model) playTracks(tracks []plex.Track, start int) (tea.Model, tea.Cmd) {
+func (m Model) playTracks(tracks []media.Track, start int) (tea.Model, tea.Cmd) {
 	if m.player == nil {
 		m.err = errors.New("playback unavailable: mpv is not running")
 		return m, nil
@@ -62,7 +61,7 @@ func (m *Model) loadQueue(start int) {
 
 // enqueue appends tracks to the playback queue (and to mpv's playlist).
 // If nothing is playing, mpv starts at the first appended track.
-func (m *Model) enqueue(tracks ...plex.Track) {
+func (m *Model) enqueue(tracks ...media.Track) {
 	if len(tracks) == 0 {
 		return
 	}

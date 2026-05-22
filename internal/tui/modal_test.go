@@ -12,9 +12,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"github.com/theopalhol/amptui/internal/config"
-	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp
@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 func newQueueModel(t *testing.T) Model {
 	t.Helper()
 
-	libs := []plex.MusicLibrary{
+	libs := []media.MusicLibrary{
 		{Key: "1", Title: "Music"},
 		{Key: "2", Title: "Soundtracks"},
 		{Key: "3", Title: "Podcasts"},
@@ -52,13 +52,13 @@ func newQueueModel(t *testing.T) Model {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
 	m = updated.(Model)
 
-	m.queue = []plex.Track{
+	m.queue = []media.Track{
 		{Title: "I'm a Ram", Artist: "Al Green", Album: "Gets Next to You", Duration: 3 * time.Minute},
 		{Title: "Tired of Being Alone", Artist: "Al Green", Album: "Gets Next to You", Duration: 162 * time.Second},
 		{Title: "Driving Wheel", Artist: "Al Green", Album: "Gets Next to You", Duration: 200 * time.Second},
 	}
 	m.queueIdx = 1
-	m.nowPlaying = &plex.Track{Title: "Tired of Being Alone", Artist: "Al Green"}
+	m.nowPlaying = &media.Track{Title: "Tired of Being Alone", Artist: "Al Green"}
 	m.openQueue()
 	return m
 }
@@ -161,7 +161,7 @@ func TestSearchModalRenders(t *testing.T) {
 // TestSettingsScreenRenders verifies the settings page shows server info
 // (URL, masked token, default library) and library cache stats.
 func TestSettingsScreenRenders(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music", UUID: "uuid-test"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music", UUID: "uuid-test"}}
 	cfg := config.Config{
 		ServerURL:      "https://plex.example.dev",
 		Token:          "abcdef1234567890wxyz",
@@ -202,7 +202,7 @@ func TestSettingsScreenRenders(t *testing.T) {
 // TestSettingsSelectEdit drives j/k inside an open Select to confirm the
 // per-field edit-mode navigation actually toggles the bound value.
 func TestSettingsSelectEdit(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{
 		ServerURL:         "https://x",
 		Token:             "abcd",
@@ -305,7 +305,7 @@ func TestStatusBarSyncingIndicator(t *testing.T) {
 // on-screen window (plus a one-row margin), not the whole level — the
 // basis for lazy artwork loading.
 func TestVisibleItemsWindowsGrid(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser
 	// Short terminal so only a couple of card rows fit.
@@ -336,7 +336,7 @@ func TestVisibleItemsWindowsGrid(t *testing.T) {
 }
 
 func TestArtistGridRenders(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	m.screen = screenBrowser // default is dashboard; this test renders the browser
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 30})
@@ -380,7 +380,7 @@ func TestArtistGridRenders(t *testing.T) {
 // headers and the cursor marker. Tile bodies show "loading…" since no
 // background fetch resolves in this test.
 func TestDashboardRenders(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "https://x", Token: "t", Home: "dashboard"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -410,7 +410,7 @@ func TestDashboardRenders(t *testing.T) {
 // whitespace within each paragraph collapsed, then visually
 // separated by a blank line.
 func TestFormatArtistInfoReflowsBio(t *testing.T) {
-	a := &plex.ArtistMetadata{
+	a := &media.ArtistMetadata{
 		Title: "Al Green",
 		// Two paragraphs separated by \r\n, each with cosmetic
 		// internal whitespace we expect to be collapsed.
@@ -442,7 +442,7 @@ func TestInfoModalRendersArtistMetadata(t *testing.T) {
 	m := newQueueModel(t)
 	m.showQueue = false
 	m.level = levelAlbums
-	m.artistMeta = &plex.ArtistMetadata{
+	m.artistMeta = &media.ArtistMetadata{
 		Title:     "Earth Tongue",
 		Summary:   "Psych-rock duo from Wellington, NZ.",
 		Genres:    []string{"psych rock", "fuzz"},
@@ -466,7 +466,7 @@ func TestInfoModalRendersArtistMetadata(t *testing.T) {
 // screen — library, not dashboard. Set Home = "dashboard" to opt
 // in to the dashboard landing page.
 func TestHomeScreenDefaultsToLibrary(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "https://x", Token: "t"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	if m.screen != screenBrowser {
@@ -477,7 +477,7 @@ func TestHomeScreenDefaultsToLibrary(t *testing.T) {
 // TestTabSwitchesDashboardAndBrowser drives the Tab key to confirm the
 // two screens flip cleanly without losing any state.
 func TestTabSwitchesDashboardAndBrowser(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	m := New(config.Config{ServerURL: "https://x", Token: "t"}, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(Model)
@@ -526,7 +526,7 @@ func TestSearchModalAcceptsLetterKeys(t *testing.T) {
 // settings edit flow: typing 'l' or 'h' into an Input must not commit
 // (they're aliases for Enter/Back via the navigation KeyMap).
 func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "", Token: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -566,7 +566,7 @@ func TestSettingsEditAcceptsLetterKeys(t *testing.T) {
 // keeps the user in edit mode (so they can fix it) instead of silently
 // committing garbage to config.toml.
 func TestSettingsValidationBlocksCommit(t *testing.T) {
-	libs := []plex.MusicLibrary{{Key: "1", Title: "Music"}}
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "", Token: "abcd"}
 	m := New(cfg, nil, nil, nil, libs, nil)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})

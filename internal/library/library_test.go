@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/tipii/amptui/internal/media"
 )
 
 // mkLib builds a small in-memory library for ranking and browse tests.
@@ -59,7 +59,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 // TestBuildDerivesParents covers the dedup of artist/album entries from a
 // flat track list (the path that actual library indexing takes).
 func TestBuildDerivesParents(t *testing.T) {
-	tracks := []plex.Track{
+	tracks := []media.Track{
 		{RatingKey: "t1", Title: "I'm a Ram", Album: "Gets Next to You", Artist: "Al Green",
 			AlbumRatingKey: "al1", ArtistRatingKey: "ar1", Year: 1971},
 		{RatingKey: "t2", Title: "Tired of Being Alone", Album: "Gets Next to You", Artist: "Al Green",
