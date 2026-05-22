@@ -14,6 +14,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/theopalhol/amptui/internal/imgcache"
+	"github.com/theopalhol/amptui/internal/media"
 	"github.com/theopalhol/amptui/internal/plex"
 )
 
@@ -525,7 +526,7 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if e := m.search.SelectedEntry(); e != nil {
 			t := entryToTrack(*e)
 			m.search = m.search.Close()
-			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			model, pcmd := m.playTracks([]media.Track{t}, 0)
 			return model, tea.Batch(cmd, pcmd)
 		}
 	case searchOutcomeEnqueueTrack:
@@ -549,11 +550,11 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // playlistTracksMsg arrives after the parent fires fetchPlaylistTracks
 // in response to a dashboard playlist tile being activated.
 type playlistTracksMsg struct {
-	tracks []plex.Track
+	tracks []media.Track
 	err    error
 }
 
-func fetchPlaylistTracks(client *plex.Client, ratingKey string) tea.Cmd {
+func fetchPlaylistTracks(client media.Backend, ratingKey string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
 		defer cancel()
@@ -632,7 +633,7 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch outcome {
 	case dashOutcomePlayTrack:
 		if t, ok := m.dashboard.SelectedTrack(); ok {
-			model, pcmd := m.playTracks([]plex.Track{t}, 0)
+			model, pcmd := m.playTracks([]media.Track{t}, 0)
 			return model, tea.Batch(cmd, pcmd)
 		}
 	case dashOutcomeOpenAlbum:

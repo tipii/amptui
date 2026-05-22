@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/theopalhol/amptui/internal/library"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/theopalhol/amptui/internal/media"
 )
 
 // Each list row implements bubbles/list.Item. Title is the primary line,
 // Description the dimmed secondary line, FilterValue what "/" search matches.
 
-type libraryItem struct{ lib plex.MusicLibrary }
+type libraryItem struct{ lib media.MusicLibrary }
 
 func (i libraryItem) Title() string       { return i.lib.Title }
 func (i libraryItem) Description() string { return "music library" }
@@ -56,7 +56,7 @@ func (i albumItem) Description() string {
 func (i albumItem) FilterValue() string { return i.album.Title }
 
 // albumActionItem is the "Play album" row shown above an album's track list.
-type albumActionItem struct{ tracks []plex.Track }
+type albumActionItem struct{ tracks []media.Track }
 
 func (i albumActionItem) Title() string { return "▶  Play album" }
 func (i albumActionItem) Description() string {
@@ -68,11 +68,11 @@ func (i albumActionItem) Description() string {
 func (i albumActionItem) FilterValue() string { return "Play album" }
 
 type trackItem struct {
-	track plex.Track
+	track media.Track
 	// tracks is the full album track list (shared backing array); pos is
 	// this track's index within it. Together they let "enter" play from
 	// this track to the end of the album.
-	tracks []plex.Track
+	tracks []media.Track
 	pos    int
 }
 
@@ -88,7 +88,7 @@ func (i trackItem) FilterValue() string { return i.track.Title }
 
 // queueItem is a row in the queue modal. current marks the playing track.
 type queueItem struct {
-	track   plex.Track
+	track   media.Track
 	current bool
 }
 

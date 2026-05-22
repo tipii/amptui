@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/theopalhol/amptui/internal/media"
 	"github.com/theopalhol/amptui/internal/textutil"
 )
 
@@ -41,23 +41,23 @@ type dashboardOutcome int
 
 const (
 	dashOutcomeNone         dashboardOutcome = iota
-	dashOutcomePlayTrack                     // selected: plex.Track
-	dashOutcomeOpenAlbum                     // selected: plex.RecentlyAddedAlbum
-	dashOutcomeOpenPlaylist                  // selected: plex.Playlist
+	dashOutcomePlayTrack                     // selected: media.Track
+	dashOutcomeOpenAlbum                     // selected: media.RecentlyAddedAlbum
+	dashOutcomeOpenPlaylist                  // selected: media.Playlist
 )
 
 // Messages from the per-section background fetches.
 type (
 	dashboardPlaysMsg struct {
-		tracks []plex.Track
+		tracks []media.Track
 		err    error
 	}
 	dashboardAddedMsg struct {
-		albums []plex.RecentlyAddedAlbum
+		albums []media.RecentlyAddedAlbum
 		err    error
 	}
 	dashboardPlaylistsMsg struct {
-		playlists []plex.Playlist
+		playlists []media.Playlist
 		err       error
 	}
 )
@@ -68,9 +68,9 @@ type (
 // playback or the library cache — those are parent-state and reached
 // via outcomes.
 type dashboardModel struct {
-	plays     []plex.Track
-	added     []plex.RecentlyAddedAlbum
-	playlists []plex.Playlist
+	plays     []media.Track
+	added     []media.RecentlyAddedAlbum
+	playlists []media.Playlist
 
 	playsErr     error
 	addedErr     error
@@ -85,7 +85,7 @@ func newDashboardModel() dashboardModel { return dashboardModel{} }
 
 // Load returns a tea.Cmd that fans out the three section fetches in
 // parallel; results arrive as dashboard*Msg values.
-func (d dashboardModel) Load(client *plex.Client, sectionKey string) tea.Cmd {
+func (d dashboardModel) Load(client media.Backend, sectionKey string) tea.Cmd {
 	if client == nil || sectionKey == "" {
 		return nil
 	}
@@ -96,7 +96,7 @@ func (d dashboardModel) Load(client *plex.Client, sectionKey string) tea.Cmd {
 	)
 }
 
-func fetchRecentPlays(client *plex.Client, sectionKey string) tea.Cmd {
+func fetchRecentPlays(client media.Backend, sectionKey string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
 		defer cancel()
@@ -105,7 +105,7 @@ func fetchRecentPlays(client *plex.Client, sectionKey string) tea.Cmd {
 	}
 }
 
-func fetchRecentlyAdded(client *plex.Client, sectionKey string) tea.Cmd {
+func fetchRecentlyAdded(client media.Backend, sectionKey string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
 		defer cancel()
@@ -114,7 +114,7 @@ func fetchRecentlyAdded(client *plex.Client, sectionKey string) tea.Cmd {
 	}
 }
 
-func fetchRecentPlaylists(client *plex.Client) tea.Cmd {
+func fetchRecentPlaylists(client media.Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
 		defer cancel()
@@ -214,25 +214,25 @@ func (d dashboardModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (dashboardMode
 // SelectedTrack / SelectedAlbum / SelectedPlaylist return the item under
 // the cursor for the section that produced the outcome, or zero values
 // if there isn't one.
-func (d dashboardModel) SelectedTrack() (plex.Track, bool) {
+func (d dashboardModel) SelectedTrack() (media.Track, bool) {
 	if c := d.cursors[sectionRecentPlays]; c < len(d.plays) {
 		return d.plays[c], true
 	}
-	return plex.Track{}, false
+	return media.Track{}, false
 }
 
-func (d dashboardModel) SelectedAlbum() (plex.RecentlyAddedAlbum, bool) {
+func (d dashboardModel) SelectedAlbum() (media.RecentlyAddedAlbum, bool) {
 	if c := d.cursors[sectionRecentlyAdded]; c < len(d.added) {
 		return d.added[c], true
 	}
-	return plex.RecentlyAddedAlbum{}, false
+	return media.RecentlyAddedAlbum{}, false
 }
 
-func (d dashboardModel) SelectedPlaylist() (plex.Playlist, bool) {
+func (d dashboardModel) SelectedPlaylist() (media.Playlist, bool) {
 	if c := d.cursors[sectionRecentPlaylists]; c < len(d.playlists) {
 		return d.playlists[c], true
 	}
-	return plex.Playlist{}, false
+	return media.Playlist{}, false
 }
 
 // View renders the dashboard body. width is the terminal width, height

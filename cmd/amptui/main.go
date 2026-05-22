@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/theopalhol/amptui/internal/config"
+	"github.com/theopalhol/amptui/internal/media"
 	"github.com/theopalhol/amptui/internal/player"
 	"github.com/theopalhol/amptui/internal/plex"
 	"github.com/theopalhol/amptui/internal/tui"
@@ -28,11 +29,13 @@ func run() error {
 
 	// Only try to connect when we have credentials. A missing/invalid
 	// config still launches the TUI so the user can fix it from the
-	// settings screen.
+	// settings screen. client stays a true nil interface when there's
+	// no backend — assigning a typed (*plex.Client)(nil) would make the
+	// interface non-nil and break the m.client == nil guards downstream.
 	var (
-		client     *plex.Client
-		libs       []plex.MusicLibrary
-		defaultLib *plex.MusicLibrary
+		client     media.Backend
+		libs       []media.MusicLibrary
+		defaultLib *media.MusicLibrary
 	)
 	if cfg.IsValid() {
 		client = plex.New(cfg.ServerURL, cfg.Token)

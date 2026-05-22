@@ -8,7 +8,7 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/theopalhol/amptui/internal/media"
 	"github.com/theopalhol/amptui/internal/textutil"
 )
 
@@ -147,7 +147,7 @@ func (m Model) infoHeaderLine() string {
 	return ""
 }
 
-func artistHeaderSummary(a *plex.ArtistMetadata) string {
+func artistHeaderSummary(a *media.ArtistMetadata) string {
 	parts := make([]string, 0, 3)
 	if len(a.Countries) > 0 {
 		parts = append(parts, a.Countries[0])
@@ -163,7 +163,7 @@ func artistHeaderSummary(a *plex.ArtistMetadata) string {
 	return strings.Join(parts, " · ")
 }
 
-func albumHeaderSummary(a *plex.AlbumMetadata) string {
+func albumHeaderSummary(a *media.AlbumMetadata) string {
 	parts := make([]string, 0, 4)
 	if a.Artist != "" {
 		parts = append(parts, a.Artist)
@@ -244,7 +244,7 @@ func (m Model) infoModalContent() string {
 	return meta
 }
 
-func formatArtistInfo(a *plex.ArtistMetadata) string {
+func formatArtistInfo(a *media.ArtistMetadata) string {
 	var b strings.Builder
 	if a.Summary != "" {
 		b.WriteString(textutil.ReflowParagraphs(a.Summary))
@@ -258,7 +258,7 @@ func formatArtistInfo(a *plex.ArtistMetadata) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func formatAlbumInfo(a *plex.AlbumMetadata) string {
+func formatAlbumInfo(a *media.AlbumMetadata) string {
 	var b strings.Builder
 	if a.Summary != "" {
 		b.WriteString(textutil.ReflowParagraphs(a.Summary))

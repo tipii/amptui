@@ -13,7 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/theopalhol/amptui/internal/imgcache"
-	"github.com/theopalhol/amptui/internal/plex"
+	"github.com/theopalhol/amptui/internal/media"
 )
 
 // metaFetchTimeout caps the per-screen metadata fetch.
@@ -24,16 +24,16 @@ const metaFetchTimeout = 10 * time.Second
 // levelTracks.
 type (
 	artistMetaMsg struct {
-		meta *plex.ArtistMetadata
+		meta *media.ArtistMetadata
 		err  error
 	}
 	albumMetaMsg struct {
-		meta *plex.AlbumMetadata
+		meta *media.AlbumMetadata
 		err  error
 	}
 )
 
-func fetchArtistMeta(client *plex.Client, ratingKey string) tea.Cmd {
+func fetchArtistMeta(client media.Backend, ratingKey string) tea.Cmd {
 	if client == nil || ratingKey == "" {
 		return nil
 	}
@@ -45,7 +45,7 @@ func fetchArtistMeta(client *plex.Client, ratingKey string) tea.Cmd {
 	}
 }
 
-func fetchAlbumMeta(client *plex.Client, ratingKey string) tea.Cmd {
+func fetchAlbumMeta(client media.Backend, ratingKey string) tea.Cmd {
 	if client == nil || ratingKey == "" {
 		return nil
 	}
@@ -90,7 +90,7 @@ const (
 // caller for a given item hits the on-disk cache instead of Plex.
 // kind is "grid:<key>", "artist", or "album" — used by the parent to
 // route the decoded image into the right picture.Model slot.
-func fetchArtwork(client *plex.Client, ratingKey, kind string) tea.Cmd {
+func fetchArtwork(client media.Backend, ratingKey, kind string) tea.Cmd {
 	if client == nil || ratingKey == "" {
 		return nil
 	}

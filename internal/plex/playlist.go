@@ -5,24 +5,13 @@ import (
 	"fmt"
 	"net/url"
 	"time"
-)
 
-// Playlist is an audio playlist on the server. Smart playlists are not
-// distinguished from manual ones at the read API — they look identical
-// once populated.
-type Playlist struct {
-	RatingKey string
-	Title     string
-	Summary   string
-	LeafCount int // track count
-	Duration  time.Duration
-	UpdatedAt time.Time
-	Smart     bool
-}
+	"github.com/theopalhol/amptui/internal/media"
+)
 
 // AudioPlaylists returns audio playlists sorted by most-recently-updated,
 // useful for a "Recent playlists" dashboard tile.
-func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]Playlist, error) {
+func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]media.Playlist, error) {
 	var body struct {
 		MediaContainer struct {
 			Metadata []struct {
@@ -43,12 +32,12 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]Playlist, err
 	if err := c.getJSON(ctx, path, &body); err != nil {
 		return nil, err
 	}
-	out := make([]Playlist, 0, len(body.MediaContainer.Metadata))
+	out := make([]media.Playlist, 0, len(body.MediaContainer.Metadata))
 	for _, m := range body.MediaContainer.Metadata {
 		if m.PlaylistType != "audio" {
 			continue
 		}
-		out = append(out, Playlist{
+		out = append(out, media.Playlist{
 			RatingKey: m.RatingKey,
 			Title:     m.Title,
 			Summary:   m.Summary,
@@ -62,7 +51,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]Playlist, err
 }
 
 // PlaylistTracks returns every track in a playlist, in playlist order.
-func (c *Client) PlaylistTracks(ctx context.Context, ratingKey string) ([]Track, error) {
+func (c *Client) PlaylistTracks(ctx context.Context, ratingKey string) ([]media.Track, error) {
 	var body struct {
 		MediaContainer struct {
 			Metadata []trackMetadata `json:"Metadata"`
@@ -72,7 +61,7 @@ func (c *Client) PlaylistTracks(ctx context.Context, ratingKey string) ([]Track,
 	if err := c.getJSON(ctx, path, &body); err != nil {
 		return nil, err
 	}
-	out := make([]Track, 0, len(body.MediaContainer.Metadata))
+	out := make([]media.Track, 0, len(body.MediaContainer.Metadata))
 	for _, m := range body.MediaContainer.Metadata {
 		if m.Type != "track" {
 			continue
