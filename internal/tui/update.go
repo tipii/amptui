@@ -166,6 +166,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.enqueueSelectedTrack(), nil
 		case key.Matches(msg, k.EnqueueAlbum):
 			return m.enqueueSelectedAlbum(), nil
+		case key.Matches(msg, k.Download):
+			updated, cmd := m.handleDownload()
+			return updated, cmd
 		case key.Matches(msg, k.OpenQueue):
 			m.openQueue()
 			return m, nil
@@ -212,6 +215,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case serverNameMsg:
 		m.serverName = msg.name
+		return m, nil
+
+	case downloadStatusMsg:
+		m.downloadStatus = msg.text
+		m.downloadErr = msg.err
+		if msg.done {
+			m.downloading = false
+		}
 		return m, nil
 
 	case librariesReadyMsg:
@@ -487,6 +498,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
 		m.cfg.Home = v.Home
 		m.cfg.Images = v.Images
+		m.cfg.DownloadFolder = v.DownloadFolder
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())

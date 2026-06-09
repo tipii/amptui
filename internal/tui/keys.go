@@ -36,6 +36,7 @@ type KeyMap struct {
 	SeekForward  key.Binding
 	EnqueueTrack key.Binding
 	EnqueueAlbum key.Binding
+	Download     key.Binding // 'd' — download the highlighted track or album
 
 	// --- queue modal ---
 	MoveDown   key.Binding
@@ -83,6 +84,7 @@ func NewKeyMap() KeyMap {
 		SeekForward:  key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "seek +10s")),
 		EnqueueTrack: key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "queue track")),
 		EnqueueAlbum: key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "queue album")),
+		Download:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download")),
 
 		MoveDown:   key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
 		MoveUp:     key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
@@ -115,7 +117,7 @@ func (k KeyMap) browserHelp() helpView {
 		full: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
-			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue, k.Info},
+			{k.EnqueueTrack, k.EnqueueAlbum, k.Download, k.OpenQueue, k.Info},
 			{k.OpenSearch, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}

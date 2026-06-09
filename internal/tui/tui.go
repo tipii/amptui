@@ -76,6 +76,14 @@ type Model struct {
 	// and shown as the first segment of the browser breadcrumb.
 	serverName string
 
+	// Download state. downloading gates a second `d` while the first is
+	// in flight; downloadStatus is the footer message (set on key press
+	// and again on completion); downloadErr flips the rendering to error
+	// style.
+	downloading    bool
+	downloadStatus string
+	downloadErr    bool
+
 	screen screen
 
 	// settings is the sub-model that owns the settings screen state and

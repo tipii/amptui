@@ -152,6 +152,12 @@ func (m Model) settingsScreen() string {
 func (m Model) footerLine(left string) string {
 	right := ""
 	switch {
+	case m.downloadStatus != "":
+		if m.downloadErr {
+			right = errStyle.Render(m.downloadStatus)
+		} else {
+			right = helpStyle.Render(m.downloadStatus)
+		}
 	case m.librarySyncing:
 		right = helpStyle.Render(m.spinner.View() + "syncing library")
 	case m.libraryErr != nil:

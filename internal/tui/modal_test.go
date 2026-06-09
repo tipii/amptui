@@ -356,6 +356,53 @@ func TestSettingsConnectionChangeWarnsRelaunch(t *testing.T) {
 	}
 }
 
+// TestDownloadKeyWithoutFolderHints verifies pressing `d` while no
+// download folder is configured doesn't crash — it just flashes a hint
+// in the footer status.
+func TestDownloadKeyWithoutFolderHints(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t"} // no DownloadFolder
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenBrowser
+
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	m = upd.(Model)
+	if !strings.Contains(m.downloadStatus, "download folder") {
+		t.Errorf("expected the folder-hint status, got %q", m.downloadStatus)
+	}
+	if !m.downloadErr {
+		t.Error("hint should be flagged as an error so it renders dimmed/error")
+	}
+	if m.downloading {
+		t.Error("download should NOT be marked in-flight when the key is a no-op")
+	}
+}
+
+// TestDownloadHintForUnsupportedSelection confirms pressing `d` while
+// the cursor is on a non-downloadable row (here: the libraries level)
+// flashes "press d on a track or album" rather than silently doing
+// nothing.
+func TestDownloadHintForUnsupportedSelection(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{
+		ServerURL:      "https://x",
+		PlexToken:      "t",
+		DownloadFolder: t.TempDir(),
+	}
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenBrowser // cursor on a libraryItem
+
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	m = upd.(Model)
+	if !strings.Contains(m.downloadStatus, "track or album") {
+		t.Errorf("expected the unsupported-selection hint, got %q", m.downloadStatus)
+	}
+}
+
 // TestSelectStandaloneResponds probes huh.Select directly to confirm it
 // reacts to j/k navigation when used as a standalone field (no Form).
 func TestSelectStandaloneResponds(t *testing.T) {
