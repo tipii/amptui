@@ -48,7 +48,7 @@ func (m Model) queueModalBox() string {
 	title := headerStyle.Render(fmt.Sprintf("Queue · %d track(s)", len(m.queue)))
 	body := m.queueList.View()
 	if len(m.queue) == 0 {
-		body = helpStyle.Render("queue is empty — press q / Q to add tracks")
+		body = helpStyle.Render("queue is empty — press q on a track or album to add")
 	}
 	return m.modalFrame(title + "\n" + body)
 }

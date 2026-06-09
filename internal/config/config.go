@@ -41,6 +41,10 @@ type Config struct {
 	// supports the Kitty graphics protocol or you're happy with the
 	// half-block ANSI fallback.
 	Images bool `toml:"images,omitempty"`
+	// DownloadFolder is the root directory under which `d` saves
+	// tracks/albums (as <root>/<artist>/<album>/<NN Title>.<ext>). Empty
+	// disables the feature — pressing `d` flashes a hint to set this.
+	DownloadFolder string `toml:"download_folder,omitempty"`
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml,
@@ -112,6 +116,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("AMPTUI_DEFAULT_LIBRARY"); v != "" {
 		c.DefaultLibrary = v
+	}
+	if v := os.Getenv("AMPTUI_DOWNLOAD_FOLDER"); v != "" {
+		c.DownloadFolder = v
 	}
 	return c, nil
 }

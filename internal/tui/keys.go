@@ -29,13 +29,14 @@ type KeyMap struct {
 	OpenSearch   key.Binding
 
 	// --- playback / queue actions (from browser) ---
-	Pause        key.Binding
-	NextTrack    key.Binding
-	PrevTrack    key.Binding
-	SeekBack     key.Binding
-	SeekForward  key.Binding
-	EnqueueTrack key.Binding
-	EnqueueAlbum key.Binding
+	Pause         key.Binding
+	NextTrack     key.Binding
+	PrevTrack     key.Binding
+	SeekBack      key.Binding
+	SeekForward   key.Binding
+	Enqueue       key.Binding // 'q' — queue the highlighted track or album
+	Download      key.Binding // 'd' — download the highlighted track or album
+	OpenDownloads key.Binding // 'D' — open the downloads modal
 
 	// --- queue modal ---
 	MoveDown   key.Binding
@@ -73,16 +74,17 @@ func NewKeyMap() KeyMap {
 
 		Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		SwitchScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "dash/lib")),
-		OpenQueue:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "queue")),
+		OpenQueue:    key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "queue")),
 		OpenSearch:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
 
-		Pause:        key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pause")),
-		NextTrack:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
-		PrevTrack:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prev")),
-		SeekBack:     key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "seek -10s")),
-		SeekForward:  key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "seek +10s")),
-		EnqueueTrack: key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "queue track")),
-		EnqueueAlbum: key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "queue album")),
+		Pause:         key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pause")),
+		NextTrack:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
+		PrevTrack:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prev")),
+		SeekBack:      key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "seek -10s")),
+		SeekForward:   key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "seek +10s")),
+		Enqueue:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "queue")),
+		Download:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download")),
+		OpenDownloads: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "downloads")),
 
 		MoveDown:   key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
 		MoveUp:     key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
@@ -115,7 +117,7 @@ func (k KeyMap) browserHelp() helpView {
 		full: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
-			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue, k.Info},
+			{k.Enqueue, k.OpenQueue, k.Download, k.OpenDownloads, k.Info},
 			{k.OpenSearch, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}
@@ -193,8 +195,11 @@ func (k KeyMap) helpModalSections() []keySection {
 			{k.SeekBack, k.SeekForward},
 		}},
 		{title: "Queue", bindings: [][]key.Binding{
-			{k.EnqueueTrack, k.EnqueueAlbum, k.OpenQueue},
+			{k.Enqueue, k.OpenQueue},
 			{k.MoveUp, k.MoveDown, k.DeleteItem},
+		}},
+		{title: "Downloads", bindings: [][]key.Binding{
+			{k.Download, k.OpenDownloads},
 		}},
 		{title: "Search", bindings: [][]key.Binding{
 			{k.OpenSearch, k.CycleFilter, k.EnqueueFromSearch},

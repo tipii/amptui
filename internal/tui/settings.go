@@ -32,6 +32,7 @@ type settingsValues struct {
 	ViewAlbum      string
 	Home           string
 	Images         bool
+	DownloadFolder string
 }
 
 // settingsOutcome is what the settings sub-model asks its parent to do
@@ -107,6 +108,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
 		Home:           normalizeHome(cfg.Home),
 		Images:         cfg.Images,
+		DownloadFolder: cfg.DownloadFolder,
 	}
 	return settingsModel{
 		fields: buildSettingsFields(v),
@@ -334,6 +336,10 @@ func buildSettingsFields(v *settingsValues) []settingsField {
 			huh.NewOption("off", false),
 			huh.NewOption("on", true),
 		).Value(&v.Images)},
+		{field: huh.NewInput().
+			Title("Download folder").
+			Description("Where `d` saves tracks and albums. Empty disables downloads.").
+			Value(&v.DownloadFolder)},
 	}
 	km := huh.NewDefaultKeyMap()
 	for i := range fields {

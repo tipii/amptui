@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -353,6 +355,119 @@ func TestSettingsConnectionChangeWarnsRelaunch(t *testing.T) {
 	}
 	if !strings.Contains(m.View().Content, "relaunch") {
 		t.Error("settings view should surface the relaunch notice")
+	}
+}
+
+// TestDownloadKeyWithoutFolderHints verifies pressing `d` while no
+// download folder is configured doesn't crash — it just flashes a hint
+// in the footer status.
+func TestDownloadKeyWithoutFolderHints(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t"} // no DownloadFolder
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenBrowser
+
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	m = upd.(Model)
+	if !strings.Contains(m.downloadStatus, "download folder") {
+		t.Errorf("expected the folder-hint status, got %q", m.downloadStatus)
+	}
+	if !m.downloadErr {
+		t.Error("hint should be flagged as an error so it renders dimmed/error")
+	}
+	if len(m.downloadJobs) != 0 {
+		t.Error("no download job should be enqueued when the key is a no-op")
+	}
+}
+
+// TestDownloadQueueDrainsAllJobs hand-enqueues two jobs (one single,
+// one two-track) and drives the cmd loop until the worker idles, then
+// asserts every job ended in downloadDone with the right counts and the
+// files actually landed on disk in the expected layout.
+func TestDownloadQueueDrainsAllJobs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/flac")
+		_, _ = w.Write([]byte("fake"))
+	}))
+	defer srv.Close()
+	root := t.TempDir()
+
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{ServerURL: srv.URL, PlexToken: "t", DownloadFolder: root}
+	m := New(cfg, plex.New(srv.URL, "t"), nil, nil, libs, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = upd.(Model)
+
+	// Two jobs, second has two tracks so the within-job tick loop is also
+	// exercised. PartKey is what plex.StreamURL appends to the base URL.
+	m.nextDownloadJobID++
+	m.downloadJobs = append(m.downloadJobs, &downloadJob{
+		id: m.nextDownloadJobID, label: "A", state: downloadQueued,
+		tracks: []media.Track{{Title: "a1", Artist: "X", Album: "A", Index: 1, PartKey: "/p/1"}},
+	})
+	m.nextDownloadJobID++
+	m.downloadJobs = append(m.downloadJobs, &downloadJob{
+		id: m.nextDownloadJobID, label: "B", state: downloadQueued,
+		tracks: []media.Track{
+			{Title: "b1", Artist: "Y", Album: "B", Index: 1, PartKey: "/p/2"},
+			{Title: "b2", Artist: "Y", Album: "B", Index: 2, PartKey: "/p/3"},
+		},
+	})
+
+	// Kick the worker and drain every downstream cmd until none remain.
+	m, cmd := m.startNextDownloadJob()
+	for cmd != nil {
+		msg := cmd()
+		next, ncmd := m.Update(msg)
+		m = next.(Model)
+		cmd = ncmd
+	}
+
+	for i, j := range m.downloadJobs {
+		if j.state != downloadDone {
+			t.Errorf("job %d (%s) state = %v, want downloadDone", i, j.label, j.state)
+		}
+	}
+	if got := m.downloadJobs[0].written; got != 1 {
+		t.Errorf("job A written = %d, want 1", got)
+	}
+	if got := m.downloadJobs[1].written; got != 2 {
+		t.Errorf("job B written = %d, want 2", got)
+	}
+	// Files should be at <root>/<artist>/<album>/<NN Title>.flac.
+	for _, p := range []string{
+		filepath.Join(root, "X", "A", "01 a1.flac"),
+		filepath.Join(root, "Y", "B", "01 b1.flac"),
+		filepath.Join(root, "Y", "B", "02 b2.flac"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s to exist: %v", p, err)
+		}
+	}
+}
+
+// TestDownloadHintForUnsupportedSelection confirms pressing `d` while
+// the cursor is on a non-downloadable row (here: the libraries level)
+// flashes "press d on a track or album" rather than silently doing
+// nothing.
+func TestDownloadHintForUnsupportedSelection(t *testing.T) {
+	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
+	cfg := config.Config{
+		ServerURL:      "https://x",
+		PlexToken:      "t",
+		DownloadFolder: t.TempDir(),
+	}
+	m := New(cfg, plex.New("https://x", "t"), nil, nil, libs, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(Model)
+	m.screen = screenBrowser // cursor on a libraryItem
+
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	m = upd.(Model)
+	if !strings.Contains(m.downloadStatus, "track or album") {
+		t.Errorf("expected the unsupported-selection hint, got %q", m.downloadStatus)
 	}
 }
 

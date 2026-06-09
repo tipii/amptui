@@ -26,3 +26,9 @@ plex_token = "your-X-Plex-Token-here"
 # Optional: which screen amptui opens on — "library" (default) or "dashboard".
 # Tab toggles between them at runtime. Editable from the settings screen (,).
 # home = "library"
+
+# Optional: where `d` saves downloaded tracks and albums. amptui writes to
+# <download_folder>/<artist>/<album>/<NN Title>.<ext>, skipping files that
+# already exist. Leave empty to disable downloads (pressing `d` no-ops with
+# a hint to set this).
+# download_folder = "~/Music/amptui"

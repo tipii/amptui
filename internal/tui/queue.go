@@ -85,23 +85,21 @@ func (m *Model) enqueue(tracks ...media.Track) {
 	}
 }
 
-// enqueueSelectedTrack adds the highlighted track to the queue. It no-ops
-// unless a track row is highlighted.
-func (m Model) enqueueSelectedTrack() Model {
-	if it, ok := m.list.SelectedItem().(trackItem); ok {
-		m.enqueue(it.track)
-	}
-	return m
-}
-
-// enqueueSelectedAlbum adds every track of the current album to the queue.
-// It works whether a track row or the "Play album" row is highlighted.
-func (m Model) enqueueSelectedAlbum() Model {
-	switch it := m.list.SelectedItem().(type) {
+// enqueueSelected adds whatever's under the cursor to the queue:
+// a single track on a track row, every track of an album on an album row
+// (looked up via the library cache) or on the "▶ Play album" action.
+// No-op for any other row type. Mirrors how `d` resolves selection so
+// `q` and `d` always agree on what's selected.
+func (m Model) enqueueSelected() Model {
+	switch it := m.selectedItem().(type) {
 	case trackItem:
-		m.enqueue(it.tracks...)
+		m.enqueue(it.track)
 	case albumActionItem:
 		m.enqueue(it.tracks...)
+	case albumItem:
+		if m.library != nil {
+			m.enqueue(m.library.Tracks(it.album.RatingKey)...)
+		}
 	}
 	return m
 }

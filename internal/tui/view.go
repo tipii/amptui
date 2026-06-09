@@ -41,6 +41,8 @@ func (m Model) View() tea.View {
 		v.SetContent(m.overlayBox(background, m.searchModalBox()))
 	case m.showQueue:
 		v.SetContent(m.overlayBox(background, m.queueModalBox()))
+	case m.showDownloads:
+		v.SetContent(m.overlayBox(background, m.downloadsModalBox()))
 	default:
 		v.SetContent(background)
 	}
@@ -152,6 +154,12 @@ func (m Model) settingsScreen() string {
 func (m Model) footerLine(left string) string {
 	right := ""
 	switch {
+	case m.downloadStatus != "":
+		if m.downloadErr {
+			right = errStyle.Render(m.downloadStatus)
+		} else {
+			right = helpStyle.Render(m.downloadStatus)
+		}
 	case m.librarySyncing:
 		right = helpStyle.Render(m.spinner.View() + "syncing library")
 	case m.libraryErr != nil:

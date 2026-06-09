@@ -76,6 +76,16 @@ type Model struct {
 	// and shown as the first segment of the browser breadcrumb.
 	serverName string
 
+	// Download state. downloadJobs is the worker's queue + history;
+	// nextDownloadJobID hands out stable ids for tick messages to target.
+	// showDownloads toggles the D-modal. downloadStatus is a transient
+	// footer line (hints + progress + summary) styled by downloadErr.
+	downloadJobs      []*downloadJob
+	nextDownloadJobID int
+	showDownloads     bool
+	downloadStatus    string
+	downloadErr       bool
+
 	screen screen
 
 	// settings is the sub-model that owns the settings screen state and
@@ -194,12 +204,19 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	l.Title = "Libraries"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
+	// bubbles list's default keymap binds 'q' and ctrl+c to Quit/ForceQuit.
+	// We own quit via our top-level KeyMap (ctrl+c / ctrl+q) and 'q' is the
+	// enqueue binding here, so the list must not return tea.Quit on its own.
+	// DisableQuitKeybindings is the public helper; setting SetEnabled(false)
+	// by hand gets re-armed by the list's own update lifecycle.
+	l.DisableQuitKeybindings()
 
 	ql := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	ql.SetShowTitle(false) // the modal box draws its own title
 	ql.SetShowHelp(false)
 	ql.SetShowStatusBar(false)
 	ql.SetFilteringEnabled(false) // cursor index must map 1:1 to the queue
+	ql.DisableQuitKeybindings()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot

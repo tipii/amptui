@@ -74,6 +74,7 @@ Settings (the required ones depend on the backend — see below):
 | Default view album  | `default_view_album`  | `list` / `grid`         | Initial render mode for the Albums level.                            |
 | Home screen         | `home`                | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
+| Download folder     | `download_folder`     | path                    | Where `d` saves tracks/albums. Empty disables downloads.            |
 
 **Plex** needs `server_url` + `plex_token`. **Jellyfin** needs `server_url` +
 `jellyfin_username` + `jellyfin_password`. Note that Jellyfin has no content-version counter,
@@ -131,8 +132,10 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `n` / `p`             | Next / previous in queue                     |
 | `<` / `>`             | Seek −10s / +10s                             |
 | `,`                   | Open / close the settings screen             |
-| `q` / `Q`             | Add highlighted track / whole album to queue |
-| `o`                   | Open / close the queue modal                 |
+| `q`                   | Add highlighted track or album to queue      |
+| `Q`                   | Open / close the queue modal                 |
+| `d`                   | Download highlighted track or album          |
+| `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
 | `?`                   | Open / close the keybindings modal           |
 | `R`                   | Re-sync the library cache from the server          |
@@ -146,7 +149,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `J` / `K`   | Reorder highlighted track down / up        |
 | `d`         | Delete highlighted track                   |
 | `enter`     | Jump playback to highlighted track         |
-| `o` / `esc` | Close                                      |
+| `Q` / `esc` | Close                                      |
 
 **Inside the search modal:**
 
