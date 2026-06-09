@@ -95,7 +95,7 @@ func (m Model) handleDownload() (Model, tea.Cmd) {
 // downloadSelection resolves what's under the cursor into a track list
 // + a human label.
 func (m Model) downloadSelection() (tracks []media.Track, label string) {
-	switch it := m.list.SelectedItem().(type) {
+	switch it := m.selectedItem().(type) {
 	case trackItem:
 		return []media.Track{it.track}, it.track.Title
 	case albumActionItem:

@@ -91,7 +91,7 @@ func (m *Model) enqueue(tracks ...media.Track) {
 // No-op for any other row type. Mirrors how `d` resolves selection so
 // `q` and `d` always agree on what's selected.
 func (m Model) enqueueSelected() Model {
-	switch it := m.list.SelectedItem().(type) {
+	switch it := m.selectedItem().(type) {
 	case trackItem:
 		m.enqueue(it.track)
 	case albumActionItem:
