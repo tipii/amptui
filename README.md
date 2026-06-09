@@ -132,9 +132,10 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `n` / `p`             | Next / previous in queue                     |
 | `<` / `>`             | Seek −10s / +10s                             |
 | `,`                   | Open / close the settings screen             |
-| `q` / `Q`             | Add highlighted track / whole album to queue |
+| `q`                   | Add highlighted track or album to queue      |
+| `Q`                   | Open / close the queue modal                 |
 | `d`                   | Download highlighted track or album          |
-| `o`                   | Open / close the queue modal                 |
+| `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
 | `?`                   | Open / close the keybindings modal           |
 | `R`                   | Re-sync the library cache from the server          |
@@ -148,7 +149,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `J` / `K`   | Reorder highlighted track down / up        |
 | `d`         | Delete highlighted track                   |
 | `enter`     | Jump playback to highlighted track         |
-| `o` / `esc` | Close                                      |
+| `Q` / `esc` | Close                                      |
 
 **Inside the search modal:**
 

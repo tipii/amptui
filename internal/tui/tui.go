@@ -76,13 +76,15 @@ type Model struct {
 	// and shown as the first segment of the browser breadcrumb.
 	serverName string
 
-	// Download state. downloading gates a second `d` while the first is
-	// in flight; downloadStatus is the footer message (set on key press
-	// and again on completion); downloadErr flips the rendering to error
-	// style.
-	downloading    bool
-	downloadStatus string
-	downloadErr    bool
+	// Download state. downloadJobs is the worker's queue + history;
+	// nextDownloadJobID hands out stable ids for tick messages to target.
+	// showDownloads toggles the D-modal. downloadStatus is a transient
+	// footer line (hints + progress + summary) styled by downloadErr.
+	downloadJobs      []*downloadJob
+	nextDownloadJobID int
+	showDownloads     bool
+	downloadStatus    string
+	downloadErr       bool
 
 	screen screen
 

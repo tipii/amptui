@@ -101,6 +101,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList, cmd = m.queueList.Update(msg)
 			return m, cmd
 		}
+		// The downloads modal owns input while it is open. D / esc close
+		// it. (It's read-only for now — no row actions.)
+		if m.showDownloads {
+			switch {
+			case key.Matches(msg, k.Quit):
+				return m, tea.Quit
+			case key.Matches(msg, k.OpenDownloads), key.Matches(msg, k.Back):
+				m.showDownloads = false
+				return m, nil
+			}
+			return m, nil
+		}
 		// Settings screen owns its own input set; route there first.
 		if m.screen == screenSettings {
 			return m.routeSettingsKey(msg)
@@ -162,15 +174,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.drillDown()
 		case key.Matches(msg, k.Back):
 			return m.goBack()
-		case key.Matches(msg, k.EnqueueTrack):
-			return m.enqueueSelectedTrack(), nil
-		case key.Matches(msg, k.EnqueueAlbum):
-			return m.enqueueSelectedAlbum(), nil
+		case key.Matches(msg, k.Enqueue):
+			return m.enqueueSelected(), nil
 		case key.Matches(msg, k.Download):
 			updated, cmd := m.handleDownload()
 			return updated, cmd
 		case key.Matches(msg, k.OpenQueue):
 			m.openQueue()
+			return m, nil
+		case key.Matches(msg, k.OpenDownloads):
+			m.showDownloads = true
 			return m, nil
 		case key.Matches(msg, k.OpenSearch):
 			var cmd tea.Cmd
@@ -217,13 +230,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.serverName = msg.name
 		return m, nil
 
-	case downloadStatusMsg:
-		m.downloadStatus = msg.text
-		m.downloadErr = msg.err
-		if msg.done {
-			m.downloading = false
-		}
-		return m, nil
+	case downloadTickMsg:
+		updated, cmd := m.applyDownloadTick(msg)
+		return updated, cmd
 
 	case librariesReadyMsg:
 		// Result of the first-time-setup fetch kicked off by the settings
