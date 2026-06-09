@@ -93,6 +93,7 @@ export AMPTUI_PLEX_TOKEN="your-X-Plex-Token-here"   # Plex
 export AMPTUI_JELLYFIN_USERNAME="you"               # Jellyfin
 export AMPTUI_JELLYFIN_PASSWORD="secret"            # Jellyfin
 export AMPTUI_DEFAULT_LIBRARY="Music"
+export AMPTUI_DOWNLOAD_FOLDER="$HOME/Music/amptui"
 ```
 
 ### Inline artwork
