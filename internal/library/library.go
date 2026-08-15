@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/sahilm/fuzzy"
@@ -41,10 +39,15 @@ func (k Kind) String() string {
 }
 
 // Entry is one item in the cache. Fields are populated according to Kind:
-//   - artist: Kind, Title, RatingKey
-//   - album:  Kind, Title, RatingKey, Artist, ArtistKey, Year
+//   - artist: Kind, Title, RatingKey, AddedAt
+//   - album:  Kind, Title, RatingKey, Artist, ArtistKey, Year, AddedAt
 //   - track:  Kind, Title, RatingKey, Album, AlbumKey, Artist, ArtistKey,
-//     Year, Index, Duration, PartKey
+//     Year, Index, Duration, PartKey, AddedAt
+//
+// On artist and album entries AddedAt is derived — the most recent AddedAt
+// across the entry's tracks — so a "date added" sort surfaces whatever the
+// server saw most recently, which is what "recently added" means to a user
+// who just imported a new album by an artist they already had.
 type Entry struct {
 	Kind      Kind          `json:"k"`
 	Title     string        `json:"t"`
@@ -55,14 +58,19 @@ type Entry struct {
 	ArtistKey string        `json:"ark,omitempty"`
 	Year      int           `json:"y,omitempty"`
 	Index     int           `json:"i,omitempty"`
+	Disc      int           `json:"dc,omitempty"`
 	Duration  time.Duration `json:"d,omitempty"`
 	PartKey   string        `json:"p,omitempty"`
+	AddedAt   time.Time     `json:"ad,omitempty"`
 }
 
 // CacheSchemaVersion is the on-disk schema version. Bump when adding new
 // derived fields (count maps, etc.) so old caches force a re-sync instead
 // of silently serving stale-shape data.
-const CacheSchemaVersion = 2
+//
+// v3 added Entry.AddedAt and Library.AlbumDuration, both of which back the
+// sort layer (see sort.go) and can only be filled from a fresh fetch.
+const CacheSchemaVersion = 3
 
 // Library is the in-memory cache of a music library, persisted to
 // ~/.cache/amptui/<sectionUUID>.json.
@@ -79,6 +87,9 @@ type Library struct {
 	ArtistAlbumCount map[string]int `json:"artist_album_count,omitempty"`
 	ArtistTrackCount map[string]int `json:"artist_track_count,omitempty"`
 	AlbumTrackCount  map[string]int `json:"album_track_count,omitempty"`
+	// AlbumDuration is the summed runtime of each album's tracks, derived
+	// at sync time so the duration sort doesn't rescan Entries per compare.
+	AlbumDuration map[string]time.Duration `json:"album_duration,omitempty"`
 }
 
 // Artist is a browse-facing artist row with the counts the UI needs.
@@ -87,6 +98,7 @@ type Artist struct {
 	Title      string
 	AlbumCount int
 	TrackCount int
+	AddedAt    time.Time
 }
 
 // Album is a browse-facing album row.
@@ -97,6 +109,8 @@ type Album struct {
 	ArtistKey  string
 	Year       int
 	TrackCount int
+	Duration   time.Duration
+	AddedAt    time.Time
 }
 
 // Track aliases media.Track so callers don't need to import the media
@@ -129,6 +143,9 @@ func buildFromTracks(tracks []media.Track) *Library {
 	artistAlbums := map[string]map[string]struct{}{} // artistKey -> set of albumKeys
 	artistTrackCount := map[string]int{}
 	albumTrackCount := map[string]int{}
+	albumDuration := map[string]time.Duration{}
+	artistAdded := map[string]time.Time{} // most recent track AddedAt
+	albumAdded := map[string]time.Time{}
 
 	for _, t := range tracks {
 		trackEntries = append(trackEntries, Entry{
@@ -141,14 +158,19 @@ func buildFromTracks(tracks []media.Track) *Library {
 			ArtistKey: t.ArtistRatingKey,
 			Year:      t.Year,
 			Index:     t.Index,
+			Disc:      t.Disc,
 			Duration:  t.Duration,
 			PartKey:   t.PartKey,
+			AddedAt:   t.AddedAt,
 		})
 		if t.ArtistRatingKey != "" {
 			if _, ok := artistTitle[t.ArtistRatingKey]; !ok {
 				artistTitle[t.ArtistRatingKey] = t.Artist
 			}
 			artistTrackCount[t.ArtistRatingKey]++
+			if t.AddedAt.After(artistAdded[t.ArtistRatingKey]) {
+				artistAdded[t.ArtistRatingKey] = t.AddedAt
+			}
 			if t.AlbumRatingKey != "" {
 				if artistAlbums[t.ArtistRatingKey] == nil {
 					artistAlbums[t.ArtistRatingKey] = map[string]struct{}{}
@@ -168,6 +190,10 @@ func buildFromTracks(tracks []media.Track) *Library {
 				}
 			}
 			albumTrackCount[t.AlbumRatingKey]++
+			albumDuration[t.AlbumRatingKey] += t.Duration
+			if t.AddedAt.After(albumAdded[t.AlbumRatingKey]) {
+				albumAdded[t.AlbumRatingKey] = t.AddedAt
+			}
 		}
 	}
 	artistAlbumCount := make(map[string]int, len(artistAlbums))
@@ -177,9 +203,15 @@ func buildFromTracks(tracks []media.Track) *Library {
 
 	entries := make([]Entry, 0, len(artistTitle)+len(albumByKey)+len(trackEntries))
 	for key, title := range artistTitle {
-		entries = append(entries, Entry{Kind: KindArtist, Title: title, RatingKey: key})
+		entries = append(entries, Entry{
+			Kind:      KindArtist,
+			Title:     title,
+			RatingKey: key,
+			AddedAt:   artistAdded[key],
+		})
 	}
-	for _, a := range albumByKey {
+	for key, a := range albumByKey {
+		a.AddedAt = albumAdded[key]
 		entries = append(entries, a)
 	}
 	entries = append(entries, trackEntries...)
@@ -190,6 +222,7 @@ func buildFromTracks(tracks []media.Track) *Library {
 		ArtistAlbumCount: artistAlbumCount,
 		ArtistTrackCount: artistTrackCount,
 		AlbumTrackCount:  albumTrackCount,
+		AlbumDuration:    albumDuration,
 	}
 }
 
@@ -261,7 +294,9 @@ func Load(sectionUUID string) (*Library, error) {
 
 // --- Browse ---
 
-// Artists returns every artist in the section, sorted by title.
+// Artists returns every artist in the section, in the default order
+// (title, A–Z). Callers wanting another order pass the result through
+// SortArtists.
 func (l *Library) Artists() []Artist {
 	if l == nil {
 		return nil
@@ -276,15 +311,16 @@ func (l *Library) Artists() []Artist {
 			Title:      e.Title,
 			AlbumCount: l.ArtistAlbumCount[e.RatingKey],
 			TrackCount: l.ArtistTrackCount[e.RatingKey],
+			AddedAt:    e.AddedAt,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
-	})
+	SortArtists(out, DefaultArtistSort)
 	return out
 }
 
-// Albums returns the albums for one artist, sorted by year then title.
+// Albums returns the albums for one artist, in the default order (year,
+// then title). Callers wanting another order pass the result through
+// SortAlbums.
 func (l *Library) Albums(artistKey string) []Album {
 	if l == nil {
 		return nil
@@ -301,18 +337,17 @@ func (l *Library) Albums(artistKey string) []Album {
 			ArtistKey:  e.ArtistKey,
 			Year:       e.Year,
 			TrackCount: l.AlbumTrackCount[e.RatingKey],
+			Duration:   l.AlbumDuration[e.RatingKey],
+			AddedAt:    e.AddedAt,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Year != out[j].Year {
-			return out[i].Year < out[j].Year
-		}
-		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
-	})
+	SortAlbums(out, DefaultAlbumSort)
 	return out
 }
 
-// Tracks returns the tracks of an album, in album order.
+// Tracks returns the tracks of an album, in the default order (album
+// running order). Callers wanting another order pass the result through
+// SortTracks.
 func (l *Library) Tracks(albumKey string) []Track {
 	if l == nil {
 		return nil
@@ -330,12 +365,14 @@ func (l *Library) Tracks(albumKey string) []Track {
 			AlbumRatingKey:  e.AlbumKey,
 			ArtistRatingKey: e.ArtistKey,
 			Index:           e.Index,
+			Disc:            e.Disc,
 			Year:            e.Year,
 			Duration:        e.Duration,
 			PartKey:         e.PartKey,
+			AddedAt:         e.AddedAt,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	SortTracks(out, DefaultTrackSort)
 	return out
 }
 
