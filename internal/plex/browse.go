@@ -18,8 +18,10 @@ type trackMetadata struct {
 	ParentRatingKey      string `json:"parentRatingKey"`
 	GrandparentRatingKey string `json:"grandparentRatingKey"`
 	Index                int    `json:"index"`
+	ParentIndex          int    `json:"parentIndex"` // disc number
 	ParentYear           int    `json:"parentYear"`
 	Duration             int64  `json:"duration"`
+	AddedAt              int64  `json:"addedAt"` // unix seconds
 	Type                 string `json:"type"`
 	Media                []struct {
 		Part []struct {
@@ -37,8 +39,12 @@ func (m trackMetadata) toTrack() media.Track {
 		AlbumRatingKey:  m.ParentRatingKey,
 		ArtistRatingKey: m.GrandparentRatingKey,
 		Index:           m.Index,
+		Disc:            m.ParentIndex,
 		Year:            m.ParentYear,
 		Duration:        time.Duration(m.Duration) * time.Millisecond,
+	}
+	if m.AddedAt > 0 {
+		t.AddedAt = time.Unix(m.AddedAt, 0)
 	}
 	if len(m.Media) > 0 && len(m.Media[0].Part) > 0 {
 		t.PartKey = m.Media[0].Part[0].Key

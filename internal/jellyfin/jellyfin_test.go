@@ -32,8 +32,12 @@ func TestItemToTrack(t *testing.T) {
 		IndexNumber:    1,
 		ProductionYear: 2019,
 		RunTimeTicks:   3489333330,
+		DateCreated:    time.Date(2019, 9, 27, 0, 0, 0, 0, time.UTC),
 	}
 	tr := it.toTrack()
+	if want := time.Date(2019, 9, 27, 0, 0, 0, 0, time.UTC); !tr.AddedAt.Equal(want) {
+		t.Errorf("AddedAt = %v, want %v", tr.AddedAt, want)
+	}
 	if tr.RatingKey != "trk1" || tr.AlbumRatingKey != "alb1" {
 		t.Errorf("ids: %+v", tr)
 	}
@@ -94,12 +98,19 @@ func newTestServer(t *testing.T) *httptest.Server {
 		}})
 	}))
 	mux.HandleFunc("/Items", auth(func(w http.ResponseWriter, r *http.Request) {
+		// DateCreated isn't in the default projection — without it in
+		// Fields the server returns zero timestamps and the date-added
+		// sort silently degrades, so assert we ask for it.
+		if fields := r.URL.Query().Get("Fields"); !strings.Contains(fields, "DateCreated") {
+			t.Errorf("Fields = %q, want it to request DateCreated", fields)
+		}
 		// Single full page → LibraryTracks stops after one round.
 		_ = json.NewEncoder(w).Encode(itemsResponse{
 			TotalRecordCount: 2,
 			Items: []itemDTO{
 				{Id: "t1", Name: "A", Album: "Alb", AlbumId: "al1", AlbumArtists: []nameID{{Name: "Art", Id: "ar1"}}, RunTimeTicks: 10000000},
-				{Id: "t2", Name: "B", Album: "Alb", AlbumId: "al1", AlbumArtists: []nameID{{Name: "Art", Id: "ar1"}}, RunTimeTicks: 20000000},
+				{Id: "t2", Name: "B", Album: "Alb", AlbumId: "al1", AlbumArtists: []nameID{{Name: "Art", Id: "ar1"}}, RunTimeTicks: 20000000,
+					DateCreated: time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)},
 			},
 		})
 	}))
@@ -151,6 +162,12 @@ func TestLibraryTracksDecodes(t *testing.T) {
 	}
 	if tracks[1].Duration != 2*time.Second {
 		t.Errorf("duration: want 2s, got %v", tracks[1].Duration)
+	}
+	if want := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC); !tracks[1].AddedAt.Equal(want) {
+		t.Errorf("AddedAt = %v, want %v", tracks[1].AddedAt, want)
+	}
+	if !tracks[0].AddedAt.IsZero() {
+		t.Errorf("a track with no DateCreated should have a zero AddedAt, got %v", tracks[0].AddedAt)
 	}
 }
 

@@ -39,13 +39,22 @@ type Track struct {
 	// result.
 	AlbumRatingKey  string
 	ArtistRatingKey string
-	// Index is the track number within its album.
+	// Index is the track number within its disc; Disc is the disc number
+	// within the album (1 for single-disc releases, 0 if the server
+	// doesn't say). Track numbers restart per disc, so album running
+	// order is (Disc, Index) — sorting on Index alone interleaves the
+	// discs of a double album.
 	Index    int
+	Disc     int
 	Year     int
 	Duration time.Duration
 	// PartKey is the server-relative media path. Combined with a
 	// backend's StreamURL it yields something mpv can play.
 	PartKey string
+	// AddedAt is when the server first saw this track. Backends that
+	// don't report it leave it zero, in which case a "date added" sort
+	// degrades to the tiebreak (title) rather than misordering.
+	AddedAt time.Time
 }
 
 // ArtistMetadata is the rich-metadata view of an artist — bio, tags,
