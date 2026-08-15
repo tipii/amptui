@@ -23,6 +23,17 @@ plex_token = "your-X-Plex-Token-here"
 # default_view_artist = "list"
 # default_view_album = "list"
 
+# Optional: browse order per level, as "<field>:<direction>". Normally written
+# by the sort modal (o) rather than by hand — see the README's Sorting section.
+#   sort_artist: title | added | albums | tracks          (default title:asc)
+#   sort_album:  year | title | added | duration | tracks (default year:asc)
+#   sort_track:  number | title | duration | added        (default number:asc)
+# The direction is optional: "added" means "added:desc" (dates default to
+# newest-first); every other field defaults to ascending.
+# sort_artist = "title:asc"
+# sort_album = "added:desc"
+# sort_track = "number:asc"
+
 # Optional: which screen amptui opens on — "library" (default) or "dashboard".
 # Tab toggles between them at runtime. Editable from the settings screen (,).
 # home = "library"

@@ -15,6 +15,7 @@ Working today:
 
 - [x] Connect to a Plex server (manual token auth) or a Jellyfin server (username/password)
 - [x] Browse: libraries → artists → albums → tracks (list or grid)
+- [x] Plex-style sorting per level (`o`) — title, year, date added, duration, counts — remembered across launches
 - [x] Dashboard home with recent plays, recently added, recent playlists
 - [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
 - [x] Queue modal: reorder, delete, jump-to-play, track progress bar
@@ -75,6 +76,9 @@ Settings (the required ones depend on the backend — see below):
 | Home screen         | `home`                | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 | Download folder     | `download_folder`     | path                    | Where `d` saves tracks/albums. Empty disables downloads.            |
+| Sort (artists)      | `sort_artist`         | `<field>:<direction>`   | Artist ordering. Written by the `o` modal. See [Sorting](#sorting). |
+| Sort (albums)       | `sort_album`          | `<field>:<direction>`   | Album ordering.                                                     |
+| Sort (tracks)       | `sort_track`          | `<field>:<direction>`   | Track ordering.                                                     |
 
 **Plex** needs `server_url` + `plex_token`. **Jellyfin** needs `server_url` +
 `jellyfin_username` + `jellyfin_password`. Note that Jellyfin has no content-version counter,
@@ -95,6 +99,39 @@ export AMPTUI_JELLYFIN_PASSWORD="secret"            # Jellyfin
 export AMPTUI_DEFAULT_LIBRARY="Music"
 export AMPTUI_DOWNLOAD_FOLDER="$HOME/Music/amptui"
 ```
+
+### Sorting
+
+Press `o` on any browse level to open the sort picker. It lists the
+orderings that apply to that level, marks the active one with its
+direction, and applies your choice immediately — `↑`/`↓` to move, `enter`
+to apply, `esc` to cancel. Pressing `enter` on the *already active* field
+flips its direction, so `o` `enter` is the quick way to reverse the
+current order. The active sort is shown in the list heading
+("Albums · year ↑").
+
+| Level   | Fields                                                | Default        |
+| ------- | ----------------------------------------------------- | -------------- |
+| Artists | title, date added, album count, track count           | `title:asc`    |
+| Albums  | year, title, date added, duration, track count        | `year:asc`     |
+| Tracks  | track number, title, duration, date added             | `number:asc`   |
+
+"Track number" means album running order, i.e. disc then track — a double
+album lists disc 1 in full before disc 2 rather than interleaving them.
+
+Every ordering is answered from the local cache, so changing sort never
+touches the server. Each level's choice is written to `config.toml` as
+`<field>:<direction>` (e.g. `sort_album = "added:desc"`) the moment you
+pick it, so amptui reopens in the order you left it. The direction half is
+optional when hand-editing — `sort_album = "added"` picks that field at its
+natural direction (dates default to descending, everything else to
+ascending). An unrecognized value falls back to the level's default rather
+than erroring.
+
+"Date added" on an album or artist means *the most recently added track it
+contains*, so importing one new album surfaces that artist at the top of a
+recently-added sort. Note that this data is new in cache schema v3: the
+first launch after upgrading re-syncs the library once to populate it.
 
 ### Inline artwork
 
@@ -138,6 +175,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `d`                   | Download highlighted track or album          |
 | `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
+| `o`                   | Sort the current level (see [Sorting](#sorting)) |
 | `?`                   | Open / close the keybindings modal           |
 | `R`                   | Re-sync the library cache from the server          |
 | `ctrl+c` / `ctrl+q`   | Quit                                         |
