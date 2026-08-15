@@ -46,13 +46,18 @@ Working today:
 ```bash
 make build     # produces ./amptui
 make run       # build-and-run via `go run`
-make install   # `go install` to $GOBIN / $GOPATH/bin so `amptui` is on PATH
+make install   # install to ~/.local/bin so `amptui` is on PATH
 make uninstall # remove the installed binary
 make           # list all targets
 ```
 
-Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`,
-or `go install ./cmd/amptui` for a system-wide install.
+`make install` writes to `~/.local/bin`; override with
+`make install BINDIR=/usr/local/bin`. It intentionally avoids `go install`,
+which obeys `$GOBIN` — version managers like mise point that inside the
+versioned Go toolchain directory, so the binary drops off `PATH` as soon as
+the Go version changes.
+
+Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`.
 
 ## Configuration
 
