@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/tipii/amptui/internal/imgcache"
+	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
 )
 
@@ -237,7 +238,7 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	m.list.SetItems(c.items)
 	// Restore the list's heading by level (the crumb's title is the
 	// breadcrumb label for the item the user drilled into, not the page).
-	m.list.Title = m.titleForLevel(c.level)
+	m.list.Title = m.listTitleForLevel(c.level)
 	m.list.Select(c.index)
 	// listHeight depends on level (image-bearing levels carry a taller
 	// chrome). Reflow now that we're back on a different level so the
@@ -266,7 +267,7 @@ func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.level = lvl
 	m.list.SetItems(items)
 	m.list.Select(0)
-	m.list.Title = m.titleForLevel(lvl)
+	m.list.Title = m.listTitleForLevel(lvl)
 	m.list.SetSize(m.width, m.listHeight())
 	m.gridCursor = 0
 	m.gridScrollTop = 0
@@ -296,6 +297,13 @@ func (m Model) titleForLevel(lvl level) string {
 	default:
 		return "Libraries"
 	}
+}
+
+// listTitleForLevel is the heading the browser list shows: the level name
+// plus the active ordering ("Albums · year ↑"), so the current sort is
+// visible without opening the modal.
+func (m Model) listTitleForLevel(lvl level) string {
+	return m.titleForLevel(lvl) + m.sortSuffix(lvl)
 }
 
 // refreshCurrentLevel re-derives the current view's items from the library
@@ -342,12 +350,16 @@ func (m Model) parentRatingKey() string {
 
 // --- library-driven item builders ---
 
-// artistItems builds the list rows for the Artists level from the cache.
+// artistItems builds the list rows for the Artists level from the cache,
+// in the user's chosen order. Every path that lands on this level —
+// drill-down, a search jump, a post-sync refresh — goes through here, so
+// ordering is applied in exactly one place per level.
 func (m Model) artistItems() []list.Item {
 	if m.library == nil {
 		return nil
 	}
 	artists := m.library.Artists()
+	library.SortArtists(artists, m.sortArtist)
 	items := make([]list.Item, len(artists))
 	for i, a := range artists {
 		items[i] = artistItem{artist: a}
@@ -361,6 +373,7 @@ func (m Model) albumItems(artistKey string) []list.Item {
 		return nil
 	}
 	albums := m.library.Albums(artistKey)
+	library.SortAlbums(albums, m.sortAlbum)
 	items := make([]list.Item, len(albums))
 	for i, a := range albums {
 		items[i] = albumItem{album: a}
@@ -370,11 +383,17 @@ func (m Model) albumItems(artistKey string) []list.Item {
 
 // trackItems builds the list rows for the Tracks level of one album,
 // prepended with the "Play album" action row.
+//
+// The sort applies to the playback order too: "Play album" and "enter on
+// a track" queue the tracks as displayed, so what you see is what plays.
+// Enqueueing the album from the Albums level (q) is unaffected — it reads
+// the album's own running order, since no track list is on screen there.
 func (m Model) trackItems(albumKey string) []list.Item {
 	if m.library == nil {
 		return nil
 	}
 	tracks := m.library.Tracks(albumKey)
+	library.SortTracks(tracks, m.sortTrack)
 	items := make([]list.Item, 0, len(tracks)+1)
 	if len(tracks) > 0 {
 		items = append(items, albumActionItem{tracks: tracks})

@@ -113,6 +113,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// The sort modal owns input while it is open.
+		if m.showSort {
+			switch {
+			case key.Matches(msg, k.Quit):
+				return m, tea.Quit
+			case key.Matches(msg, k.OpenSort), key.Matches(msg, k.Back):
+				m.showSort = false
+				return m, nil
+			case key.Matches(msg, k.Up):
+				m.moveSortCursor(-1)
+				return m, nil
+			case key.Matches(msg, k.Down):
+				m.moveSortCursor(1)
+				return m, nil
+			case key.Matches(msg, k.Enter):
+				updated, cmd := m.applySortSelection()
+				return updated, cmd
+			}
+			return m, nil
+		}
 		// Settings screen owns its own input set; route there first.
 		if m.screen == screenSettings {
 			return m.routeSettingsKey(msg)
@@ -189,6 +209,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.search, cmd = m.search.Open()
 			return m, cmd
+		case key.Matches(msg, k.OpenSort):
+			m.openSortModal()
+			return m, nil
 		case key.Matches(msg, k.Settings):
 			m.screen = screenSettings
 			return m, nil

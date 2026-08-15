@@ -43,6 +43,8 @@ func (m Model) View() tea.View {
 		v.SetContent(m.overlayBox(background, m.queueModalBox()))
 	case m.showDownloads:
 		v.SetContent(m.overlayBox(background, m.downloadsModalBox()))
+	case m.showSort:
+		v.SetContent(m.overlayBox(background, m.sortModalBox()))
 	default:
 		v.SetContent(background)
 	}

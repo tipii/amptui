@@ -33,6 +33,15 @@ type Config struct {
 	// for those browser levels: "list" (default) or "grid".
 	DefaultViewArtist string `toml:"default_view_artist,omitempty"`
 	DefaultViewAlbum  string `toml:"default_view_album,omitempty"`
+	// SortArtist / SortAlbum / SortTrack are the browse ordering for each
+	// level, as "<field>:<direction>" (e.g. "added:desc"). Written by the
+	// sort modal (o) whenever the user picks an ordering, so the choice
+	// survives a relaunch the way it does in Plex. Unparseable or
+	// inapplicable values fall back to the level's default — see
+	// library.ParseSpec for the accepted fields.
+	SortArtist string `toml:"sort_artist,omitempty"`
+	SortAlbum  string `toml:"sort_album,omitempty"`
+	SortTrack  string `toml:"sort_track,omitempty"`
 	// Home selects which screen the app opens on: "dashboard" (default,
 	// recent plays / added / playlists) or "library" (artist browser).
 	Home string `toml:"home,omitempty"`

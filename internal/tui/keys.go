@@ -27,6 +27,7 @@ type KeyMap struct {
 	SwitchScreen key.Binding // tab: dashboard ⇄ library
 	OpenQueue    key.Binding
 	OpenSearch   key.Binding
+	OpenSort     key.Binding // 'o' — open the sort-order modal
 
 	// --- playback / queue actions (from browser) ---
 	Pause         key.Binding
@@ -76,6 +77,7 @@ func NewKeyMap() KeyMap {
 		SwitchScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "dash/lib")),
 		OpenQueue:    key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "queue")),
 		OpenSearch:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
+		OpenSort:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sort")),
 
 		Pause:         key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pause")),
 		NextTrack:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
@@ -118,7 +120,7 @@ func (k KeyMap) browserHelp() helpView {
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
 			{k.Enqueue, k.OpenQueue, k.Download, k.OpenDownloads, k.Info},
-			{k.OpenSearch, k.Help, k.Settings, k.Refresh, k.Quit},
+			{k.OpenSearch, k.OpenSort, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}
 }
@@ -135,6 +137,13 @@ func (k KeyMap) queueModalHelp() helpView {
 func (k KeyMap) searchModalHelp() helpView {
 	return helpView{
 		short: []key.Binding{k.CycleFilter, k.InputUp, k.InputDown, k.InputEnter, k.EnqueueFromSearch, k.InputBack},
+	}
+}
+
+// sortModalHelp is the help context for the sort-order modal.
+func (k KeyMap) sortModalHelp() helpView {
+	return helpView{
+		short: []key.Binding{k.Up, k.Down, k.Enter, k.OpenSort, k.Back},
 	}
 }
 
@@ -188,7 +197,7 @@ func (k KeyMap) helpModalSections() []keySection {
 	return []keySection{
 		{title: "Browse", bindings: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down},
-			{k.SwitchScreen, k.Filter, k.Info},
+			{k.SwitchScreen, k.Filter, k.Info, k.OpenSort},
 		}},
 		{title: "Playback", bindings: [][]key.Binding{
 			{k.Pause, k.NextTrack, k.PrevTrack},
@@ -219,6 +228,8 @@ func (m Model) currentHelp() helpView {
 		return k.infoModalHelp()
 	case m.showHelp:
 		return k.helpModalHelp()
+	case m.showSort:
+		return k.sortModalHelp()
 	case m.search.IsOpen():
 		return k.searchModalHelp()
 	case m.showQueue:

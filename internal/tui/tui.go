@@ -10,6 +10,7 @@
 //   - nowplaying.go the now-playing block and track-position bar
 //   - info.go       artist/album metadata header + the `i` info modal
 //   - modals.go     the shared modal frame + queue/search/help bodies
+//   - sortmodal.go  per-level browse ordering + the `o` sort modal
 //   - browse.go     drill-down navigation and async Plex fetches
 //   - queue.go      playback queue delegated to mpv
 //   - grid.go       artist/album grid rendering
@@ -148,12 +149,22 @@ type Model struct {
 	queue    []media.Track
 	queueIdx int
 
-	// showQueue / showHelp / showInfo are true while their modal is
-	// open; an open modal owns input. The search modal's open state
-	// lives on m.search.
+	// showQueue / showHelp / showInfo / showSort are true while their
+	// modal is open; an open modal owns input. The search modal's open
+	// state lives on m.search.
 	showQueue bool
 	showHelp  bool
 	showInfo  bool
+	showSort  bool
+
+	// Browse ordering, one Spec per sortable level (see sortmodal.go).
+	// Seeded from cfg at startup and written back to cfg whenever the
+	// sort modal commits, so the order survives a relaunch. sortCursor is
+	// the modal's highlighted row.
+	sortArtist library.Spec
+	sortAlbum  library.Spec
+	sortTrack  library.Spec
+	sortCursor int
 
 	// search is the fuzzy-finder sub-model; the parent forwards keys via
 	// routeSearchKey and applies its outcomes.
@@ -262,6 +273,11 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		librarySyncing:  true, // Init kicks off the background library sync
 		gridArtists:     cfg.DefaultViewArtist == "grid",
 		gridAlbums:      cfg.DefaultViewAlbum == "grid",
+		// A missing or malformed sort key falls back to the level's
+		// default, which reproduces amptui's pre-sorting order.
+		sortArtist: library.ParseSpec(cfg.SortArtist, library.DefaultArtistSort, library.ArtistSortFields),
+		sortAlbum:  library.ParseSpec(cfg.SortAlbum, library.DefaultAlbumSort, library.AlbumSortFields),
+		sortTrack:  library.ParseSpec(cfg.SortTrack, library.DefaultTrackSort, library.TrackSortFields),
 	}
 
 	if defaultLib != nil {
