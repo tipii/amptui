@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // View is the Bubble Tea render entry point. It picks the active screen,
@@ -151,6 +152,10 @@ func (m Model) settingsScreen() string {
 	return b.String()
 }
 
+// footerGap is the minimum blank space kept between the help text and a
+// right-aligned status when the row has to be trimmed to fit.
+const footerGap = 2
+
 // footerLine assembles the bottom row, right-aligning a non-blocking
 // syncing indicator when the background library loader is running.
 func (m Model) footerLine(left string) string {
@@ -172,13 +177,24 @@ func (m Model) footerLine(left string) string {
 	}
 	// Pad the left side to fill the row minus the right's width, so
 	// right ends up flush against the terminal edge regardless of left's
-	// length. Floors at width 1 if there's not enough room for both.
+	// length.
+	//
+	// When there isn't room for both, the help line is what gives way:
+	// it's the static half of the row, while the right side is a live
+	// download rate or a sync error. Note the trim has to happen before
+	// the pad — a lipgloss Width narrower than its content *wraps*
+	// rather than truncating, and the wrapped remainder would carry the
+	// status onto a second line the footer never renders.
 	padTo := m.width - lipgloss.Width(right)
-	if padTo < lipgloss.Width(left)+1 {
-		padTo = lipgloss.Width(left) + 1
+	if padTo < 1 {
+		return ansi.Truncate(right, m.width, "")
 	}
-	leftPadded := lipgloss.NewStyle().Width(padTo).Render(left)
-	return leftPadded + right
+	if lipgloss.Width(left) > padTo {
+		// Cut short of the boundary so the trimmed help doesn't butt
+		// straight up against the status text.
+		left = ansi.Truncate(left, max(padTo-footerGap, 0), "")
+	}
+	return lipgloss.NewStyle().Width(padTo).Render(left) + right
 }
 
 // overlayBox composites box, centered, on top of background. The background

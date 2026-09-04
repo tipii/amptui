@@ -117,3 +117,13 @@ func HumanBytes(n int64) string {
 		return fmt.Sprintf("%.2f GB", float64(n)/(k*k*k))
 	}
 }
+
+// HumanRate formats a transfer rate in bytes per second ("1.2 MB/s"),
+// or "" for a rate that isn't meaningful yet — a caller with no samples
+// should show nothing rather than a confident "0 B/s".
+func HumanRate(bytesPerSec float64) string {
+	if bytesPerSec <= 0 {
+		return ""
+	}
+	return HumanBytes(int64(bytesPerSec+0.5)) + "/s"
+}

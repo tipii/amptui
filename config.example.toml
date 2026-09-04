@@ -43,3 +43,10 @@ plex_token = "your-X-Plex-Token-here"
 # already exist. Leave empty to disable downloads (pressing `d` no-ops with
 # a hint to set this).
 # download_folder = "~/Music/amptui"
+
+# Optional: what `d` asks the server for — "original" (default) copies the
+# file as-is, anything else has the server transcode on the fly. Playback is
+# never transcoded; this only affects what lands on disk.
+#   original | mp3-320 | mp3-256 | mp3-192 | mp3-128
+# Editable from the settings screen (,).
+# download_quality = "original"

@@ -54,6 +54,12 @@ type Config struct {
 	// tracks/albums (as <root>/<artist>/<album>/<NN Title>.<ext>). Empty
 	// disables the feature — pressing `d` flashes a hint to set this.
 	DownloadFolder string `toml:"download_folder,omitempty"`
+	// DownloadQuality is the encoding `d` asks the server for:
+	// "original" (default — the untouched source file) or "mp3-<kbps>"
+	// for a server-side transcode. Playback is unaffected; only
+	// downloads read this. See media.ParseDownloadQuality for the
+	// accepted values — an unrecognized one falls back to the original.
+	DownloadQuality string `toml:"download_quality,omitempty"`
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml,
@@ -128,6 +134,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("AMPTUI_DOWNLOAD_FOLDER"); v != "" {
 		c.DownloadFolder = v
+	}
+	if v := os.Getenv("AMPTUI_DOWNLOAD_QUALITY"); v != "" {
+		c.DownloadQuality = v
 	}
 	return c, nil
 }

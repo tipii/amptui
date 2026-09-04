@@ -19,6 +19,7 @@ Working today:
 - [x] Dashboard home with recent plays, recently added, recent playlists
 - [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
 - [x] Queue modal: reorder, delete, jump-to-play, track progress bar
+- [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
 - [x] Fuzzy search across the whole library
 - [x] Artist / album info: bio, genres, similar artists (`i` modal)
 - [x] Inline artwork — Kitty graphics on supported terminals, half-block fallback everywhere else; lazy-loaded for the on-screen window only
@@ -81,6 +82,7 @@ Settings (the required ones depend on the backend — see below):
 | Home screen         | `home`                | `library` / `dashboard` | Which screen amptui opens on. `tab` toggles at runtime.              |
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 | Download folder     | `download_folder`     | path                    | Where `d` saves tracks/albums. Empty disables downloads.            |
+| Download quality    | `download_quality`    | `original` / `mp3-NNN`  | What `d` asks the server for. See [Downloads](#downloads).          |
 | Sort (artists)      | `sort_artist`         | `<field>:<direction>`   | Artist ordering. Written by the `o` modal. See [Sorting](#sorting). |
 | Sort (albums)       | `sort_album`          | `<field>:<direction>`   | Album ordering.                                                     |
 | Sort (tracks)       | `sort_track`          | `<field>:<direction>`   | Track ordering.                                                     |
@@ -103,6 +105,7 @@ export AMPTUI_JELLYFIN_USERNAME="you"               # Jellyfin
 export AMPTUI_JELLYFIN_PASSWORD="secret"            # Jellyfin
 export AMPTUI_DEFAULT_LIBRARY="Music"
 export AMPTUI_DOWNLOAD_FOLDER="$HOME/Music/amptui"
+export AMPTUI_DOWNLOAD_QUALITY="mp3-320"
 ```
 
 ### Sorting
@@ -137,6 +140,58 @@ than erroring.
 contains*, so importing one new album surfaces that artist at the top of a
 recently-added sort. Note that this data is new in cache schema v3: the
 first launch after upgrading re-syncs the library once to populate it.
+
+### Downloads
+
+`d` queues whatever's under the cursor — a track, or a whole album — and
+`D` opens the downloads modal. Files land at
+`<download_folder>/<artist>/<album>/<NN Title>.<ext>`, written through a
+`.partial` sidecar so an interrupted download never leaves a truncated
+file behind. One track is fetched at a time; queue as many albums as you
+like and they drain in order.
+
+The modal shows a line per job with its state and track count, and for
+the job in flight a second line naming the file being written, how far
+along it is, and how fast it's moving:
+
+```
+Downloads · 2                                    MP3 320 kbps
+✓ Ege Bamyasi                                           11/11
+⟳ Exile on Main St.                                      5/18
+   05 Tumbling Dice.mp3      ███████░░░░░░░  52%  1.2 MB/s
+```
+
+The same job / rate summary appears in the status bar, so you can watch a
+download without keeping the modal open.
+
+**Quality presets.** *Download quality* picks what the server sends:
+
+| Setting              | What you get                                                |
+| -------------------- | ----------------------------------------------------------- |
+| `original` (default) | The file as stored — FLAC stays FLAC. No transcode.          |
+| `mp3-320` … `mp3-128` | A server-side MP3 transcode at that target bitrate.         |
+
+Playback is never affected: mpv plays every container both servers store,
+so streaming is always direct play. The preset only decides what lands on
+disk — the point is a smaller file for a phone or a car stereo, not a
+smaller stream.
+
+Two consequences worth knowing:
+
+- A transcode is generated as it's sent, so the server can't say how big
+  it will be. Transcoded downloads show bytes written and a transfer rate
+  instead of a percentage — the bar is only for downloads with a known
+  size, which is every `original` one.
+- amptui skips tracks it already has. For `original` that means any
+  extension (it can't know the container without asking); for a transcode
+  it means that exact extension, so switching from `original` to `mp3-320`
+  re-downloads as MP3 rather than reporting the FLAC as already there.
+  You end up with both files side by side. Switching *between* MP3
+  bitrates is the case this doesn't cover — the filename is the same, so
+  those tracks are skipped. Delete them to re-fetch at the new bitrate.
+
+Transcoding happens on the server and costs it CPU, so a large album at
+`mp3-320` is slower than copying the originals — and much smaller.
 
 ### Inline artwork
 
@@ -177,7 +232,7 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `,`                   | Open / close the settings screen             |
 | `q`                   | Add highlighted track or album to queue      |
 | `Q`                   | Open / close the queue modal                 |
-| `d`                   | Download highlighted track or album          |
+| `d`                   | Download highlighted track or album (see [Downloads](#downloads)) |
 | `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
 | `o`                   | Sort the current level (see [Sorting](#sorting)) |

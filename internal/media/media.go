@@ -129,8 +129,17 @@ type Backend interface {
 	PlaylistTracks(ctx context.Context, ratingKey string) ([]Track, error)
 
 	// StreamURL returns an absolute, authenticated URL mpv can play for
-	// the given track, or "" if it has no playable media.
+	// the given track, or "" if it has no playable media. Always direct
+	// play: mpv handles every container both servers store, so there is
+	// nothing to gain from putting a transcoder in the path.
 	StreamURL(t Track) string
+	// DownloadURL returns an absolute, authenticated URL to fetch the
+	// track's audio at the requested quality. The zero DownloadQuality
+	// means the original file, for which this is StreamURL; anything
+	// else routes through the server's transcoder. Backends fall back to
+	// the original for a quality they can't serve, so a download always
+	// produces a file.
+	DownloadURL(t Track, q DownloadQuality) string
 	// ArtworkURL returns an absolute, authenticated URL for an item's
 	// default artwork, looked up by ratingKey.
 	ArtworkURL(ratingKey string) string

@@ -418,12 +418,7 @@ func TestDownloadQueueDrainsAllJobs(t *testing.T) {
 
 	// Kick the worker and drain every downstream cmd until none remain.
 	m, cmd := m.startNextDownloadJob()
-	for cmd != nil {
-		msg := cmd()
-		next, ncmd := m.Update(msg)
-		m = next.(Model)
-		cmd = ncmd
-	}
+	m = drainDownloadCmds(t, m, cmd)
 
 	for i, j := range m.downloadJobs {
 		if j.state != downloadDone {
@@ -446,6 +441,38 @@ func TestDownloadQueueDrainsAllJobs(t *testing.T) {
 			t.Errorf("expected %s to exist: %v", p, err)
 		}
 	}
+}
+
+// drainDownloadCmds runs cmd and everything it produces until the worker
+// settles, the way the Bubble Tea runtime would: a batch fans out into
+// its members and every resulting message goes back through Update.
+//
+// The one departure is the progress poll, which is folded in but not
+// rearmed — it's a wall-clock timer, so letting it reschedule would run
+// the drain in real time for no extra coverage. What it does with the
+// bytes it reads is covered by the tests in download_test.go.
+func drainDownloadCmds(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		if c == nil {
+			continue
+		}
+		switch msg := c().(type) {
+		case tea.BatchMsg:
+			queue = append(queue, msg...)
+		case downloadPollMsg:
+			next, _ := m.Update(msg)
+			m = next.(Model)
+		default:
+			next, ncmd := m.Update(msg)
+			m = next.(Model)
+			queue = append(queue, ncmd)
+		}
+	}
+	return m
 }
 
 // TestDownloadHintForUnsupportedSelection confirms pressing `d` while

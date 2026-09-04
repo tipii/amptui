@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -189,5 +190,53 @@ func TestStreamAndArtworkURL(t *testing.T) {
 	}
 	if c.ArtworkURL("") != "" {
 		t.Errorf("empty key should yield empty artwork URL")
+	}
+}
+
+// TestDownloadURL covers both halves of the quality preset: the original
+// is the same static direct-play file playback uses, and a transcode
+// names its container in the path and drops static so Jellyfin actually
+// re-encodes.
+func TestDownloadURL(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	c := New(srv.URL, "u", "p")
+	if _, err := c.MusicLibraries(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tr := media.Track{RatingKey: "t1"}
+
+	if got, want := c.DownloadURL(tr, media.DownloadQuality{}), c.StreamURL(tr); got != want {
+		t.Errorf("original DownloadURL = %q, want the stream URL %q", got, want)
+	}
+
+	raw := c.DownloadURL(tr, media.DownloadQuality{Codec: media.CodecMP3, Bitrate: 320})
+	base, query, ok := strings.Cut(raw, "?")
+	if !ok {
+		t.Fatalf("no query in %q", raw)
+	}
+	if want := srv.URL + "/Audio/t1/stream.mp3"; base != want {
+		t.Errorf("endpoint = %q, want %q", base, want)
+	}
+	v, err := url.ParseQuery(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"static":     "false",
+		"audioCodec": "mp3",
+		// Jellyfin counts this one in bits per second.
+		"audioBitRate": "320000",
+		"api_key":      testToken,
+	} {
+		if got := v.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+
+	// A codec the path can't name falls back to the original rather than
+	// producing a URL that lies about its contents.
+	if got := c.DownloadURL(tr, media.DownloadQuality{Codec: "opus", Bitrate: 128}); got != c.StreamURL(tr) {
+		t.Errorf("unsupported codec should fall back to the original, got %q", got)
 	}
 }

@@ -13,6 +13,7 @@
 //   - sortmodal.go  per-level browse ordering + the `o` sort modal
 //   - browse.go     drill-down navigation and async Plex fetches
 //   - queue.go      playback queue delegated to mpv
+//   - download.go   the download worker, its progress poll, and the D-modal
 //   - grid.go       artist/album grid rendering
 //   - theme.go      colors + styles
 //   - items.go      bubbles/list item types
@@ -81,11 +82,18 @@ type Model struct {
 	// nextDownloadJobID hands out stable ids for tick messages to target.
 	// showDownloads toggles the D-modal. downloadStatus is a transient
 	// footer line (hints + progress + summary) styled by downloadErr.
+	//
+	// dl is where the worker goroutine publishes its byte counts; the
+	// poll loop reads them back on the Update goroutine, and
+	// downloadPolling keeps exactly one such loop alive while any job
+	// runs (see applyDownloadPoll).
 	downloadJobs      []*downloadJob
 	nextDownloadJobID int
 	showDownloads     bool
 	downloadStatus    string
 	downloadErr       bool
+	dl                *liveDownload
+	downloadPolling   bool
 
 	screen screen
 
@@ -271,6 +279,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		albumModalPic:   newSizedPicture(modalThumbCellsW, modalThumbCellsH),
 		level:           levelLibraries,
 		librarySyncing:  true, // Init kicks off the background library sync
+		dl:              &liveDownload{},
 		gridArtists:     cfg.DefaultViewArtist == "grid",
 		gridAlbums:      cfg.DefaultViewAlbum == "grid",
 		// A missing or malformed sort key falls back to the level's

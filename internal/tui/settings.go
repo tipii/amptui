@@ -16,23 +16,25 @@ import (
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/library"
+	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/textutil"
 )
 
 // settingsValues holds the strings bound to each huh field. Stored on the
 // settings sub-model so the pointers remain stable across renders.
 type settingsValues struct {
-	Backend        string
-	ServerURL      string
-	Token          string
-	Username       string
-	Password       string
-	DefaultLibrary string
-	ViewArtist     string
-	ViewAlbum      string
-	Home           string
-	Images         bool
-	DownloadFolder string
+	Backend         string
+	ServerURL       string
+	Token           string
+	Username        string
+	Password        string
+	DefaultLibrary  string
+	ViewArtist      string
+	ViewAlbum       string
+	Home            string
+	Images          bool
+	DownloadFolder  string
+	DownloadQuality string
 }
 
 // settingsOutcome is what the settings sub-model asks its parent to do
@@ -109,6 +111,10 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		Home:           normalizeHome(cfg.Home),
 		Images:         cfg.Images,
 		DownloadFolder: cfg.DownloadFolder,
+		// Round-tripped through the parser so a stale or hand-typo'd
+		// config value shows the picker on the option it actually
+		// behaves as, rather than on nothing.
+		DownloadQuality: media.ParseDownloadQuality(cfg.DownloadQuality).String(),
 	}
 	return settingsModel{
 		fields: buildSettingsFields(v),
@@ -340,12 +346,32 @@ func buildSettingsFields(v *settingsValues) []settingsField {
 			Title("Download folder").
 			Description("Where `d` saves tracks and albums. Empty disables downloads.").
 			Value(&v.DownloadFolder)},
+		// Height counts the whole block, so it has to cover the title and
+		// the description line on top of every option — one short and the
+		// last preset scrolls out of view.
+		{field: huh.NewSelect[string]().
+			Title("Download quality").
+			Description("What `d` asks the server for. Playback is always the original.").
+			Height(len(media.DownloadQualities) + 2).
+			Options(downloadQualityOptions()...).
+			Value(&v.DownloadQuality)},
 	}
 	km := huh.NewDefaultKeyMap()
 	for i := range fields {
 		fields[i].field = fields[i].field.WithKeyMap(km)
 	}
 	return fields
+}
+
+// downloadQualityOptions turns the preset list into picker options, so
+// the menu and the config vocabulary can't drift apart: the label is
+// what the user reads, the value is exactly what lands in config.toml.
+func downloadQualityOptions() []huh.Option[string] {
+	opts := make([]huh.Option[string], 0, len(media.DownloadQualities))
+	for _, q := range media.DownloadQualities {
+		opts = append(opts, huh.NewOption(q.Label(), q.String()))
+	}
+	return opts
 }
 
 // validateServerURL allows the empty string (config can be partially set

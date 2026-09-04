@@ -253,6 +253,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.serverName = msg.name
 		return m, nil
 
+	case downloadPollMsg:
+		return m.applyDownloadPoll()
+
 	case downloadTickMsg:
 		updated, cmd := m.applyDownloadTick(msg)
 		return updated, cmd
@@ -531,6 +534,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Home = v.Home
 		m.cfg.Images = v.Images
 		m.cfg.DownloadFolder = v.DownloadFolder
+		m.cfg.DownloadQuality = v.DownloadQuality
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
 		m.gridAlbums = m.cfg.DefaultViewAlbum == "grid"
 		m.settings.MarkSaved(m.cfg.Save())
