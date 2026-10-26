@@ -59,6 +59,19 @@ func TestScrollToSection(t *testing.T) {
 	if view[0] != "A0" || !strings.Contains(ansi.Strip(view[len(view)-1]), "↓ more below") {
 		t.Errorf("top section: first %q, last %q", view[0], ansi.Strip(view[len(view)-1]))
 	}
+	// Room for A and B whole: both show, C (which wouldn't fit) doesn't.
+	view = strings.Split(scrollToSection(content, 13, starts, 0, 4), "\n")
+	if !strings.Contains(strings.Join(view, "|"), "B4") || strings.Contains(strings.Join(view, "|"), "C0") {
+		t.Errorf("A selected, room for A+B: %q", view)
+	}
+	// Room for section A and part of B: B is left out whole, not cut.
+	view = strings.Split(scrollToSection(content, 9, starts, 0, 4), "\n")
+	for _, l := range view {
+		if strings.HasPrefix(l, "B") {
+			t.Errorf("section B partly shown: %q", view)
+			break
+		}
+	}
 }
 
 func TestGridPosition(t *testing.T) {

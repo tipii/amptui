@@ -308,6 +308,20 @@ func scrollToSection(content string, height int, starts []int, active, bottom in
 		}
 	}
 	end := min(offset+avail, len(lines))
+	// Don't end on half a section either: stop before the first one
+	// below the selected section that doesn't fit whole.
+	if end < len(lines) {
+		for k, st := range starts {
+			last := len(lines) - 1 // this section's last line
+			if k+1 < len(starts) {
+				last = starts[k+1] - 2 // before the blank separator
+			}
+			if st > bottom && st > offset && last >= end {
+				end = st - 1 // and the blank line before it
+				break
+			}
+		}
+	}
 	view := append([]string(nil), lines[offset:end]...)
 	above, below := offset > 0, end < len(lines)
 	hint := "↓ more below"
