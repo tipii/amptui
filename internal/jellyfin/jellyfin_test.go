@@ -85,7 +85,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	})
 	auth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("X-Emby-Token") != testToken {
+			if !strings.Contains(r.Header.Get("Authorization"), `Token="`+testToken+`"`) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -256,7 +256,7 @@ func fakeAuthServer(t *testing.T) (*httptest.Server, *int) {
 				"User":        map[string]string{"Id": "u1"},
 			})
 		case "/Users/u1/Views":
-			if r.Header.Get("X-Emby-Token") != "tok-"+string(rune('0'+logins)) {
+			if !strings.Contains(r.Header.Get("Authorization"), `Token="tok-`+string(rune('0'+logins))+`"`) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
