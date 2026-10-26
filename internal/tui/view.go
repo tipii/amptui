@@ -87,6 +87,9 @@ func (m Model) browserView() string {
 	} else {
 		b.WriteString(m.list.View())
 	}
+	top := fitRows(b.String(), m.height-bottomChromeRows)
+	b.Reset()
+	b.WriteString(top)
 	b.WriteString("\n")
 
 	b.WriteString(m.nowPlayingLine())
@@ -119,7 +122,7 @@ func (m Model) dashboardScreen() string {
 	// Dashboard renders its title + spacer outside the sub-model body,
 	// matching the browser layout, so the body itself gets exactly
 	// listHeight rows.
-	b.WriteString(m.dashboard.View(m.width, m.listHeight(), m.spinner))
+	b.WriteString(fitRows(m.dashboard.View(m.width, m.bodyHeight(), m.spinner), m.bodyHeight()))
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
@@ -134,14 +137,10 @@ func (m Model) settingsScreen() string {
 	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
 	// Unlike the browser / dashboard, the settings sub-model renders
 	// its own "amptui Settings /" header INSIDE the padded body. So
-	// pass it the full screen height minus only the now-playing line
-	// + footer (3 rows), not listHeight (which assumes the title
-	// chrome lives outside the body).
-	bodyHeight := m.height - 3
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
-	body := m.settings.View(bodyHeight, stats)
+	// pass it the full screen height minus only the bottom chrome, not
+	// bodyHeight (which assumes the title chrome lives outside the body).
+	bodyHeight := max(m.height-bottomChromeRows, 1)
+	body := fitRows(m.settings.View(bodyHeight, stats), bodyHeight)
 
 	var b strings.Builder
 	b.WriteString(body)
@@ -228,20 +227,35 @@ func (m Model) crumbLine() string {
 	return strings.Join(parts, " / ") + " /"
 }
 
-// listHeight is the height in rows of the body region (browser/grid).
-// Baseline chrome above and below it: header (1), blank spacer (1),
-// now-playing block (2: track line + progress bar), and footer (1) —
-// 5 rows total. On browser screens that show a hero thumb (artist /
-// album), the chrome grows by exactly the thumb-block's height; the
-// title + spacer rows are preserved, the image block is rendered
-// underneath them.
+// bottomChromeRows is what every screen keeps below its body: the
+// now-playing block (track line + progress bar) and the footer.
+const bottomChromeRows = 3
+
+// bodyHeight is the height in rows of a screen's body region: the
+// terminal minus header (1), blank spacer (1), and the bottom chrome.
+func (m Model) bodyHeight() int {
+	return max(m.height-2-bottomChromeRows, 1)
+}
+
+// listHeight is the height in rows of the browser list / grid. On artist
+// and album levels with a hero thumb, the chrome above it grows by the
+// thumb block's height (title + spacer stay, the image sits below them).
+//
+// It deliberately doesn't look at m.screen: the list is also resized
+// while the dashboard or settings is showing (window resize, toggling
+// artwork), and sizing it for those screens left it a thumb-height too
+// tall on return, pushing the now-playing block off the bottom.
 func (m Model) listHeight() int {
-	h := m.height - 5
-	if m.screen == screenBrowser && m.headerThumb() != "" {
+	h := m.bodyHeight()
+	if m.headerThumb() != "" {
 		h -= headerThumbCellsH
 	}
-	if h < 1 {
-		return 1
-	}
-	return h
+	return max(h, 1)
+}
+
+// fitRows pads or cuts s to exactly h lines. Each screen passes the part
+// above the now-playing block through it, so a body that outgrows its
+// region can never push playback status and the footer off-screen.
+func fitRows(s string, h int) string {
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Render(s)
 }

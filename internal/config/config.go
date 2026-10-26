@@ -60,6 +60,10 @@ type Config struct {
 	// downloads read this. See media.ParseDownloadQuality for the
 	// accepted values — an unrecognized one falls back to the original.
 	DownloadQuality string `toml:"download_quality,omitempty"`
+
+	// overrides records the env vars Load applied (see Save). Unexported,
+	// so the TOML encoder never sees it.
+	overrides []override
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/amptui/config.toml,
@@ -84,6 +88,9 @@ func Path() (string, error) {
 type LoadWarning struct {
 	Path string
 	Err  error
+	// BackupPath is set once Save has copied the unparseable file aside
+	// before overwriting it, so the settings screen can say where it went.
+	BackupPath string
 }
 
 func (w LoadWarning) Error() string { return w.Err.Error() }
@@ -92,6 +99,32 @@ func (w LoadWarning) Error() string { return w.Err.Error() }
 // (TOML parse error, unreadable file). nil when the file was missing or
 // parsed cleanly.
 var LastLoadWarning *LoadWarning
+
+// envVars are the AMPTUI_* overrides Load applies on top of the file.
+var envVars = []struct {
+	name  string
+	field func(*Config) *string
+}{
+	{"AMPTUI_BACKEND", func(c *Config) *string { return &c.Backend }},
+	{"AMPTUI_SERVER_URL", func(c *Config) *string { return &c.ServerURL }},
+	{"AMPTUI_PLEX_TOKEN", func(c *Config) *string { return &c.PlexToken }},
+	{"AMPTUI_JELLYFIN_USERNAME", func(c *Config) *string { return &c.JellyfinUsername }},
+	{"AMPTUI_JELLYFIN_PASSWORD", func(c *Config) *string { return &c.JellyfinPassword }},
+	{"AMPTUI_DEFAULT_LIBRARY", func(c *Config) *string { return &c.DefaultLibrary }},
+	{"AMPTUI_DOWNLOAD_FOLDER", func(c *Config) *string { return &c.DownloadFolder }},
+	{"AMPTUI_DOWNLOAD_QUALITY", func(c *Config) *string { return &c.DownloadQuality }},
+}
+
+// override remembers one env var Load applied, and what the file said
+// underneath it, so Save can write the file's value back instead of the
+// env's. Without this, a token kept out of the file on purpose (env from
+// a secret manager) would land in it the first time the sort modal or
+// settings screen saved.
+type override struct {
+	field   func(*Config) *string
+	fileVal string
+	envVal  string
+}
 
 // Load reads the config file and applies AMPTUI_* env overrides. It is
 // deliberately lenient: a missing file, a malformed TOML, or absent
@@ -107,36 +140,24 @@ func Load() (Config, error) {
 	if err != nil {
 		return c, nil // best-effort
 	}
-	if _, statErr := os.Stat(path); statErr == nil {
+	if st, statErr := os.Stat(path); statErr == nil {
+		// Older versions wrote this 0644; it holds credentials, so
+		// tighten it now rather than waiting for the next Save.
+		if st.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(path, 0o600)
+		}
 		if _, decodeErr := toml.DecodeFile(path, &c); decodeErr != nil {
 			LastLoadWarning = &LoadWarning{Path: path, Err: decodeErr}
 			fmt.Fprintln(os.Stderr, "warning: invalid config file at", path+":", decodeErr)
 		}
 	}
 
-	if v := os.Getenv("AMPTUI_BACKEND"); v != "" {
-		c.Backend = v
-	}
-	if v := os.Getenv("AMPTUI_SERVER_URL"); v != "" {
-		c.ServerURL = v
-	}
-	if v := os.Getenv("AMPTUI_PLEX_TOKEN"); v != "" {
-		c.PlexToken = v
-	}
-	if v := os.Getenv("AMPTUI_JELLYFIN_USERNAME"); v != "" {
-		c.JellyfinUsername = v
-	}
-	if v := os.Getenv("AMPTUI_JELLYFIN_PASSWORD"); v != "" {
-		c.JellyfinPassword = v
-	}
-	if v := os.Getenv("AMPTUI_DEFAULT_LIBRARY"); v != "" {
-		c.DefaultLibrary = v
-	}
-	if v := os.Getenv("AMPTUI_DOWNLOAD_FOLDER"); v != "" {
-		c.DownloadFolder = v
-	}
-	if v := os.Getenv("AMPTUI_DOWNLOAD_QUALITY"); v != "" {
-		c.DownloadQuality = v
+	for _, e := range envVars {
+		if v := os.Getenv(e.name); v != "" {
+			f := e.field(&c)
+			c.overrides = append(c.overrides, override{field: e.field, fileVal: *f, envVal: v})
+			*f = v
+		}
 	}
 	return c, nil
 }
@@ -162,27 +183,71 @@ func (c Config) IsValid() bool {
 // Save writes c to the config file, creating the directory if needed.
 // Uses an atomic temp-file-then-rename so a crash never leaves a half-
 // written config that would fail to parse on next launch.
+//
+// The file holds credentials, so it's written 0600 in a 0700 directory
+// (and an existing file is tightened, since rename keeps the temp
+// file's mode). Fields that came from AMPTUI_* env vars are written with
+// the file's original value unless the user has since changed them.
 func (c Config) Save() error {
 	path, err := Path()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	_ = os.Chmod(dir, 0o700) // created 0755 by older versions
+
+	out := c
+	for _, o := range c.overrides {
+		if f := o.field(&out); *f == o.envVal {
+			*f = o.fileVal
+		}
+	}
+
+	// Load salvages what it can from a malformed file, so writing now
+	// would replace the user's hand-edited values with that partial
+	// read. Keep the original next to it first.
+	if w := LastLoadWarning; w != nil && w.BackupPath == "" {
+		backup := path + ".broken"
+		if err := copyFile(path, backup); err != nil {
+			return fmt.Errorf("backing up unparseable config before overwriting it: %w", err)
+		}
+		w.BackupPath = backup
+	}
+
+	f, err := os.CreateTemp(dir, ".config-*.toml")
 	if err != nil {
 		return err
 	}
-	if err := toml.NewEncoder(f).Encode(c); err != nil {
+	tmp := f.Name()
+	fail := func(err error) error {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		return fail(err)
+	}
+	if err := toml.NewEncoder(f).Encode(out); err != nil {
+		return fail(err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// copyFile copies src to dst with owner-only permissions.
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o600)
 }

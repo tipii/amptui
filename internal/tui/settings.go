@@ -240,45 +240,74 @@ func (s settingsModel) IsEditing() bool { return s.editing }
 // / footer around this. spin and stats are pulled from parent state since
 // the sub-model doesn't own the spinner or library snapshot.
 func (s settingsModel) View(bodyHeight int, statsBody string) string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("amptui"))
-	b.WriteString("  " + crumbStyle.Render("Settings /"))
-	b.WriteString("\n\n")
+	// The header and status notices stay pinned above the scrolling part:
+	// a save error or the relaunch warning must be seen even when the
+	// cursor is far down the page.
+	var head strings.Builder
+	head.WriteString(headerStyle.Render("amptui") + "  " + crumbStyle.Render("Settings /") + "\n\n")
 
 	// Surface config-file parse errors so the user sees why their on-disk
 	// values aren't taking effect (Load is lenient and would otherwise
 	// silently drop everything from a malformed file).
 	if w := config.LastLoadWarning; w != nil {
-		b.WriteString(errStyle.Render("config file error: "+w.Err.Error()) + "\n")
-		b.WriteString(helpStyle.Render("  fix the file or correct values below; save here overwrites it") + "\n\n")
-	}
-
-	b.WriteString(sectionStyle.Render("Server"))
-	b.WriteString("\n")
-	for i := range s.fields {
-		if !s.fieldVisible(i) {
-			continue
+		head.WriteString(errStyle.Render("config file error: "+w.Err.Error()) + "\n")
+		if w.BackupPath != "" {
+			head.WriteString(helpStyle.Render("  the original file was saved to "+w.BackupPath+" before being overwritten") + "\n\n")
+		} else {
+			head.WriteString(helpStyle.Render("  fix the file or correct values below; saving here backs up the original first") + "\n\n")
 		}
-		b.WriteString(s.renderField(i, s.fields[i].field))
 	}
 	switch {
 	case s.err != nil:
-		b.WriteString("\n" + errStyle.Render("save error: "+s.err.Error()))
+		head.WriteString(errStyle.Render("save error: "+s.err.Error()) + "\n")
 	case time.Since(s.savedAt) < 2*time.Second:
-		b.WriteString("\n" + npStyle.Render("saved ✓"))
+		head.WriteString(npStyle.Render("saved ✓") + "\n")
 	}
 	// Persistent until relaunch — connection changes are saved but the
 	// running client keeps the old ones.
 	if s.relaunch {
-		b.WriteString("\n" + errStyle.Render("⚠ relaunch amptui for the new server / credentials to take effect"))
+		head.WriteString(errStyle.Render("⚠ relaunch amptui for the new server / credentials to take effect") + "\n")
 	}
 
-	b.WriteString("\n\n")
+	var b strings.Builder
+	b.WriteString(sectionStyle.Render("Server"))
+	b.WriteString("\n")
+	cursorTop, cursorBottom, lastVisible := 0, 0, -1
+	for i := range s.fields {
+		if !s.fieldVisible(i) {
+			continue
+		}
+		row := s.renderField(i, s.fields[i].field)
+		if i == s.cursor {
+			cursorTop = strings.Count(b.String(), "\n")
+			cursorBottom = cursorTop + strings.Count(row, "\n") - 1
+		}
+		lastVisible = i
+		b.WriteString(row)
+	}
+	b.WriteString("\n")
 	b.WriteString(statsBody)
+	if s.cursor == lastVisible {
+		// The cache stats below the last field have no cursor stop of
+		// their own; reaching the last field scrolls them into view.
+		cursorBottom = strings.Count(b.String(), "\n")
+	}
+
+	// Everything below the pinned part scrolls: the page is usually
+	// taller than the terminal, and the window follows the cursor field,
+	// staying at the top while it fits.
+	lines := strings.Split(b.String(), "\n")
+	window := max(bodyHeight-strings.Count(head.String(), "\n"), 1)
+	offset := 0
+	if cursorBottom >= window {
+		offset = cursorBottom - window + 1
+	}
+	offset = min(offset, cursorTop, max(len(lines)-window, 0))
+	lines = lines[offset:min(offset+window, len(lines))]
 
 	// Pad up to bodyHeight so the parent's footer stays pinned to the
 	// bottom of the terminal regardless of how much content fits.
-	return lipgloss.NewStyle().Height(bodyHeight).Render(b.String())
+	return lipgloss.NewStyle().Height(bodyHeight).Render(head.String() + strings.Join(lines, "\n"))
 }
 
 // renderField shows one settings row: cursor / edit marker on the left,

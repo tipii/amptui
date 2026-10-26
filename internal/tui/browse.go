@@ -152,11 +152,15 @@ const (
 )
 
 // crumb is a saved navigation frame, restored when the user goes back.
+// index is the highlighted row within items (the full, unfiltered list);
+// key is the RatingKey (or library key) of the item that was opened from
+// it, i.e. the parent of the level now on screen.
 type crumb struct {
 	level level
 	title string
 	items []list.Item
 	index int
+	key   string
 }
 
 // drillDown enters the selected item: opens the next level via library
@@ -164,6 +168,11 @@ type crumb struct {
 func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	if m.loading {
 		return m, nil
+	}
+	// Picking a library works without a loaded cache — it's how you get
+	// one — so it's handled before the "still syncing" guard.
+	if it, ok := m.selectedItem().(libraryItem); ok {
+		return m.openLibrary(it.lib)
 	}
 	if m.library == nil {
 		// Library isn't ready yet; opening a child level would have nothing
@@ -177,13 +186,8 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	}
 
 	switch it := sel.(type) {
-	case libraryItem:
-		m.pushCrumb(it.lib.Title)
-		items := m.artistItems()
-		m.applyItems(levelArtists, items)
-		return m, m.visibleArtworkFetches()
 	case artistItem:
-		m.pushCrumb(it.artist.Title)
+		m.pushCrumb(it.artist.Title, it.artist.RatingKey)
 		items := m.albumItems(it.artist.RatingKey)
 		m.applyItems(levelAlbums, items)
 		m.artistMeta, m.albumMeta = nil, nil
@@ -207,7 +211,7 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case albumItem:
-		m.pushCrumb(it.album.Title)
+		m.pushCrumb(it.album.Title, it.album.RatingKey)
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
 		m.albumMeta = nil
 		m.metaLoading = true
@@ -235,6 +239,10 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 
 	m.level = c.level
 	m.err = nil
+	// c.items is the unfiltered list and c.index points into it, so the
+	// filter has to go; left applied, SetItems would empty the list
+	// until a re-filter cmd ran.
+	m.list.ResetFilter()
 	m.list.SetItems(c.items)
 	// Restore the list's heading by level (the crumb's title is the
 	// breadcrumb label for the item the user drilled into, not the page).
@@ -244,27 +252,79 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	// chrome). Reflow now that we're back on a different level so the
 	// list doesn't keep its previous frame's size.
 	m.list.SetSize(m.width, m.listHeight())
-	return m, nil
+	m.gridCursor = c.index
+	m.gridScrollTop = 0
+	m.ensureCursorVisible()
+	return m, m.visibleArtworkFetches()
 }
 
 // pushCrumb saves the current frame so goBack can restore it. title is the
 // breadcrumb label for this frame — typically the name of the item the user
-// is drilling into (so the trail reads "Music / Al Green / …").
-func (m *Model) pushCrumb(title string) {
+// is drilling into (so the trail reads "Music / Al Green / …") — and key
+// is that item's RatingKey.
+func (m *Model) pushCrumb(title, key string) {
 	m.crumbs = append(m.crumbs, crumb{
 		level: m.level,
 		title: title,
 		items: m.list.Items(),
-		index: m.list.Index(),
+		index: m.selectedIndex(),
+		key:   key,
 	})
 }
 
+// selectedIndex is the highlighted row's position in the full item list:
+// the grid's own cursor in grid mode (the list's index doesn't follow
+// it), and the unfiltered index when a list filter is applied.
+func (m Model) selectedIndex() int {
+	if m.currentGridView() {
+		return m.gridCursor
+	}
+	return m.list.GlobalIndex()
+}
+
+// openLibrary drills from the picker into lib. The loaded cache is
+// reused when it already belongs to lib; otherwise lib becomes the
+// active library and its cache is loaded (or synced), landing on its
+// artists when ready — the same path startup takes.
+func (m Model) openLibrary(lib media.MusicLibrary) (tea.Model, tea.Cmd) {
+	m.pushCrumb(lib.Title, lib.Key)
+	if active, ok := m.activeLibrary(); ok && active.Key == lib.Key && m.library != nil {
+		m.applyItems(levelArtists, m.artistItems())
+		return m, m.visibleArtworkFetches()
+	}
+	if m.client == nil {
+		m.crumbs = m.crumbs[:len(m.crumbs)-1]
+		return m, nil
+	}
+	m.activeLib = &lib
+	m.library = nil
+	m.libraryErr = nil
+	m.loading = true
+	m.librarySyncing = true
+	return m, tea.Batch(loadOrSyncLibrary(m.client, lib), m.dashboard.Load(m.client, lib.Key))
+}
+
+// activeLibrary is the library the cache, dashboard and R act on: the
+// one picked in the library picker or configured as default, else the
+// first. ok is false when the server reported none.
+func (m Model) activeLibrary() (media.MusicLibrary, bool) {
+	if m.activeLib != nil {
+		return *m.activeLib, true
+	}
+	if len(m.libs) > 0 {
+		return m.libs[0], true
+	}
+	return media.MusicLibrary{}, false
+}
+
 // applyItems installs a freshly fetched level into the list. Also resets
-// the grid cursor + scroll so the new level starts cleanly at the top.
+// the grid cursor + scroll so the new level starts cleanly at the top,
+// and drops any filter, which was typed against the previous level.
 func (m *Model) applyItems(lvl level, items []list.Item) {
 	m.loading = false
 	m.err = nil
 	m.level = lvl
+	m.list.ResetFilter()
 	m.list.SetItems(items)
 	m.list.Select(0)
 	m.list.Title = m.listTitleForLevel(lvl)
@@ -310,42 +370,35 @@ func (m Model) listTitleForLevel(lvl level) string {
 // — used after a manual refresh so counts/titles update in place. Cursor
 // position is preserved (it's tied to the bubbles list, not items identity).
 // Crumbs aren't regenerated, so go-back may show slightly stale data until
-// the user navigates forward again.
-func (m *Model) refreshCurrentLevel() {
+// the user navigates forward again. The returned cmd re-applies an active
+// list filter to the new items; it must be run, or a filtered list
+// renders empty.
+func (m *Model) refreshCurrentLevel() tea.Cmd {
 	if m.library == nil {
-		return
+		return nil
 	}
 	switch m.level {
 	case levelArtists:
-		m.list.SetItems(m.artistItems())
+		return m.list.SetItems(m.artistItems())
 	case levelAlbums:
 		if key := m.parentRatingKey(); key != "" {
-			m.list.SetItems(m.albumItems(key))
+			return m.list.SetItems(m.albumItems(key))
 		}
 	case levelTracks:
 		if key := m.parentRatingKey(); key != "" {
-			m.list.SetItems(m.trackItems(key))
+			return m.list.SetItems(m.trackItems(key))
 		}
 	}
+	return nil
 }
 
 // parentRatingKey returns the RatingKey of the item the user drilled into
-// to reach the current level — read off the top crumb's highlighted item.
+// to reach the current level, as recorded on the top crumb.
 func (m Model) parentRatingKey() string {
 	if len(m.crumbs) == 0 {
 		return ""
 	}
-	c := m.crumbs[len(m.crumbs)-1]
-	if c.index < 0 || c.index >= len(c.items) {
-		return ""
-	}
-	switch it := c.items[c.index].(type) {
-	case artistItem:
-		return it.artist.RatingKey
-	case albumItem:
-		return it.album.RatingKey
-	}
-	return ""
+	return m.crumbs[len(m.crumbs)-1].key
 }
 
 // --- library-driven item builders ---

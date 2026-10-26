@@ -18,6 +18,7 @@ Working today:
 - [x] Plex-style sorting per level (`o`) — title, year, date added, duration, counts — remembered across launches
 - [x] Dashboard home with recent plays, recently added, recent playlists
 - [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
+- [x] OS media controls (Linux, MPRIS): media keys, `playerctl`, and bar / notification widgets show what's playing and drive it
 - [x] Queue modal: reorder, delete, jump-to-play, track progress bar
 - [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
 - [x] Fuzzy search across the whole library
@@ -37,7 +38,7 @@ Working today:
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.26.8+
 - [mpv](https://mpv.io/) on your `PATH` (playback is disabled gracefully if missing)
 - A music library on either a Plex Media Server (with an `X-Plex-Token`) or a
   Jellyfin server (with a username + password)
@@ -214,6 +215,35 @@ to `~/.cache/amptui/img/` so subsequent views skip the network.
 Press `C` from the settings screen to purge the image cache; the **Image
 cache** section there shows the current path, file count, and disk size.
 
+### Media controls
+
+On Linux, amptui registers on the D-Bus session bus as an
+[MPRIS](https://specifications.freedesktop.org/mpris-spec/latest/) player
+named `amptui`, so anything that speaks MPRIS can see and drive it:
+keyboard media keys (via your desktop or a `playerctl` binding),
+waybar's `mpris` module, GNOME / KDE media widgets, notification
+daemons, and `playerctl` itself:
+
+```bash
+playerctl -p amptui play-pause
+playerctl -p amptui next
+playerctl -p amptui position 30+     # seek forward 30s
+playerctl -p amptui metadata --format '{{ artist }} — {{ title }}'
+```
+
+Supported: play / pause / play-pause, next / previous (through amptui's
+own queue), relative seek, set position, and quit. Published metadata
+covers title, artist, album, track number, length, and cover art. The
+cover is handed out as a `file://` path into the image cache, never as
+a server URL, so the auth token doesn't leak to whatever widget reads
+it. **Stop** pauses and rewinds to the start of the track instead of
+clearing the queue, so a stray key press doesn't throw away your queue.
+
+This needs a running session bus. Without one (SSH, a bare TTY),
+amptui logs a warning at startup and runs normally without media
+controls. A second running instance registers as
+`amptui.instance<pid>`.
+
 ## Keybindings
 
 Press `?` in the app for an in-TUI keybindings modal.
@@ -292,6 +322,7 @@ cmd/amptui/        entrypoint: config → connect → launch UI
 internal/config/   TOML + env config loading
 internal/plex/     Plex HTTP client (hand-written, no SDK)
 internal/player/   mpv subprocess driven over its JSON IPC socket
+internal/mpris/    MPRIS D-Bus server: OS media keys + now-playing metadata
 internal/library/  on-disk cache for a music section (browse + search read from here)
 internal/imgcache/ on-disk thumbnail bytes + terminal-protocol detection
 internal/tui/      Bubble Tea drill-down browser

@@ -110,11 +110,11 @@ func Download(ctx context.Context, hc *http.Client, req Request) (Result, error)
 	}
 	resp, err := hc.Do(hreq)
 	if err != nil {
-		return Result{}, err
+		return Result{}, media.RedactErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Result{}, fmt.Errorf("GET %s: %s", req.URL, resp.Status)
+		return Result{}, fmt.Errorf("GET %s: %s", media.RedactURL(req.URL), resp.Status)
 	}
 
 	// A requested transcode fixes the format, so req.Ext wins: the

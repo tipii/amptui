@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/tipii/amptui/internal/media"
 )
 
 // artworkMaxDim caps the artwork the server renders; the picture layer
@@ -35,12 +37,12 @@ func (c *Client) FetchImage(ctx context.Context, absURL string) ([]byte, error) 
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, media.RedactErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return nil, fmt.Errorf("GET %s: %s: %s", absURL, resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("GET %s: %s: %s", media.RedactURL(absURL), resp.Status, strings.TrimSpace(string(body)))
 	}
 	return io.ReadAll(resp.Body)
 }
