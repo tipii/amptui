@@ -32,6 +32,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
@@ -271,6 +272,11 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	chafaOut := map[string]string{}
 	l := list.New(items, newThumbDelegate(listPics, chafaOut), 0, 0)
 	l.Title = "Libraries"
+	// Headings sit flush left in the accent color, with one blank line
+	// under them — the same as the grid's (which renders through these
+	// styles too) and the other screens' section titles.
+	l.Styles.Title = headerStyle
+	l.Styles.TitleBar = lipgloss.NewStyle().Padding(0, 0, 1, 0)
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
 	// bubbles list's default keymap binds 'q' and ctrl+c to Quit/ForceQuit.
@@ -367,7 +373,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		m.activeLib = defaultLib
 	}
 
-	m.helpViewport.SetContent(m.helpBodyContent())
+	m.helpViewport.SetContent(m.helpBodyContent(60))
 
 	// Honor the user's preferred home screen. Library is the default
 	// landing page; opt in to the dashboard via cfg.Home = "dashboard".

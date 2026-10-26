@@ -30,11 +30,17 @@ const (
 	modalThumbCellsH = 12
 )
 
+// heroMinHeight is the terminal height below which the hero thumbnail
+// (and the multi-line bio teaser beside it) gives way to the one-line
+// summary: under it, the 8 rows the hero block takes leave no room for
+// a full row of album cards, or for more than a track or two.
+const heroMinHeight = 28
+
 // headerThumb returns the rendered hero thumbnail for the current
 // artist / album screen, or "" when artwork is off / unavailable /
-// not on a screen that has one.
+// not on a screen that has one, or the terminal is too short for it.
 func (m Model) headerThumb() string {
-	if !m.cfg.Images {
+	if !m.cfg.Images || m.height < heroMinHeight {
 		return ""
 	}
 	var (

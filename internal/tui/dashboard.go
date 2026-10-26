@@ -262,7 +262,10 @@ func (d dashboardModel) View(width, height int, sp spinner.Model) string {
 		{title: "Recent playlists", body: d.renderPlaylists(width), loaded: d.loaded[sectionRecentPlaylists], err: d.playlistsErr},
 	}
 	var b strings.Builder
+	starts := make([]int, len(tiles)) // first line of each section
+	activeBottom := 0
 	for i, t := range tiles {
+		starts[i] = strings.Count(b.String(), "\n")
 		marker := "  "
 		if dashboardSection(i) == d.section {
 			marker = npStyle.Render("▶ ")
@@ -276,11 +279,45 @@ func (d dashboardModel) View(width, height int, sp spinner.Model) string {
 		default:
 			b.WriteString(t.body)
 		}
+		if dashboardSection(i) == d.section {
+			activeBottom = strings.Count(b.String(), "\n")
+		}
 		if i < len(tiles)-1 {
 			b.WriteString("\n\n")
 		}
 	}
-	return lipgloss.NewStyle().Height(height).Render(b.String())
+	return lipgloss.NewStyle().Height(height).Render(scrollToSection(b.String(), height, starts, int(d.section), activeBottom))
+}
+
+// scrollToSection fits content into height rows when it's taller: the
+// window starts at a section's first line (never mid-card), as high as
+// it can while still showing the selected section through its last
+// line, bottom, and the last row says what's cut off. Short terminals
+// used to lose the last section's cards silently.
+func scrollToSection(content string, height int, starts []int, active, bottom int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) <= height || height < 2 {
+		return content
+	}
+	avail := height - 1 // the hint line
+	offset := starts[active]
+	for _, st := range starts[:active+1] {
+		if bottom-st < avail {
+			offset = st
+			break
+		}
+	}
+	end := min(offset+avail, len(lines))
+	view := append([]string(nil), lines[offset:end]...)
+	above, below := offset > 0, end < len(lines)
+	hint := "↓ more below"
+	switch {
+	case above && below:
+		hint = "↑↓ more"
+	case above:
+		hint = "↑ more above"
+	}
+	return strings.Join(append(view, helpStyle.Render("  "+hint)), "\n")
 }
 
 func (d dashboardModel) renderPlays(width int) string {

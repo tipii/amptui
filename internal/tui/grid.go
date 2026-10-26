@@ -184,9 +184,13 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
+// gridChromeRows is what the grid body spends on other than cards: the
+// heading, its gap, and the position line under the cards.
+const gridChromeRows = 3
+
 // gridVisibleRows is how many card rows fit in the body region.
 func (m Model) gridVisibleRows() int {
-	availRows := m.listHeight() - 1
+	availRows := m.listHeight() - gridChromeRows
 	if availRows < cardOuterH {
 		availRows = cardOuterH
 	}
@@ -240,7 +244,8 @@ func (m Model) gridBodyView() string {
 	innerW := outerW - cardBorderCols
 
 	var b strings.Builder
-	b.WriteString(headerStyle.Render(m.list.Title))
+	// Same heading style and gap as the list view's title.
+	b.WriteString(m.list.Styles.TitleBar.Render(m.list.Styles.Title.Render(m.list.Title)))
 	b.WriteByte('\n')
 
 	for row := scrollTop; row < scrollEnd; row++ {
@@ -255,6 +260,10 @@ func (m Model) gridBodyView() string {
 			content := ""
 			if thumb := m.gridCardThumb(items[idx]); thumb != "" {
 				content = thumb + "\n"
+			} else if m.cfg.Images {
+				// Same footprint as artwork, so a card without any (or
+				// whose artwork hasn't arrived) lines up with its row.
+				content = artPlaceholder(gridThumbCellsW, gridThumbCellsH) + "\n"
 			}
 			content += title
 			if sub != "" {
@@ -267,10 +276,9 @@ func (m Model) gridBodyView() string {
 			cells = append(cells, style.Render(content))
 		}
 		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
-		if row < scrollEnd-1 {
-			b.WriteByte('\n')
-		}
+		b.WriteByte('\n')
 	}
+	b.WriteString(gridPosition(scrollTop*cols, min(scrollEnd*cols, len(items)), len(items)))
 
 	// Pad the body to exactly listHeight rows so the now-playing line and
 	// status bar stay pinned to the bottom of the terminal even when the
@@ -334,4 +342,31 @@ func viewName(grid bool) string {
 		return "grid"
 	}
 	return "list"
+}
+
+// gridPosition is the line under the grid saying which items are on
+// screen ("  1–10 of 312 ↓"), the grid's counterpart to the list's page
+// dots — without it nothing said there was more below. Empty when
+// everything fits.
+func gridPosition(from, to, total int) string {
+	if total == 0 || (from == 0 && to >= total) {
+		return ""
+	}
+	arrows := ""
+	if from > 0 {
+		arrows += " ↑"
+	}
+	if to < total {
+		arrows += " ↓"
+	}
+	return helpStyle.Render(fmt.Sprintf("  %d–%d of %d%s", from+1, to, total, arrows))
+}
+
+// artPlaceholder fills a thumbnail's footprint for an item without
+// artwork: blank, with a faint note in the middle.
+func artPlaceholder(w, h int) string {
+	lines := strings.Split(blankCells(w, h), "\n")
+	mid := strings.Repeat(" ", (w-1)/2) + "♪" + strings.Repeat(" ", w-1-(w-1)/2)
+	lines[h/2] = helpStyle.Render(mid)
+	return strings.Join(lines, "\n")
 }

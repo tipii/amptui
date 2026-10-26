@@ -93,23 +93,69 @@ func formatSearchEntry(e library.Entry, maxWidth int) string {
 // with a scrollable body (helpViewport).
 func (m Model) helpModalBox() string {
 	title := headerStyle.Render("Keybindings")
+	// Say when there's more than fits; the sections below the fold used
+	// to be undiscoverable.
+	if !m.helpViewport.AtBottom() {
+		title += helpStyle.Render("  ↓ more")
+	}
 	return m.modalFrame(title + "\n" + m.helpViewport.View())
 }
 
-// helpBodyContent renders the help-modal body from KeyMap.helpModalSections,
-// so it stays in sync with the actual bindings. A help.Model in ShowAll
-// mode formats each section's binding rows; we prepend a faint title above.
-func (m Model) helpBodyContent() string {
-	h := m.helpModel
-	h.ShowAll = true
+// helpBodyContent renders the help-modal body, width columns wide, from
+// KeyMap.helpModalSections, so it stays in sync with the actual bindings. Each section is a faint title over its bindings,
+// laid out in as many columns as fit: the bubbles help view sized its
+// columns to the whole terminal, so inside the modal they ran off the
+// right edge.
+func (m Model) helpBodyContent(width int) string {
+	type entry struct{ key, desc string }
+	sections := m.keymap.helpModalSections()
+	all := make([][]entry, len(sections))
+	keyW, descW := 0, 0
+	for i, s := range sections {
+		for _, group := range s.bindings {
+			for _, kb := range group {
+				if !kb.Enabled() {
+					continue
+				}
+				e := entry{kb.Help().Key, kb.Help().Desc}
+				all[i] = append(all[i], e)
+				keyW = max(keyW, lipgloss.Width(e.key))
+				descW = max(descW, lipgloss.Width(e.desc))
+			}
+		}
+	}
+	const gap = 3
+	colW := keyW + 1 + descW
+	if colW > width {
+		colW = width
+	}
+	cols := max(1, (width+gap)/(colW+gap))
+	keyStyle, descStyle := m.helpModel.Styles.FullKey, m.helpModel.Styles.FullDesc
+
 	var b strings.Builder
-	for i, s := range m.keymap.helpModalSections() {
+	for i, s := range sections {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(helpStyle.Render(s.title))
-		b.WriteString("\n")
-		b.WriteString(h.View(helpView{full: s.bindings}))
+		entries := all[i]
+		rows := (len(entries) + cols - 1) / cols
+		for r := 0; r < rows; r++ {
+			b.WriteString("\n")
+			for c := 0; c < cols; c++ {
+				idx := c*rows + r // column-major, so each column reads down
+				if idx >= len(entries) {
+					break
+				}
+				e := entries[idx]
+				cell := keyStyle.Render(e.key+strings.Repeat(" ", keyW-lipgloss.Width(e.key))) + " " +
+					descStyle.Render(textutil.Truncate(e.desc, colW-keyW-1))
+				if c > 0 {
+					b.WriteString(strings.Repeat(" ", gap))
+				}
+				b.WriteString(cell + strings.Repeat(" ", max(colW-lipgloss.Width(cell), 0)))
+			}
+		}
 	}
 	return b.String()
 }

@@ -138,6 +138,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueList.SetSize(mw-4, mh-3)
 		m.helpViewport.SetWidth(mw - 4)
 		m.helpViewport.SetHeight(mh - 3)
+		m.helpViewport.SetContent(m.helpBodyContent(mw - 4))
 		m.helpModel.SetWidth(msg.Width)
 		m.infoViewport.SetWidth(mw - 4)
 		m.infoViewport.SetHeight(mh - 3)
