@@ -161,3 +161,45 @@ func TestRepeatCycles(t *testing.T) {
 		}
 	}
 }
+
+// The queue, position and play state survive a restart, coming back
+// paused; a session from another server only restores volume / modes.
+func TestSessionRoundTrip(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	secs := map[string]string{"a": "30", "b": "30", "c": "30"}
+	tracks := []media.Track{{RatingKey: "a"}, {RatingKey: "b"}, {RatingKey: "c"}}
+
+	m := newQueueTestModel(t, secs)
+	model, _ := m.playTracks(tracks, 1)
+	m = model.(Model)
+	m = syncUntil(t, m, "b to play", func(m Model) bool { return m.player.State().Position > 0 })
+	m.seekTo(4e9)
+	_ = m.player.SetVolume(70)
+	m.setRepeat(player.RepeatQueue)
+	m = syncUntil(t, m, "seek + volume", func(m Model) bool {
+		st := m.player.State()
+		return st.Position > 4e9 && st.Volume == 70
+	})
+	if err := m.SaveSession(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := newQueueTestModel(t, secs).RestoreSession()
+	if playingKey(r) != "b" || len(r.queue) != 3 || r.queueIdx != 1 || r.repeat != player.RepeatQueue {
+		t.Fatalf("restored playing=%q queue=%v idx=%d repeat=%v", playingKey(r), keys(r.queue), r.queueIdx, r.repeat)
+	}
+	r = syncUntil(t, r, "position restored", func(r Model) bool {
+		st := r.player.State()
+		return r.pendingSeek == 0 && st.Position >= 4e9 && st.Volume == 70
+	})
+	if !r.player.State().Paused {
+		t.Error("restored session is playing, want paused")
+	}
+
+	other := newQueueTestModel(t, secs)
+	other.cfg.ServerURL = "http://elsewhere"
+	other = other.RestoreSession()
+	if len(other.queue) != 0 || other.repeat != player.RepeatQueue {
+		t.Errorf("other server: queue=%v repeat=%v; want no queue but the modes", keys(other.queue), other.repeat)
+	}
+}

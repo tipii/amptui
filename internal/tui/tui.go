@@ -191,6 +191,10 @@ type Model struct {
 	// shuffle / repeat are the play-order modes (z / r).
 	shuffle bool
 	repeat  player.Repeat
+	// pendingSeek is a restored session's position, applied once mpv
+	// has the track open; lastCheckpoint is when it was last saved.
+	pendingSeek    time.Duration
+	lastCheckpoint time.Time
 
 	// showQueue / showHelp / showInfo / showSort are true while their
 	// modal is open; an open modal owns input. The search modal's open

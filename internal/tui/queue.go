@@ -313,6 +313,14 @@ func (m Model) syncFromPlayer() Model {
 			t := m.queue[m.queueIdx]
 			m.nowPlaying = &t
 		}
+		// A restored session's position: mpv drops a seek sent before
+		// the file is open, and a known duration means it is.
+		// No clamping to Duration: mpv clamps itself, and a stream that
+		// is still being demuxed reports only the part seen so far.
+		if m.pendingSeek > 0 && st.Duration > 0 {
+			m.seekTo(m.pendingSeek)
+			m.pendingSeek = 0
+		}
 	case st.Exhausted:
 		// mpv keeps finished entries in its playlist when it idles;
 		// drop them too or the next append-play lands at index N while

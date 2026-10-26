@@ -235,6 +235,16 @@ func dialWithRetry(path string, exited <-chan struct{}, timeout time.Duration) (
 // learn which entry is playing. Always unpauses so a fresh selection
 // plays rather than silently inheriting a prior paused state.
 func (p *Player) LoadList(urls []string, start int) error {
+	return p.loadList(urls, start, false)
+}
+
+// LoadListPaused is LoadList, but leaves playback paused on the start
+// entry — for restoring a saved queue without blaring music at launch.
+func (p *Player) LoadListPaused(urls []string, start int) error {
+	return p.loadList(urls, start, true)
+}
+
+func (p *Player) loadList(urls []string, start int, paused bool) error {
 	if len(urls) == 0 {
 		return p.Stop()
 	}
@@ -256,7 +266,7 @@ func (p *Player) LoadList(urls []string, start int) error {
 			return err
 		}
 	}
-	if err := p.command("set_property", "pause", false); err != nil {
+	if err := p.command("set_property", "pause", paused); err != nil {
 		return err
 	}
 	if err := p.command("set_property", "playlist-pos", start); err != nil {
@@ -265,7 +275,7 @@ func (p *Player) LoadList(urls []string, start int) error {
 	p.stateMu.Lock()
 	p.state.PlaylistPos = start
 	p.state.Position, p.state.Duration, p.state.CacheTime = 0, 0, 0
-	p.state.Paused, p.state.Exhausted = false, false
+	p.state.Paused, p.state.Exhausted = paused, false
 	p.stateMu.Unlock()
 	return nil
 }

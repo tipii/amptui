@@ -17,7 +17,8 @@ Working today:
 - [x] Browse: libraries → artists → albums → tracks (list or grid)
 - [x] Plex-style sorting per level (`o`) — title, year, date added, duration, counts — remembered across launches
 - [x] Dashboard home with recent plays, recently added, recent playlists
-- [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
+- [x] Play via mpv: pause/resume, seek, next/prev, volume/mute, repeat, shuffle, queue with auto-advance
+- [x] Queue and position restored (paused) on the next launch
 - [x] OS media controls (Linux, MPRIS): media keys, `playerctl`, and bar / notification widgets show what's playing and drive it
 - [x] Queue modal: reorder, delete, jump-to-play, track progress bar
 - [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
@@ -225,6 +226,15 @@ Thumbnails are fetched on demand from the backend (Plex's
 to `~/.cache/amptui/img/` so subsequent views skip the network.
 Press `C` from the settings screen to purge the image cache; the **Image
 cache** section there shows the current path, file count, and disk size.
+
+### Picking up where you left off
+
+On quit, amptui saves the queue, the track and position you were at,
+shuffle / repeat, and the volume to `~/.local/state/amptui/session.json`
+(`$XDG_STATE_HOME` if set) — and every 30 seconds while playing, so a
+crash loses little. The next launch restores it **paused** on that track;
+press space to continue. A session saved against a different server
+restores only the volume and play modes.
 
 ### Media controls
 

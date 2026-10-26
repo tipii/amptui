@@ -536,6 +536,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m = m.syncFromPlayer()
+		m.maybeCheckpoint(time.Time(msg))
 		if m.showQueue {
 			idx := m.queueList.Index()
 			m.rebuildQueueList()

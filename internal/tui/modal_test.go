@@ -20,18 +20,21 @@ import (
 	"github.com/tipii/amptui/internal/plex"
 )
 
-// TestMain redirects $XDG_CONFIG_HOME and $XDG_CACHE_HOME to per-run temp
-// directories so any test that ends up calling config.Save() or
-// library.Save() can NEVER clobber the user's real config or cache file.
+// TestMain redirects $XDG_CONFIG_HOME, $XDG_CACHE_HOME and
+// $XDG_STATE_HOME to per-run temp directories so any test that ends up
+// calling config.Save(), library.Save() or SaveSession() can NEVER
+// clobber the user's real config, cache or session file.
 func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "amptui-test-*")
 	if err != nil {
 		panic(err)
 	}
-	_ = os.MkdirAll(filepath.Join(tmp, "config"), 0o755)
-	_ = os.MkdirAll(filepath.Join(tmp, "cache"), 0o755)
+	for _, d := range []string{"config", "cache", "state"} {
+		_ = os.MkdirAll(filepath.Join(tmp, d), 0o755)
+	}
 	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	_ = os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	_ = os.Setenv("XDG_STATE_HOME", filepath.Join(tmp, "state"))
 	code := m.Run()
 	_ = os.RemoveAll(tmp)
 	os.Exit(code)
