@@ -59,15 +59,7 @@ func (m Model) supportsGrid() bool {
 
 // currentGridView reports whether the current level is presently in grid
 // mode (each level has its own flag, primed from config at startup).
-//
-// A level set to grid shows as a list while not even one row of cards
-// fits (a short terminal); it used to force one in, cropped.
 func (m Model) currentGridView() bool {
-	return m.gridPreferred() && m.gridFits()
-}
-
-// gridPreferred is the current level's view setting, before the fit check.
-func (m Model) gridPreferred() bool {
 	switch m.level {
 	case levelArtists:
 		return m.gridArtists
@@ -77,13 +69,8 @@ func (m Model) gridPreferred() bool {
 	return false
 }
 
-// gridFits reports whether a full row of cards fits the body.
-func (m Model) gridFits() bool {
-	return m.listHeight()-gridChromeRows >= cardRenderedH
-}
-
-// moveCursorBetweenViews keeps the highlighted item when the shown view
-// switches between grid and list (v, or a resize crossing gridFits).
+// moveCursorBetweenViews keeps the highlighted item when v switches the
+// level between grid and list.
 func (m *Model) moveCursorBetweenViews(toGrid bool) {
 	if toGrid {
 		// The grid can't show a filter, so drop it, keeping the
@@ -103,11 +90,9 @@ func (m *Model) toggleGrid() {
 	if !m.supportsGrid() {
 		return
 	}
-	shown := m.currentGridView()
-	m.setCurrentGridView(!m.gridPreferred())
-	if now := m.currentGridView(); now != shown {
-		m.moveCursorBetweenViews(now)
-	}
+	toGrid := !m.currentGridView()
+	m.setCurrentGridView(toGrid)
+	m.moveCursorBetweenViews(toGrid)
 }
 
 func (m *Model) setCurrentGridView(v bool) {
@@ -206,14 +191,17 @@ const cardRenderedH = gridThumbCellsH + 2 + cardBorderCols
 // heading, its gap, and the position line under the cards.
 const gridChromeRows = 3
 
-// gridVisibleRows is how many card rows fit in the body region.
+// gridCardsHeight is the rows the body leaves for cards.
+func (m Model) gridCardsHeight() int {
+	return max(m.listHeight()-gridChromeRows, 1)
+}
+
+// gridVisibleRows is how many card rows fit the body in full — the rows
+// the cursor scrolls within. Below them, a partial row fills whatever
+// height is left (see gridBodyView). At least 1, so a terminal too short
+// for any full row still scrolls a row at a time.
 func (m Model) gridVisibleRows() int {
-	availRows := m.listHeight() - gridChromeRows
-	n := availRows / cardRenderedH
-	if n < 1 {
-		n = 1
-	}
-	return n
+	return max(m.gridCardsHeight()/cardRenderedH, 1)
 }
 
 // ensureCursorVisible adjusts gridScrollTop the minimum amount required to
@@ -249,10 +237,11 @@ func (m Model) gridBodyView() string {
 	if scrollTop < 0 {
 		scrollTop = 0
 	}
-	scrollEnd := scrollTop + visibleCardRows
-	if scrollEnd > totalRows {
-		scrollEnd = totalRows
-	}
+	scrollEnd := min(scrollTop+visibleCardRows, totalRows) // rows shown in full
+	// Rows drawn: enough to fill the height, the last one cut off where
+	// the space ends — like a scrolled view, rather than blank space
+	// under the last full row.
+	drawEnd := min(scrollTop+(m.gridCardsHeight()+cardRenderedH-1)/cardRenderedH, totalRows)
 
 	normal := cardStyle.Width(outerW)
 	cursor := cardCursorStyle.Width(outerW)
@@ -263,7 +252,8 @@ func (m Model) gridBodyView() string {
 	b.WriteString(m.list.Styles.TitleBar.Render(m.list.Styles.Title.Render(m.list.Title)))
 	b.WriteByte('\n')
 
-	for row := scrollTop; row < scrollEnd; row++ {
+	var rows []string
+	for row := scrollTop; row < drawEnd; row++ {
 		cells := make([]string, 0, cols)
 		for col := 0; col < cols; col++ {
 			idx := row*cols + col
@@ -296,9 +286,14 @@ func (m Model) gridBodyView() string {
 			}
 			cells = append(cells, style.Render(content))
 		}
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
-		b.WriteByte('\n')
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 	}
+	cardLines := strings.Split(strings.Join(rows, "\n"), "\n")
+	if len(cardLines) > m.gridCardsHeight() {
+		cardLines = cardLines[:m.gridCardsHeight()]
+	}
+	b.WriteString(strings.Join(cardLines, "\n"))
+	b.WriteByte('\n')
 	b.WriteString(gridPosition(scrollTop*cols, min(scrollEnd*cols, len(items)), len(items)))
 
 	// Pad the body to exactly listHeight rows so the now-playing line and

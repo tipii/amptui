@@ -133,11 +133,9 @@ func (m Model) needsSpinner() bool {
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		gridShown := m.currentGridView()
 		m.width, m.height = msg.Width, msg.Height
-		if now := m.currentGridView(); now != gridShown {
-			m.moveCursorBetweenViews(now)
-		}
+		// A different height can change how many card rows fit.
+		m.ensureCursorVisible()
 		m.list.SetSize(msg.Width, m.listHeight())
 		// Modal interiors: subtract the border (2), horizontal padding (2),
 		// and one row for the box title.

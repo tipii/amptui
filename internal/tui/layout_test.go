@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/library"
 )
 
 // The help modal's body must fit the modal: it used to lay its columns
@@ -90,33 +92,39 @@ func TestGridPosition(t *testing.T) {
 	}
 }
 
-// A grid level shows as a list while a row of cards can't fit, and the
-// highlighted item survives the switch either way.
-func TestGridFallsBackToListWhenTooShort(t *testing.T) {
+// When the height isn't a whole number of card rows, the grid fills it
+// with a partial row, cut off at the bottom, instead of leaving it blank;
+// moving onto that row scrolls it fully into view.
+func TestGridDrawsPartialRow(t *testing.T) {
 	m := newArtistsModel(t, config.Config{DefaultViewArtist: "grid"})
-	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-	m = upd.(Model)
-	if !m.currentGridView() {
-		t.Fatal("grid should show at 100×40")
+	m.library = &library.Library{SchemaVersion: library.CacheSchemaVersion}
+	for i := 0; i < 12; i++ {
+		m.library.Entries = append(m.library.Entries, library.Entry{
+			Kind: library.KindArtist, Title: fmt.Sprintf("Artist %02d", i), RatingKey: fmt.Sprintf("a%02d", i)})
 	}
-	m = press(press(m, keyRight), keyRight) // grid cursor → Cream
+	m.applyItems(levelArtists, m.artistItems())
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30}) // 3 cards a row; 1 full row + part of the next
+	m = upd.(Model)
 
-	upd, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
-	m = upd.(Model)
-	if m.currentGridView() || !m.gridPreferred() {
-		t.Fatalf("at 18 rows: shown=%v preferred=%v; want list shown, grid still preferred", m.currentGridView(), m.gridPreferred())
+	out := m.View().Content
+	lines := strings.Split(out, "\n")
+	if len(lines) != 30 {
+		t.Fatalf("view is %d lines, want 30", len(lines))
 	}
-	if ai, ok := m.list.SelectedItem().(artistItem); !ok || ai.artist.Title != "Cream" {
-		t.Errorf("list selection after shrinking = %v, want Cream", m.list.SelectedItem())
+	tops, bottoms := 0, 0
+	for _, l := range lines {
+		tops += strings.Count(l, "╭")
+		bottoms += strings.Count(l, "╰")
 	}
-	if strings.Contains(m.View().Content, "╭") {
-		t.Error("cards drawn while showing the list (they used to be cropped)")
+	if tops != 6 || bottoms != 3 {
+		t.Errorf("card tops %d / bottoms %d, want 6 / 3 (a full row and a cut-off one)", tops, bottoms)
+	}
+	if !strings.Contains(out, "1–3 of 12") {
+		t.Error("position line should count the fully shown cards")
 	}
 
-	sel := m.list.Index()
-	upd, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-	m = upd.(Model)
-	if !m.currentGridView() || m.gridCursor != sel {
-		t.Errorf("after growing: grid=%v cursor=%d, want grid at %d", m.currentGridView(), m.gridCursor, sel)
+	m = press(m, tea.KeyPressMsg{Code: tea.KeyDown}) // onto the partial row
+	if m.gridScrollTop != 1 {
+		t.Errorf("gridScrollTop = %d after moving onto the partial row, want 1", m.gridScrollTop)
 	}
 }
