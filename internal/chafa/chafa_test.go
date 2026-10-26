@@ -17,7 +17,9 @@ func fakeChafa(t *testing.T) (argsFile string) {
 	t.Helper()
 	dir := t.TempDir()
 	argsFile = filepath.Join(dir, "args")
-	script := "#!/bin/sh\necho \"$@\" > " + argsFile + "\nprintf '\\033[31mAB\\033[0m\\nCD\\n'\n"
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = --help ]; then echo '      --probe=ARG    Probe terminal'; exit 0; fi\n" +
+		"echo \"$@\" > " + argsFile + "\nprintf '\\033[31mAB\\033[0m\\nCD\\n'\n"
 	if err := os.WriteFile(filepath.Join(dir, "chafa"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,9 @@ func TestRenderPadsToTheBox(t *testing.T) {
 		t.Errorf("not centered: %q", ansi.Strip(lines[1]))
 	}
 	b, _ := os.ReadFile(args)
-	for _, want := range []string{"--format symbols", "--size 6x4", "--polite on", "/img.jpg"} {
+	// --probe off because this chafa's --help lists it: probing waits on
+	// the terminal amptui owns, which stalled every render.
+	for _, want := range []string{"--format symbols", "--size 6x4", "--polite on", "--probe off", "/img.jpg"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("chafa args %q missing %q", b, want)
 		}

@@ -24,11 +24,20 @@ import (
 var (
 	lookOnce sync.Once
 	binPath  string
+	// canDisableProbe is set when this chafa has --probe (1.16+).
+	canDisableProbe bool
 )
 
 // Available reports whether chafa is on PATH (looked up once).
 func Available() bool {
-	lookOnce.Do(func() { binPath, _ = exec.LookPath("chafa") })
+	lookOnce.Do(func() {
+		binPath, _ = exec.LookPath("chafa")
+		if binPath == "" {
+			return
+		}
+		help, _ := detached(exec.Command(binPath, "--help")).Output()
+		canDisableProbe = bytes.Contains(help, []byte("--probe"))
+	})
 	return binPath != ""
 }
 
@@ -44,7 +53,7 @@ func Render(ctx context.Context, path string, cols, rows int) (string, error) {
 	if ct := os.Getenv("COLORTERM"); ct == "truecolor" || ct == "24bit" {
 		colors = "full"
 	}
-	cmd := exec.CommandContext(ctx, binPath,
+	args := []string{
 		"--format", "symbols",
 		"--size", fmt.Sprintf("%dx%d", cols, rows),
 		"--colors", colors,
@@ -52,8 +61,11 @@ func Render(ctx context.Context, path string, cols, rows int) (string, error) {
 		// No cursor hiding / terminal queries: the output is embedded in
 		// a frame, not written to the terminal directly.
 		"--polite", "on",
-		path,
-	)
+	}
+	if canDisableProbe {
+		args = append(args, "--probe", "off") // see detached
+	}
+	cmd := detached(exec.CommandContext(ctx, binPath, append(args, path)...))
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
