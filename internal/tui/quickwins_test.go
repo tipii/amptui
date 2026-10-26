@@ -135,7 +135,13 @@ func TestShuffleToggleKeepsPlayingAndRestores(t *testing.T) {
 	if playingKey(m) != "c" || m.queue[m.queueIdx].RatingKey != "c" {
 		t.Fatalf("playing %q at %d after shuffle", playingKey(m), m.queueIdx)
 	}
-	m = syncUntil(t, m, "mpv to follow", func(m Model) bool { return m.player.State().PlaylistPos == m.queueIdx })
+	// Wait for mpv to be at the index shuffle put the track at. (Checking
+	// PlaylistPos == queueIdx held for any position, since syncing sets
+	// one from the other.)
+	newIdx := m.queueIdx
+	m = syncUntil(t, m, "mpv to follow", func(m Model) bool {
+		return m.player.State().PlaylistPos == newIdx && m.queueIdx == newIdx
+	})
 	if st := m.player.State(); st.Idle || st.Position == 0 {
 		t.Errorf("shuffle interrupted playback: %+v", st)
 	}
