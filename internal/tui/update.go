@@ -15,6 +15,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/tipii/amptui/internal/backend"
+	"github.com/tipii/amptui/internal/chafa"
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
@@ -27,11 +28,54 @@ import (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
 	next, ok := model.(Model)
-	if !ok || next.spinning || !next.needsSpinner() {
+	if !ok {
 		return model, cmd
 	}
-	next.spinning = true
-	return next, tea.Batch(cmd, next.spinner.Tick)
+	cmds := []tea.Cmd{cmd, next.applyKittyCapability()}
+	if !next.spinning && next.needsSpinner() {
+		next.spinning = true
+		cmds = append(cmds, next.spinner.Tick)
+	}
+	return next, tea.Batch(cmds...)
+}
+
+// applyKittyCapability switches artwork to the Kitty graphics protocol
+// once the terminal has confirmed it supports it. picture.Model refuses
+// Kitty mode until then and doesn't retry by itself, so every picture
+// made before the answer arrived — usually all of them — has to be
+// switched here, or artwork stays half-block for the whole session.
+func (m *Model) applyKittyCapability() tea.Cmd {
+	if m.kittyResolved || picture.KittySupported() == picture.KittyCapabilityUnknown {
+		return nil
+	}
+	m.kittyResolved = true
+	if picture.KittySupported() != picture.KittyCapabilitySupported {
+		// No Kitty graphics: chafa, if installed, takes over from the
+		// half-blocks. Decided only now — every terminal starts out
+		// half-block until the probe answers — and the artwork already
+		// on screen gets rendered too.
+		m.useChafa = chafa.Available()
+		var cmds []tea.Cmd
+		for key := range m.gridPics {
+			cmds = append(cmds, m.chafaRenders(key, itemSizes...))
+		}
+		for _, key := range []string{m.curArtistKey, m.curAlbumKey} {
+			cmds = append(cmds, m.chafaRenders(key, heroSizes...))
+		}
+		return tea.Batch(cmds...)
+	}
+	m.picMode = picture.PictureKitty
+	cmds := []tea.Cmd{
+		m.applyPicMode(m.artistHeaderPic), m.applyPicMode(m.artistModalPic),
+		m.applyPicMode(m.albumHeaderPic), m.applyPicMode(m.albumModalPic),
+	}
+	for _, p := range m.gridPics {
+		cmds = append(cmds, m.applyPicMode(p))
+	}
+	for _, p := range m.listPics {
+		cmds = append(cmds, m.applyPicMode(p))
+	}
+	return tea.Batch(cmds...)
 }
 
 // handlePlaybackKey applies the transport keys (pause, next/prev, seek)

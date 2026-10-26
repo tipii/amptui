@@ -35,9 +35,7 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
-	"github.com/tipii/amptui/internal/chafa"
 	"github.com/tipii/amptui/internal/config"
-	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/mpris"
@@ -163,8 +161,8 @@ type Model struct {
 	// Bubble-Tea-aware component from ntcharts that handles glyph
 	// (half-block) AND Kitty graphics protocol, including the
 	// Ghostty redraw bug we hit when emitting Kitty sequences
-	// ourselves. picMode is detected once at startup; surfaces fall
-	// back to half-block on terminals without Kitty support.
+	// ourselves. picMode starts as half-block and becomes Kitty once
+	// the terminal confirms support (applyKittyCapability).
 	artistHeaderPic *picture.Model
 	artistModalPic  *picture.Model
 	albumHeaderPic  *picture.Model
@@ -182,6 +180,8 @@ type Model struct {
 	// same fetched image so toggling between list / grid never refetches.
 	listPics map[string]*picture.Model
 	picMode  picture.PictureMode
+	// kittyResolved is set once the Kitty probe has answered.
+	kittyResolved bool
 
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when
@@ -304,23 +304,25 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	iv.FillHeight = true
 
 	m := Model{
-		cfg:             cfg,
-		playerErr:       playerErr,
-		client:          client,
-		player:          p,
-		keymap:          NewKeyMap(),
-		helpModel:       help.New(),
-		libs:            libs,
-		list:            l,
-		queueList:       ql,
-		helpViewport:    hv,
-		infoViewport:    iv,
-		spinner:         sp,
-		progress:        pr,
-		search:          newSearchModel(),
-		settings:        newSettingsModel(cfg),
-		dashboard:       newDashboardModel(),
-		picMode:         pictureModeFromProtocol(imgcache.Detect()),
+		cfg:          cfg,
+		playerErr:    playerErr,
+		client:       client,
+		player:       p,
+		keymap:       NewKeyMap(),
+		helpModel:    help.New(),
+		libs:         libs,
+		list:         l,
+		queueList:    ql,
+		helpViewport: hv,
+		infoViewport: iv,
+		spinner:      sp,
+		progress:     pr,
+		search:       newSearchModel(),
+		settings:     newSettingsModel(cfg),
+		dashboard:    newDashboardModel(),
+		// Half-blocks until ntcharts' Kitty probe (started in Init)
+		// confirms support; see applyKittyCapability.
+		picMode:         picture.PictureGlyph,
 		gridPics:        gridPics,
 		artRequested:    map[string]bool{},
 		chafaOut:        chafaOut,
@@ -365,10 +367,6 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		m.activeLib = defaultLib
 	}
 
-	// chafa only stands in for the half-block fallback; Kitty-capable
-	// terminals keep real images.
-	m.useChafa = m.picMode == picture.PictureGlyph && chafa.Available()
-
 	m.helpViewport.SetContent(m.helpBodyContent())
 
 	// Honor the user's preferred home screen. Library is the default
@@ -398,6 +396,11 @@ func (m Model) Init() tea.Cmd {
 	// path renders at the right scale. picture.Models receive the
 	// reply (uv.CellSizeEvent) via Update routing.
 	cmds = append(cmds, picture.RequestCellSize())
+	// Ask the terminal whether it speaks the Kitty graphics protocol
+	// (ntcharts checks the environment first and only probes terminals
+	// that look capable). Its picture.Models refuse Kitty mode until this
+	// answers yes; applyKittyCapability switches ours over when it does.
+	cmds = append(cmds, picture.QueryKittySupport())
 	// Kick off the library sync AND the dashboard's three live fetches
 	// in the background when we have a Plex client and at least one
 	// library. Missing config drops us on the settings screen with no
@@ -469,16 +472,6 @@ func newSizedPicture(cols, rows int) *picture.Model {
 	p := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
 	p.SetSize(cols, rows)
 	return &p
-}
-
-// pictureModeFromProtocol maps the imgcache-side terminal protocol
-// to the picture.Model mode. Kept here so the imgcache package
-// doesn't need to depend on the picture types.
-func pictureModeFromProtocol(p imgcache.Protocol) picture.PictureMode {
-	if p == imgcache.ProtocolKitty {
-		return picture.PictureKitty
-	}
-	return picture.PictureGlyph
 }
 
 // applyPicMode toggles a picture.Model into the parent's preferred

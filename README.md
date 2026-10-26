@@ -217,8 +217,11 @@ Rendering picks the best protocol your terminal advertises:
   [Kitty](https://sw.kovidgoyal.net/kitty/),
   [Ghostty](https://ghostty.org/),
   [WezTerm](https://wezterm.org/),
-  Konsole (recent versions). Detection looks at
-  `$KITTY_WINDOW_ID`, `$GHOSTTY_RESOURCES_DIR`, `$TERM_PROGRAM`, and `$TERM`.
+  Konsole (recent versions). amptui asks the terminal at startup
+  (only when its environment looks Kitty-capable, so other terminals never
+  see the query) and switches artwork to Kitty when it answers — inside
+  tmux too, with passthrough. If a capable terminal isn't recognized,
+  force it with `NTCHARTS_KITTY=supported amptui`.
 - **[chafa](https://hpjansson.org/chafa/)**, when it's installed, on
   every other terminal (foot, Alacritty, xterm, tmux, …): much finer
   detail than half-blocks. amptui uses chafa's text ("symbols") output,
