@@ -27,11 +27,42 @@ import (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
 	next, ok := model.(Model)
-	if !ok || next.spinning || !next.needsSpinner() {
+	if !ok {
 		return model, cmd
 	}
-	next.spinning = true
-	return next, tea.Batch(cmd, next.spinner.Tick)
+	cmds := []tea.Cmd{cmd, next.applyKittyCapability()}
+	if !next.spinning && next.needsSpinner() {
+		next.spinning = true
+		cmds = append(cmds, next.spinner.Tick)
+	}
+	return next, tea.Batch(cmds...)
+}
+
+// applyKittyCapability switches artwork to the Kitty graphics protocol
+// once the terminal has confirmed it supports it. picture.Model refuses
+// Kitty mode until then and doesn't retry by itself, so every picture
+// made before the answer arrived — usually all of them — has to be
+// switched here, or artwork stays half-block for the whole session.
+func (m *Model) applyKittyCapability() tea.Cmd {
+	if m.kittyResolved || picture.KittySupported() == picture.KittyCapabilityUnknown {
+		return nil
+	}
+	m.kittyResolved = true
+	if picture.KittySupported() != picture.KittyCapabilitySupported {
+		return nil
+	}
+	m.picMode = picture.PictureKitty
+	cmds := []tea.Cmd{
+		m.applyPicMode(m.artistHeaderPic), m.applyPicMode(m.artistModalPic),
+		m.applyPicMode(m.albumHeaderPic), m.applyPicMode(m.albumModalPic),
+	}
+	for _, p := range m.gridPics {
+		cmds = append(cmds, m.applyPicMode(p))
+	}
+	for _, p := range m.listPics {
+		cmds = append(cmds, m.applyPicMode(p))
+	}
+	return tea.Batch(cmds...)
 }
 
 // handlePlaybackKey applies the transport keys (pause, next/prev, seek)
