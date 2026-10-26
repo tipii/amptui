@@ -62,3 +62,27 @@ func TestPicturesStayHalfBlockWithoutKitty(t *testing.T) {
 		t.Errorf("useChafa = %v with chafa installed = %v", m.useChafa, chafa.Available())
 	}
 }
+
+// The probe can time out ("unsupported", so chafa) before the terminal's
+// answer arrives and flips it to supported. The late answer must win:
+// acting only on the first verdict left Kitty terminals on chafa.
+func TestLateKittyAnswerOverridesTimeout(t *testing.T) {
+	forceKitty(t, picture.KittyCapabilityUnsupported) // the timeout won
+	m := newArtistsModel(t, config.Config{Images: true})
+	upd, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = upd.(Model)
+	if m.picMode != picture.PictureGlyph {
+		t.Fatal("switched to Kitty while unsupported")
+	}
+	m.useChafa = true // as on a machine with chafa installed
+
+	forceKitty(t, picture.KittyCapabilitySupported) // the answer arrives
+	upd, _ = m.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	m = upd.(Model)
+	if m.picMode != picture.PictureKitty || m.artistHeaderPic.Mode() != picture.PictureKitty {
+		t.Error("late Kitty answer ignored: still half-block")
+	}
+	if m.useChafa {
+		t.Error("chafa still on after Kitty was confirmed")
+	}
+}
