@@ -24,7 +24,7 @@ Working today:
 - [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
 - [x] Fuzzy search across the whole library
 - [x] Artist / album info: bio, genres, similar artists (`i` modal)
-- [x] Inline artwork — Kitty graphics on supported terminals, half-block fallback everywhere else; lazy-loaded for the on-screen window only
+- [x] Inline artwork — Kitty graphics on supported terminals, [chafa](https://hpjansson.org/chafa/) when installed, half-block fallback everywhere else; lazy-loaded for the on-screen window only
 - [x] Editable settings screen, in-app keybindings modal (`?`)
 - [x] Pluggable backend — Plex or Jellyfin, selected by config, behind one `media.Backend` interface
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; the server is only touched during sync or info fetches
@@ -219,8 +219,16 @@ Rendering picks the best protocol your terminal advertises:
   [WezTerm](https://wezterm.org/),
   Konsole (recent versions). Detection looks at
   `$KITTY_WINDOW_ID`, `$GHOSTTY_RESOURCES_DIR`, `$TERM_PROGRAM`, and `$TERM`.
+- **[chafa](https://hpjansson.org/chafa/)**, when it's installed, on
+  every other terminal (foot, Alacritty, xterm, tmux, …): much finer
+  detail than half-blocks. amptui uses chafa's text ("symbols") output,
+  never sixel, so artwork fits the cell layout like everything else.
+  Each image is rendered once in the background and kept; the half-block
+  version shows until it's ready. Nothing to configure — install chafa
+  (`pacman -S chafa`, `apt install chafa`, `brew install chafa`) and
+  restart amptui.
 - **Half-block ANSI fallback** everywhere else (any 24-bit-color terminal
-  including Alacritty, foot, tmux, xterm — works over SSH too).
+  — works over SSH too).
 
 Thumbnails are fetched on demand from the backend (Plex's
 `/photo/:/transcode` or Jellyfin's `/Items/{id}/Images/Primary`) and cached

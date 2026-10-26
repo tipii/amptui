@@ -22,6 +22,7 @@ import (
 type thumbDelegate struct {
 	inner  list.DefaultDelegate
 	thumbs map[string]*picture.Model
+	chafa  map[string]string
 }
 
 // listThumbCellsW / H is the cell footprint of the thumbnail rendered
@@ -33,10 +34,13 @@ const (
 	listThumbCellsH = 2
 )
 
-func newThumbDelegate(thumbs map[string]*picture.Model) thumbDelegate {
+// chafa holds the Model's chafa renders (see chafa.go), shared by
+// reference like thumbs; it stays empty when chafa isn't in use.
+func newThumbDelegate(thumbs map[string]*picture.Model, chafa map[string]string) thumbDelegate {
 	return thumbDelegate{
 		inner:  list.NewDefaultDelegate(),
 		thumbs: thumbs,
+		chafa:  chafa,
 	}
 }
 
@@ -59,7 +63,9 @@ func (d thumbDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		key = v.artist.RatingKey
 	}
 	var thumb string
-	if pic, ok := d.thumbs[key]; ok && pic != nil {
+	if out := d.chafa[chafaID(key, listThumbCellsW, listThumbCellsH)]; out != "" {
+		thumb = out
+	} else if pic, ok := d.thumbs[key]; ok && pic != nil {
 		thumb = pic.View().Content
 	}
 	if thumb == "" {

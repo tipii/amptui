@@ -475,7 +475,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		switch {
 		case msg.kind == "artist":
-			cmds = append(cmds,
+			cmds = append(cmds, m.chafaRenders(msg.key, heroSizes...),
 				m.applyPicMode(m.artistHeaderPic),
 				m.applyPicMode(m.artistModalPic),
 				m.artistHeaderPic.SetImage(msg.img),
@@ -487,7 +487,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// chrome or the status bar gets pushed off the terminal.
 			m.list.SetSize(m.width, m.listHeight())
 		case msg.kind == "album":
-			cmds = append(cmds,
+			cmds = append(cmds, m.chafaRenders(msg.key, heroSizes...),
 				m.applyPicMode(m.albumHeaderPic),
 				m.applyPicMode(m.albumModalPic),
 				m.albumHeaderPic.SetImage(msg.img),
@@ -512,9 +512,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 			m.gridPics[key] = &gp
 			m.listPics[key] = &lp
+			cmds = append(cmds, m.chafaRenders(key, itemSizes...))
 			m.trimThumbs()
 		}
 		return m, tea.Batch(cmds...)
+
+	case chafaReadyMsg:
+		m.chafaOut[msg.id] = msg.out
+		return m, nil
 
 	case dashboardPlaysMsg:
 		m.dashboard.ApplyPlays(msg)
@@ -656,6 +661,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		clear(m.gridPics)
 		clear(m.listPics)
 		clear(m.artRequested)
+		clear(m.chafaOut)
 		m.diskStats.invalidate()
 		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
@@ -691,6 +697,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			clear(m.gridPics)
 			clear(m.listPics)
 			clear(m.artRequested)
+			clear(m.chafaOut)
 		}
 		m.cfg.Images = v.Images
 		if v.ReportPlayback != m.cfg.ReportsPlayback() {

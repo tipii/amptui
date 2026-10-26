@@ -148,6 +148,7 @@ func (m *Model) trimThumbs() {
 			delete(m.gridPics, key)
 			delete(m.listPics, key)
 			delete(m.artRequested, key)
+			m.forgetChafa(key)
 		}
 	}
 }
