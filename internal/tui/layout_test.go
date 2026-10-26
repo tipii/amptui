@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -73,5 +74,36 @@ func TestGridPosition(t *testing.T) {
 		if got := strings.TrimSpace(ansi.Strip(gridPosition(c.from, c.to, c.total))); got != c.want {
 			t.Errorf("gridPosition(%d,%d,%d) = %q, want %q", c.from, c.to, c.total, got, c.want)
 		}
+	}
+}
+
+// A grid level shows as a list while a row of cards can't fit, and the
+// highlighted item survives the switch either way.
+func TestGridFallsBackToListWhenTooShort(t *testing.T) {
+	m := newArtistsModel(t, config.Config{DefaultViewArtist: "grid"})
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	if !m.currentGridView() {
+		t.Fatal("grid should show at 100×40")
+	}
+	m = press(press(m, keyRight), keyRight) // grid cursor → Cream
+
+	upd, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
+	m = upd.(Model)
+	if m.currentGridView() || !m.gridPreferred() {
+		t.Fatalf("at 18 rows: shown=%v preferred=%v; want list shown, grid still preferred", m.currentGridView(), m.gridPreferred())
+	}
+	if ai, ok := m.list.SelectedItem().(artistItem); !ok || ai.artist.Title != "Cream" {
+		t.Errorf("list selection after shrinking = %v, want Cream", m.list.SelectedItem())
+	}
+	if strings.Contains(m.View().Content, "╭") {
+		t.Error("cards drawn while showing the list (they used to be cropped)")
+	}
+
+	sel := m.list.Index()
+	upd, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	if !m.currentGridView() || m.gridCursor != sel {
+		t.Errorf("after growing: grid=%v cursor=%d, want grid at %d", m.currentGridView(), m.gridCursor, sel)
 	}
 }

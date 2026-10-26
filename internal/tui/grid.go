@@ -22,7 +22,7 @@ import (
 // area minus one row reserved for the title. outerW = inner+2, outerH
 // = inner+2+1 (title).
 const (
-	cardOuterH      = 13 // 10 thumb rows + 1 title + 2 border
+	cardOuterH      = 13 // 10 thumb rows + 1 title + 2 border (sizes the thumb)
 	cardIdealOuterW = 22 // 20 thumb cols + 2 border (20 cols × 20 image rows = square)
 	cardMinOuterW   = 18
 	cardBorderCols  = 2
@@ -59,7 +59,15 @@ func (m Model) supportsGrid() bool {
 
 // currentGridView reports whether the current level is presently in grid
 // mode (each level has its own flag, primed from config at startup).
+//
+// A level set to grid shows as a list while not even one row of cards
+// fits (a short terminal); it used to force one in, cropped.
 func (m Model) currentGridView() bool {
+	return m.gridPreferred() && m.gridFits()
+}
+
+// gridPreferred is the current level's view setting, before the fit check.
+func (m Model) gridPreferred() bool {
 	switch m.level {
 	case levelArtists:
 		return m.gridArtists
@@ -69,26 +77,36 @@ func (m Model) currentGridView() bool {
 	return false
 }
 
+// gridFits reports whether a full row of cards fits the body.
+func (m Model) gridFits() bool {
+	return m.listHeight()-gridChromeRows >= cardRenderedH
+}
+
+// moveCursorBetweenViews keeps the highlighted item when the shown view
+// switches between grid and list (v, or a resize crossing gridFits).
+func (m *Model) moveCursorBetweenViews(toGrid bool) {
+	if toGrid {
+		// The grid can't show a filter, so drop it, keeping the
+		// highlighted item by its index in the full list.
+		m.gridCursor = m.list.GlobalIndex()
+		m.list.ResetFilter()
+		m.gridScrollTop = 0
+		m.ensureCursorVisible()
+		return
+	}
+	m.list.Select(m.gridCursor)
+}
+
 // toggleGrid flips the current level's mode and keeps the same item
 // highlighted across the switch.
 func (m *Model) toggleGrid() {
 	if !m.supportsGrid() {
 		return
 	}
-	on := m.currentGridView()
-	if on {
-		// grid -> list
-		m.list.Select(m.gridCursor)
-	} else {
-		// list -> grid. The grid can't show a filter, so drop it, keeping
-		// the highlighted item by its index in the full list.
-		m.gridCursor = m.list.GlobalIndex()
-		m.list.ResetFilter()
-		m.gridScrollTop = 0
-	}
-	m.setCurrentGridView(!on)
-	if !on {
-		m.ensureCursorVisible()
+	shown := m.currentGridView()
+	m.setCurrentGridView(!m.gridPreferred())
+	if now := m.currentGridView(); now != shown {
+		m.moveCursorBetweenViews(now)
 	}
 }
 
@@ -178,6 +196,12 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
+// cardRenderedH is a card's height on screen: the thumb, title and
+// subtitle rows plus the border. (cardOuterH, which sizes the thumb,
+// leaves out the subtitle — dividing by it overestimated how many rows
+// fit, so the last one could be cropped.)
+const cardRenderedH = gridThumbCellsH + 2 + cardBorderCols
+
 // gridChromeRows is what the grid body spends on other than cards: the
 // heading, its gap, and the position line under the cards.
 const gridChromeRows = 3
@@ -185,10 +209,7 @@ const gridChromeRows = 3
 // gridVisibleRows is how many card rows fit in the body region.
 func (m Model) gridVisibleRows() int {
 	availRows := m.listHeight() - gridChromeRows
-	if availRows < cardOuterH {
-		availRows = cardOuterH
-	}
-	n := availRows / cardOuterH
+	n := availRows / cardRenderedH
 	if n < 1 {
 		n = 1
 	}
