@@ -69,20 +69,17 @@ func (it itemDTO) toTrack() media.Track {
 	}
 }
 
-// libraryTracksPageSize bounds each /Items page during a full sync.
-const libraryTracksPageSize = 500
-
-// LibraryTracks fetches every audio track in a music library, paginating
-// on StartIndex until TotalRecordCount is reached. Each track carries its
-// album and album-artist (name + id), so the cache derives artists and
-// albums by deduplication exactly as it does for Plex.
-func (c *Client) LibraryTracks(ctx context.Context, libraryKey string) ([]media.Track, error) {
+// LibraryTracks fetches every audio track in a music library, a page at
+// a time (see media.FetchAll for the timeout / retry policy) until
+// TotalRecordCount is reached. Each track carries its album and
+// album-artist (name + id), so the cache derives artists and albums by
+// deduplication exactly as it does for Plex.
+func (c *Client) LibraryTracks(ctx context.Context, libraryKey string, progress media.Progress) ([]media.Track, error) {
 	userID, err := c.userIDAfterAuth(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var all []media.Track
-	for start := 0; ; start += libraryTracksPageSize {
+	items, err := media.FetchAll(ctx, func(ctx context.Context, start int) ([]itemDTO, int, error) {
 		q := url.Values{}
 		q.Set("userId", userID)
 		q.Set("ParentId", libraryKey)
@@ -91,19 +88,24 @@ func (c *Client) LibraryTracks(ctx context.Context, libraryKey string) ([]media.
 		// DateCreated isn't part of the default /Items projection; ask for
 		// it explicitly so the cache can offer a "date added" sort.
 		q.Set("Fields", "ProductionYear,DateCreated")
+		// A stable order, so offset paging can't skip or repeat items.
+		q.Set("SortBy", "SortName,Id")
 		q.Set("StartIndex", fmt.Sprintf("%d", start))
-		q.Set("Limit", fmt.Sprintf("%d", libraryTracksPageSize))
+		q.Set("Limit", fmt.Sprintf("%d", media.PageSize))
 		var body itemsResponse
-		if err := c.get(ctx, "/Items", q, &body); err != nil {
-			return nil, err
+		if err := c.getWith(ctx, c.pageHTTP, "/Items", q, &body); err != nil {
+			return nil, 0, err
 		}
-		for _, it := range body.Items {
-			all = append(all, it.toTrack())
-		}
-		if len(body.Items) < libraryTracksPageSize || len(all) >= body.TotalRecordCount {
-			return all, nil
-		}
+		return body.Items, body.TotalRecordCount, nil
+	}, progress)
+	if err != nil {
+		return nil, err
 	}
+	tracks := make([]media.Track, len(items))
+	for i, it := range items {
+		tracks[i] = it.toTrack()
+	}
+	return tracks, nil
 }
 
 // StreamURL builds a direct-play URL (static=true → the original file, no

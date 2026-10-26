@@ -350,12 +350,16 @@ sync immediately — no restart needed. Re-editing those fields after a
 successful startup still requires a relaunch; the running app keeps
 its existing Plex client.
 
-The library cache is built on first launch (~8s for a 9k-track library),
-persisted to `~/.cache/amptui/<sectionUUID>.json`, and invalidated when
-Plex's section `contentChangedAt` counter advances. Every subsequent
-browse and search reads from this cache — Plex is only contacted during
-sync. While syncing, a small spinner appears on the right of the status
-bar; the browser opens into the cache once the sync finishes.
+The library cache is built on first launch (~8s for a 10k-track library
+on a healthy server), persisted to `~/.cache/amptui/<sectionUUID>.json`, and
+invalidated when Plex's section `contentChangedAt` counter advances. Every
+subsequent browse and search reads from this cache — the server is only
+contacted during sync. While syncing, the right of the status bar shows
+progress ("syncing library 3,000 / 6,500 tracks"); the browser opens into
+the cache once the sync finishes. A sync has no overall time limit — a big
+library on a slow server (a NAS, a Raspberry Pi) takes as long as it needs —
+but each 500-track page must arrive within two minutes, and a failed page
+is retried a few times before the sync gives up with the error.
 
 ## Project layout
 

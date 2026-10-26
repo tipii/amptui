@@ -61,6 +61,10 @@ type Client struct {
 	password  string
 	deviceID  string
 
+	// pageHTTP has no fixed timeout: library pages are bounded per
+	// request by media.PageTimeout through their context instead.
+	pageHTTP *http.Client
+
 	// authMu serializes logins; mu guards token / userID only briefly,
 	// so the URL builders (called on the UI goroutine) never wait on a
 	// login's network round-trip.
@@ -76,6 +80,7 @@ func New(serverURL, username, password string) *Client {
 	serverURL = strings.TrimRight(serverURL, "/")
 	return &Client{
 		http:      &http.Client{Timeout: 30 * time.Second},
+		pageHTTP:  &http.Client{},
 		serverURL: serverURL,
 		username:  username,
 		password:  password,
@@ -163,11 +168,16 @@ func (c *Client) creds() (token, userID string) {
 // removed): it logs in again and retries once, rather than failing
 // every request until a relaunch.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	err := c.getOnce(ctx, path, q, out)
+	return c.getWith(ctx, c.http, path, q, out)
+}
+
+// getWith is get over a specific HTTP client.
+func (c *Client) getWith(ctx context.Context, hc *http.Client, path string, q url.Values, out any) error {
+	err := c.getOnce(ctx, hc, path, q, out)
 	var unauth errUnauthorized
 	if errors.As(err, &unauth) {
 		c.dropToken(unauth.token)
-		err = c.getOnce(ctx, path, q, out)
+		err = c.getOnce(ctx, hc, path, q, out)
 	}
 	return err
 }
@@ -180,7 +190,7 @@ type errUnauthorized struct {
 
 func (e errUnauthorized) Error() string { return "GET " + e.path + ": 401 Unauthorized" }
 
-func (c *Client) getOnce(ctx context.Context, path string, q url.Values, out any) error {
+func (c *Client) getOnce(ctx context.Context, hc *http.Client, path string, q url.Values, out any) error {
 	if err := c.ensureAuth(ctx); err != nil {
 		return err
 	}
@@ -195,7 +205,7 @@ func (c *Client) getOnce(ctx context.Context, path string, q url.Values, out any
 	token, _ := c.creds()
 	req.Header.Set("X-Emby-Token", token)
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return err
 	}

@@ -235,3 +235,15 @@ func TestDownloadsModalListsErrors(t *testing.T) {
 		t.Errorf("expected 3 errors then a summary:\n%s", out)
 	}
 }
+
+// A running sync shows how far it's got, so a long one visibly moves.
+func TestFooterShowsSyncProgress(t *testing.T) {
+	m := Model{width: 120, librarySyncing: true, syncProg: &syncProgress{}}
+	if got := m.footerLine("help"); !strings.Contains(got, "syncing library") || strings.Contains(got, "/") {
+		t.Errorf("before any page: %q", got)
+	}
+	m.syncProg.set(3000, 6500)
+	if got := m.footerLine("help"); !strings.Contains(got, "syncing library 3,000 / 6,500 tracks") {
+		t.Errorf("mid-sync: %q", got)
+	}
+}

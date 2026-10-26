@@ -233,6 +233,7 @@ type Model struct {
 	library        *library.Library
 	libraryErr     error
 	librarySyncing bool
+	syncProg       *syncProgress
 
 	// activeLib is the library the cache is for (see activeLibrary):
 	// the default library at startup, so Init opens straight into it,
@@ -324,6 +325,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		librarySyncing:  true, // Init kicks off the background library sync
 		dl:              &liveDownload{},
 		diskStats:       &diskStats{},
+		syncProg:        &syncProgress{},
 		gridArtists:     cfg.DefaultViewArtist == "grid",
 		gridAlbums:      cfg.DefaultViewAlbum == "grid",
 		// A missing or malformed sort key falls back to the level's
@@ -393,7 +395,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.client != nil && len(m.libs) > 0 {
 		active, _ := m.activeLibrary()
-		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
+		cmds = append(cmds, loadOrSyncLibrary(m.client, active, m.syncProg))
 		cmds = append(cmds, m.dashboard.Load(m.client, active.Key))
 	}
 	return tea.Batch(cmds...)

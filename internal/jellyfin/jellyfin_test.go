@@ -151,7 +151,7 @@ func TestLibraryTracksDecodes(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
 	c := New(srv.URL, "u", "p")
-	tracks, err := c.LibraryTracks(context.Background(), "musiclib")
+	tracks, err := c.LibraryTracks(context.Background(), "musiclib", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
