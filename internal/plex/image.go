@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/tipii/amptui/internal/media"
 )
 
 // ArtworkURL returns a direct (non-transcoded) URL for an item's
@@ -33,12 +35,12 @@ func (c *Client) FetchImage(ctx context.Context, absURL string) ([]byte, error) 
 	req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, media.RedactErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return nil, fmt.Errorf("GET %s: %s: %s", absURL, resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("GET %s: %s: %s", media.RedactURL(absURL), resp.Status, strings.TrimSpace(string(body)))
 	}
 	return io.ReadAll(resp.Body)
 }
