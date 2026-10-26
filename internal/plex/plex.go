@@ -8,19 +8,37 @@ package plex
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/tipii/amptui/internal/media"
 )
 
-// clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to track
-// this app as a distinct device; keep it stable across runs.
-const clientIdentifier = "amptui"
+// clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to
+// track this app as a distinct device (Now Playing, the devices list):
+// stable across runs, different per machine. A constant made every
+// install one device, so two machines playing showed as one player.
+var clientIdentifier = func() string {
+	host, _ := os.Hostname()
+	sum := sha1.Sum([]byte(host + "|" + os.Getenv("USER")))
+	return "amptui-" + hex.EncodeToString(sum[:8])
+}()
+
+// deviceName is how this player is labelled in Plex's Now Playing.
+var deviceName = func() string {
+	if host, err := os.Hostname(); err == nil {
+		return host
+	}
+	return "amptui"
+}()
 
 // Client is a thin HTTP wrapper around a Plex Media Server.
 type Client struct {
@@ -46,8 +64,7 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Token", c.token)
-	req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
+	c.setHeaders(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -60,6 +77,16 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 		return fmt.Errorf("GET %s: %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// setHeaders adds auth and the client description Plex shows for this
+// player.
+func (c *Client) setHeaders(req *http.Request) {
+	req.Header.Set("X-Plex-Token", c.token)
+	req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
+	req.Header.Set("X-Plex-Product", "amptui")
+	req.Header.Set("X-Plex-Device-Name", deviceName)
+	req.Header.Set("X-Plex-Platform", runtime.GOOS)
 }
 
 // ServerName returns the server's friendlyName from the root endpoint.

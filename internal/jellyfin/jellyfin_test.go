@@ -319,3 +319,49 @@ func TestDeviceIDIsPerServerAndStable(t *testing.T) {
 		t.Errorf("device ids: %q %q", a, b)
 	}
 }
+
+func TestPlaybackReportEndpoints(t *testing.T) {
+	type call struct {
+		path string
+		body map[string]any
+		auth string
+	}
+	var calls []call
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users/AuthenticateByName" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"AccessToken": "tok", "User": map[string]string{"Id": "u1"}})
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		calls = append(calls, call{r.URL.Path, body, r.Header.Get("Authorization")})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "me", "pw")
+	tr := media.Track{RatingKey: "item1"}
+	for _, r := range []media.PlaybackReport{
+		{Track: tr, State: media.PlaybackPlaying, Started: true},
+		{Track: tr, State: media.PlaybackPaused, Position: 2 * time.Second},
+		{Track: tr, State: media.PlaybackStopped, Position: 3 * time.Second},
+	} {
+		if err := c.ReportPlayback(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"/Sessions/Playing", "/Sessions/Playing/Progress", "/Sessions/Playing/Stopped"}
+	if len(calls) != 3 {
+		t.Fatalf("calls = %+v", calls)
+	}
+	for i, w := range want {
+		if calls[i].path != w || calls[i].body["ItemId"] != "item1" {
+			t.Errorf("call %d = %s %v, want %s", i, calls[i].path, calls[i].body, w)
+		}
+	}
+	if calls[1].body["IsPaused"] != true || calls[2].body["PositionTicks"] != float64(30_000_000) {
+		t.Errorf("pause/stop bodies: %v / %v", calls[1].body, calls[2].body)
+	}
+	if !strings.Contains(calls[0].auth, `Token="tok"`) || !strings.Contains(calls[0].auth, "DeviceId=") {
+		t.Errorf("Authorization = %q", calls[0].auth)
+	}
+}

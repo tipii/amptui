@@ -22,6 +22,15 @@ import (
 	"time"
 )
 
+// Repeat is what happens when a track or the playlist ends.
+type Repeat int
+
+const (
+	RepeatOff   Repeat = iota
+	RepeatQueue        // after the last entry, start over at the first
+	RepeatTrack        // replay the current entry until skipped
+)
+
 // ErrDead is returned by commands sent while mpv isn't running.
 var ErrDead = errors.New("mpv is not running")
 
@@ -55,6 +64,10 @@ type State struct {
 	// on each one so a caller can show every failure exactly once.
 	LastError string
 	ErrorSeq  int
+	// Volume is mpv's volume, 0–100 (mpv allows up to 130 with
+	// softvol; amptui caps at 100). Muted is independent of it.
+	Volume float64
+	Muted  bool
 	// Dead is true once mpv exited or its socket broke.
 	Dead bool
 }
@@ -79,6 +92,7 @@ type Player struct {
 	lastEnd string
 
 	extraArgs []string // reused on restart
+	repeat    Repeat   // re-applied on restart; guarded by writeMu
 
 	// changes carries a coalesced "something other than the playhead
 	// moved" signal (pause, track, idle, duration, buffering, errors)
@@ -150,16 +164,27 @@ func (p *Player) start() error {
 	p.writeMu.Unlock()
 
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	vol, muted := p.state.Volume, p.state.Muted
+	restoreVol := p.state.Dead // a restart after a crash keeps the old level
+	p.state = State{PlaylistPos: -1, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError, Volume: 100}
 	p.lastEnd = ""
 	p.stateMu.Unlock()
 
 	go p.readLoop(conn)
+	p.writeMu.Lock()
+	repeat := p.repeat
+	p.writeMu.Unlock()
+	_ = p.applyRepeat(repeat)
+	if restoreVol {
+		_ = p.command("set_property", "volume", vol)
+		_ = p.command("set_property", "mute", muted)
+	}
 
 	// Ask mpv to push updates for the properties we surface in State().
 	for i, prop := range []string{
 		"time-pos", "duration", "pause", "idle-active",
 		"playlist-pos", "paused-for-cache", "demuxer-cache-time",
+		"volume", "mute",
 	} {
 		_ = p.command("observe_property", i+1, prop)
 	}
@@ -210,6 +235,16 @@ func dialWithRetry(path string, exited <-chan struct{}, timeout time.Duration) (
 // learn which entry is playing. Always unpauses so a fresh selection
 // plays rather than silently inheriting a prior paused state.
 func (p *Player) LoadList(urls []string, start int) error {
+	return p.loadList(urls, start, false)
+}
+
+// LoadListPaused is LoadList, but leaves playback paused on the start
+// entry — for restoring a saved queue without blaring music at launch.
+func (p *Player) LoadListPaused(urls []string, start int) error {
+	return p.loadList(urls, start, true)
+}
+
+func (p *Player) loadList(urls []string, start int, paused bool) error {
 	if len(urls) == 0 {
 		return p.Stop()
 	}
@@ -231,7 +266,7 @@ func (p *Player) LoadList(urls []string, start int) error {
 			return err
 		}
 	}
-	if err := p.command("set_property", "pause", false); err != nil {
+	if err := p.command("set_property", "pause", paused); err != nil {
 		return err
 	}
 	if err := p.command("set_property", "playlist-pos", start); err != nil {
@@ -240,7 +275,7 @@ func (p *Player) LoadList(urls []string, start int) error {
 	p.stateMu.Lock()
 	p.state.PlaylistPos = start
 	p.state.Position, p.state.Duration, p.state.CacheTime = 0, 0, 0
-	p.state.Paused, p.state.Exhausted = false, false
+	p.state.Paused, p.state.Exhausted = paused, false
 	p.stateMu.Unlock()
 	return nil
 }
@@ -294,7 +329,8 @@ func (p *Player) TogglePause() error {
 // Stop clears the playlist and stops playback.
 func (p *Player) Stop() error {
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, Idle: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	p.state = State{PlaylistPos: -1, Idle: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError,
+		Volume: p.state.Volume, Muted: p.state.Muted}
 	p.stateMu.Unlock()
 	return p.command("stop")
 }
@@ -302,6 +338,77 @@ func (p *Player) Stop() error {
 // Seek moves the playback position by delta (negative seeks backward).
 func (p *Player) Seek(delta time.Duration) error {
 	return p.command("seek", delta.Seconds(), "relative")
+}
+
+// SetVolume sets the volume, clamped to 0–100.
+func (p *Player) SetVolume(v float64) error {
+	return p.command("set_property", "volume", min(max(v, 0), 100))
+}
+
+// AddVolume changes the volume by delta, clamped to 0–100, unmuting —
+// turning it up while muted should be audible.
+func (p *Player) AddVolume(delta float64) error {
+	if err := p.SetMuted(false); err != nil {
+		return err
+	}
+	return p.SetVolume(p.State().Volume + delta)
+}
+
+// SetMuted mutes or unmutes without touching the volume level.
+func (p *Player) SetMuted(muted bool) error {
+	return p.command("set_property", "mute", muted)
+}
+
+// SetRepeat sets what happens at the end of a track / the playlist. It
+// persists across LoadList and mpv restarts.
+func (p *Player) SetRepeat(r Repeat) error {
+	p.writeMu.Lock()
+	p.repeat = r
+	p.writeMu.Unlock()
+	return p.applyRepeat(r)
+}
+
+func (p *Player) applyRepeat(r Repeat) error {
+	file, list := "no", "no"
+	switch r {
+	case RepeatQueue:
+		list = "inf"
+	case RepeatTrack:
+		file = "inf"
+	}
+	if err := p.command("set_property", "loop-file", file); err != nil {
+		return err
+	}
+	return p.command("set_property", "loop-playlist", list)
+}
+
+// Rearrange rebuilds the playlist around the entry now playing, which
+// keeps playing uninterrupted: before become the entries ahead of it and
+// after the ones following it, in order. Used to shuffle and unshuffle.
+func (p *Player) Rearrange(before, after []string) error {
+	// playlist-clear drops every entry except the current one, which
+	// becomes index 0.
+	if err := p.command("playlist-clear"); err != nil {
+		return err
+	}
+	for _, u := range before {
+		if err := p.command("loadfile", u, "append"); err != nil {
+			return err
+		}
+	}
+	if len(before) > 0 {
+		// Move the current entry from 0 to just after the ones before
+		// it (playlist-move inserts in front of its second index).
+		if err := p.command("playlist-move", 0, len(before)+1); err != nil {
+			return err
+		}
+	}
+	for _, u := range after {
+		if err := p.command("loadfile", u, "append"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SeekTo moves the playback position to pos within the current track.
@@ -429,7 +536,8 @@ func (p *Player) readLoop(conn net.Conn) {
 		return
 	}
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, Idle: true, Dead: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	p.state = State{PlaylistPos: -1, Idle: true, Dead: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError,
+		Volume: p.state.Volume, Muted: p.state.Muted}
 	p.stateMu.Unlock()
 	p.notify()
 }
@@ -502,6 +610,14 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 			p.state.CacheTime = seconds(*secs)
 		} else {
 			p.state.CacheTime = 0
+		}
+	case "volume":
+		if v := decode[float64](data); v != nil {
+			p.state.Volume = *v
+		}
+	case "mute":
+		if v := decode[bool](data); v != nil {
+			p.state.Muted = *v
 		}
 	}
 }

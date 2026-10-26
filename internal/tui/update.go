@@ -51,11 +51,31 @@ func (m *Model) handlePlaybackKey(msg tea.KeyPressMsg) bool {
 		m.seekBy(-10 * time.Second)
 	case key.Matches(msg, k.SeekForward):
 		m.seekBy(10 * time.Second)
+	case key.Matches(msg, k.VolumeUp):
+		if m.player != nil {
+			_ = m.player.AddVolume(volumeStep)
+		}
+	case key.Matches(msg, k.VolumeDown):
+		if m.player != nil {
+			_ = m.player.AddVolume(-volumeStep)
+		}
+	case key.Matches(msg, k.Mute):
+		if m.player != nil {
+			_ = m.player.SetMuted(!m.player.State().Muted)
+		}
+	case key.Matches(msg, k.Repeat):
+		m.cycleRepeat()
+	case key.Matches(msg, k.Shuffle):
+		m.toggleShuffle()
 	default:
 		return false
 	}
 	return true
 }
+
+// volumeStep is how much one press of + / - changes the volume, in
+// percentage points.
+const volumeStep = 5
 
 // needsSpinner reports whether any loading indicator is on screen.
 func (m Model) needsSpinner() bool {
@@ -296,6 +316,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
+		case key.Matches(msg, k.ToggleView):
+			if !m.supportsGrid() {
+				return m, nil
+			}
+			m.toggleGrid()
+			// Remembered like the sort order: the setting this flips is
+			// the level's default view.
+			m.cfg.DefaultViewArtist = viewName(m.gridArtists)
+			m.cfg.DefaultViewAlbum = viewName(m.gridAlbums)
+			_ = m.cfg.Save()
+			m.list.SetSize(m.width, m.listHeight())
+			return m, m.visibleArtworkFetches()
+		case key.Matches(msg, k.GoToPlaying):
+			return m.goToNowPlaying()
 		case key.Matches(msg, k.Right):
 			// List view: → / ← open and go back, as documented (grid view
 			// took them above for cursor movement).
@@ -502,15 +536,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m = m.syncFromPlayer()
+		m.maybeCheckpoint(time.Time(msg))
 		if m.showQueue {
 			idx := m.queueList.Index()
 			m.rebuildQueueList()
 			m.queueList.Select(idx)
 		}
-		// publishMedia mutates m, so call it before m is copied into the
-		// return values (Go doesn't order the two).
+		// publishMedia / reportPlayback mutate m, so call them before m
+		// is copied into the return values (Go doesn't order the two).
 		pub := m.publishMedia()
-		return m, tea.Batch(tick(), pub)
+		rep := m.reportPlayback(time.Time(msg))
+		return m, tea.Batch(tick(), pub, rep)
 
 	case playerChangedMsg:
 		// Same reconcile as the tick, just sooner: a track change or
@@ -522,7 +558,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList.Select(idx)
 		}
 		pub := m.publishMedia()
-		return m, tea.Batch(waitPlayerChange(m.player), pub)
+		rep := m.reportPlayback(time.Now())
+		return m, tea.Batch(waitPlayerChange(m.player), pub, rep)
 
 	case mediaCommandMsg:
 		return m.applyMediaCommand(mpris.Command(msg))
@@ -656,6 +693,10 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			clear(m.artRequested)
 		}
 		m.cfg.Images = v.Images
+		if v.ReportPlayback != m.cfg.ReportsPlayback() {
+			on := v.ReportPlayback
+			m.cfg.ReportPlayback = &on
+		}
 		m.cfg.DownloadFolder = v.DownloadFolder
 		m.cfg.DownloadQuality = v.DownloadQuality
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"
@@ -787,6 +828,8 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.OpenQueue):
 		m.openQueue()
 		return m, nil
+	case key.Matches(msg, k.GoToPlaying):
+		return m.goToNowPlaying()
 	case key.Matches(msg, k.Refresh):
 		// Re-fetch the three dashboard tiles. Only meaningful when we
 		// have a client + a library to query against.
@@ -807,7 +850,10 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch outcome {
 	case dashOutcomePlayTrack:
 		if t, ok := m.dashboard.SelectedTrack(); ok {
-			model, pcmd := m.playTracks([]media.Track{t}, 0)
+			// Carry on through the rest of its album, as starting a track
+			// from the browser does, rather than stopping after one.
+			tracks, start := m.albumContext(t)
+			model, pcmd := m.playTracks(tracks, start)
 			return model, tea.Batch(cmd, pcmd)
 		}
 	case dashOutcomeOpenAlbum:

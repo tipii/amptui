@@ -17,7 +17,8 @@ Working today:
 - [x] Browse: libraries → artists → albums → tracks (list or grid)
 - [x] Plex-style sorting per level (`o`) — title, year, date added, duration, counts — remembered across launches
 - [x] Dashboard home with recent plays, recently added, recent playlists
-- [x] Play via mpv: pause/resume, seek, next/prev, queue with auto-advance
+- [x] Play via mpv: pause/resume, seek, next/prev, volume/mute, repeat, shuffle, queue with auto-advance
+- [x] Queue and position restored (paused) on the next launch
 - [x] OS media controls (Linux, MPRIS): media keys, `playerctl`, and bar / notification widgets show what's playing and drive it
 - [x] Queue modal: reorder, delete, jump-to-play, track progress bar
 - [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
@@ -27,7 +28,7 @@ Working today:
 - [x] Editable settings screen, in-app keybindings modal (`?`)
 - [x] Pluggable backend — Plex or Jellyfin, selected by config, behind one `media.Backend` interface
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; the server is only touched during sync or info fetches
-- [ ] Scrobble / mark played
+- [x] Playback reporting: shows in the server's Now Playing, counts plays (feeds "Recent plays")
 
 ## Roadmap
 
@@ -84,6 +85,7 @@ Settings (the required ones depend on the backend — see below):
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 | Download folder     | `download_folder`     | path                    | Where `d` saves tracks/albums. Empty disables downloads.            |
 | Download quality    | `download_quality`    | `original` / `mp3-NNN`  | What `d` asks the server for. See [Downloads](#downloads).          |
+| Report playback     | `report_playback`     | `true` / `false`        | Now Playing + play counts on the server. On by default. See [Playback reporting](#playback-reporting). |
 | Sort (artists)      | `sort_artist`         | `<field>:<direction>`   | Artist ordering. Written by the `o` modal. See [Sorting](#sorting). |
 | Sort (albums)       | `sort_album`          | `<field>:<direction>`   | Album ordering.                                                     |
 | Sort (tracks)       | `sort_track`          | `<field>:<direction>`   | Track ordering.                                                     |
@@ -226,6 +228,27 @@ to `~/.cache/amptui/img/` so subsequent views skip the network.
 Press `C` from the settings screen to purge the image cache; the **Image
 cache** section there shows the current path, file count, and disk size.
 
+### Playback reporting
+
+By default amptui tells the server what it's playing, the way official
+clients do: it appears in Plex's / Jellyfin's Now Playing (with progress
+and pause state), and a track counts as played once you're 90% through
+it — its play count and last-played time update, so the dashboard's
+*Recent plays* includes what you play in amptui. Plex gets timeline
+updates plus an explicit scrobble (its timeline alone doesn't count the
+play); Jellyfin gets session start / progress / stop reports and marks
+the play itself. Turn it off with **Report playback** in settings
+(`report_playback = false`).
+
+### Picking up where you left off
+
+On quit, amptui saves the queue, the track and position you were at,
+shuffle / repeat, and the volume to `~/.local/state/amptui/session.json`
+(`$XDG_STATE_HOME` if set) — and every 30 seconds while playing, so a
+crash loses little. The next launch restores it **paused** on that track;
+press space to continue. A session saved against a different server
+restores only the volume and play modes.
+
 ### Media controls
 
 On Linux, amptui registers on the D-Bus session bus as an
@@ -243,7 +266,9 @@ playerctl -p amptui metadata --format '{{ artist }} — {{ title }}'
 ```
 
 Supported: play / pause / play-pause, next / previous (through amptui's
-own queue), relative seek, set position, and quit. Published metadata
+own queue), relative seek, set position, volume (`playerctl -p amptui
+volume 0.5`), shuffle and loop status (`playerctl -p amptui shuffle
+toggle`, `loop Playlist`), and quit. Published metadata
 covers title, artist, album, track number, length, and cover art. The
 cover is handed out as a `file://` path into the image cache, never as
 a server URL, so the auth token doesn't leak to whatever widget reads
@@ -268,12 +293,18 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `/`                   | Filter the current list                      |
 | `i`                   | Artist / album info (bio, genres, similar)   |
 | `space`               | Pause / resume                               |
-| `n` / `p`             | Next / previous in queue                     |
+| `n` / `p`             | Next / previous in queue (`p` more than 3s into a track restarts it) |
 | `<` / `>`             | Seek −10s / +10s                             |
+| `+` / `-`             | Volume up / down 5%                          |
+| `m`                   | Mute / unmute                                |
+| `r`                   | Repeat: off → queue → track                  |
+| `z`                   | Shuffle on / off (off restores the queue's order) |
 | `,`                   | Open / close the settings screen             |
-| `q`                   | Add highlighted track or album to queue      |
+| `q`                   | Add highlighted track, album, or artist (whole discography) to queue |
+| `v`                   | Toggle grid / list for the current level (remembered) |
+| `g`                   | Go to the now-playing track in its album     |
 | `Q`                   | Open / close the queue modal                 |
-| `d`                   | Download highlighted track or album (see [Downloads](#downloads)) |
+| `d`                   | Download highlighted track, album, or artist (see [Downloads](#downloads)) |
 | `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
 | `o`                   | Sort the current level (see [Sorting](#sorting)) |

@@ -184,6 +184,19 @@ type Model struct {
 	queueIdx int
 	// playerErrSeq is the last player.State().ErrorSeq surfaced in m.err.
 	playerErrSeq int
+	// queueSeq numbers each queue entry, index for index with m.queue:
+	// the order to restore when shuffle is turned off.
+	queueSeq   []int
+	seqCounter int
+	// shuffle / repeat are the play-order modes (z / r).
+	shuffle bool
+	repeat  player.Repeat
+	// pendingSeek is a restored session's position, applied once mpv
+	// has the track open; lastCheckpoint is when it was last saved.
+	pendingSeek    time.Duration
+	lastCheckpoint time.Time
+	// report is the play currently reported to the server (report.go).
+	report *playReport
 
 	// showQueue / showHelp / showInfo / showSort are true while their
 	// modal is open; an open modal owns input. The search modal's open

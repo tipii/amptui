@@ -118,3 +118,61 @@ func TestNullProperties(t *testing.T) {
 		t.Errorf("time-pos null → %v, want 0", got)
 	}
 }
+
+func TestVolumeAndMute(t *testing.T) {
+	p := newTestPlayer(t)
+	waitFor(t, "initial volume", func(s State) bool { return s.Volume == 100 }, p)
+	if err := p.AddVolume(-15); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "volume 85", func(s State) bool { return s.Volume == 85 }, p)
+	if err := p.SetMuted(true); err != nil {
+		t.Fatal(err)
+	}
+	st := waitFor(t, "muted", func(s State) bool { return s.Muted }, p)
+	if st.Volume != 85 {
+		t.Errorf("mute changed the volume to %v", st.Volume)
+	}
+	// Turning it up while muted unmutes.
+	if err := p.AddVolume(5); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "unmuted at 90", func(s State) bool { return !s.Muted && s.Volume == 90 }, p)
+	if err := p.SetVolume(250); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "clamped to 100", func(s State) bool { return s.Volume == 100 }, p)
+}
+
+func TestRepeatQueueLoops(t *testing.T) {
+	p := newTestPlayer(t)
+	if err := p.SetRepeat(RepeatQueue); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.LoadList([]string{tone("0.2"), tone("0.2")}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Short tones end before time-pos is ever sampled, so follow the
+	// index: 1 → wraps to 0 → back to 1 means it's looping.
+	waitFor(t, "wrap to first", func(s State) bool { return s.PlaylistPos == 0 }, p)
+	waitFor(t, "around again", func(s State) bool { return s.PlaylistPos == 1 }, p)
+	if p.State().Exhausted {
+		t.Error("a looping playlist reported exhaustion")
+	}
+}
+
+// Rearrange keeps the playing entry playing and puts the rest around it.
+func TestRearrangeAroundCurrent(t *testing.T) {
+	p := newTestPlayer(t)
+	if err := p.LoadList([]string{tone("5"), tone("5"), tone("5")}, 1); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "entry 1 playing", func(s State) bool { return s.PlaylistPos == 1 && s.Position > 0 }, p)
+	if err := p.Rearrange([]string{tone("5"), tone("5")}, []string{tone("5")}); err != nil {
+		t.Fatal(err)
+	}
+	st := waitFor(t, "current moved to index 2", func(s State) bool { return s.PlaylistPos == 2 }, p)
+	if st.Position == 0 || st.Idle {
+		t.Errorf("playback interrupted: %+v", st)
+	}
+}

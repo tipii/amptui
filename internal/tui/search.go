@@ -464,3 +464,20 @@ func (m *Model) pushLibrariesCrumb() {
 		key:   key,
 	})
 }
+
+// goToNowPlaying opens the playing track's album in the browser with the
+// track highlighted (g), from wherever the user is.
+func (m Model) goToNowPlaying() (tea.Model, tea.Cmd) {
+	t := m.nowPlaying
+	if t == nil || t.AlbumRatingKey == "" || m.library == nil {
+		return m, nil
+	}
+	m, cmd := m.jumpToAlbum(t.AlbumRatingKey)
+	for i, it := range m.list.Items() {
+		if ti, ok := it.(trackItem); ok && ti.track.RatingKey == t.RatingKey {
+			m.list.Select(i)
+			break
+		}
+	}
+	return m, cmd
+}
