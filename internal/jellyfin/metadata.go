@@ -16,7 +16,10 @@ const itemFields = "Overview,Genres,Studios"
 // empty when the server hasn't scraped them — the UI renders that
 // gracefully. Similar artists come from a separate endpoint.
 func (c *Client) ArtistMetadata(ctx context.Context, ratingKey string) (*media.ArtistMetadata, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := url.Values{"Fields": {itemFields}}
 	var it itemDTO
 	if err := c.get(ctx, "/Users/"+userID+"/Items/"+ratingKey, q, &it); err != nil {
@@ -50,7 +53,10 @@ func (c *Client) similarArtists(ctx context.Context, ratingKey string) ([]string
 
 // AlbumMetadata fetches one album's metadata.
 func (c *Client) AlbumMetadata(ctx context.Context, ratingKey string) (*media.AlbumMetadata, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := url.Values{"Fields": {itemFields}}
 	var it itemDTO
 	if err := c.get(ctx, "/Users/"+userID+"/Items/"+ratingKey, q, &it); err != nil {

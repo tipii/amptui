@@ -24,6 +24,9 @@ func (c *Client) ArtworkURL(ratingKey string) string {
 		return ""
 	}
 	token, _ := c.creds()
+	if token == "" {
+		return "" // not logged in: a tokenless URL would just 401 later
+	}
 	return fmt.Sprintf("%s/Items/%s/Images/Primary?fillWidth=%d&fillHeight=%d&quality=90&api_key=%s",
 		c.serverURL, url.PathEscape(ratingKey), artworkMaxDim, artworkMaxDim, url.QueryEscape(token))
 }
