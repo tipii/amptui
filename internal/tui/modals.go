@@ -42,15 +42,38 @@ func (m Model) modalFrame(content string) string {
 	return modalStyle.Width(w).Height(h).Render(content)
 }
 
+// wideModalSize is for the modals that are mostly text to read — help
+// and artist / album info: nearly the full width (capped so lines stay
+// readable) and a bit taller. At 70% they were too narrow at 80 columns.
+func (m Model) wideModalSize() (w, h int) {
+	return max(min(m.width-4, 100), 20), max(m.height*8/10, 8)
+}
+
+func (m Model) wideModalFrame(content string) string {
+	w, h := m.wideModalSize()
+	return modalStyle.Width(w).Height(h).Render(content)
+}
+
+// fitModalFrame is a modal w wide whose height follows its content (up
+// to the usual modal height): for short, fixed content — the sort
+// options, an empty queue — that the full-size box left mostly blank.
+func (m Model) fitModalFrame(content string, w int) string {
+	mw, h := m.modalSize()
+	return modalStyle.Width(min(w, mw)).MaxHeight(h).Render(content)
+}
+
+// compactModalW is the width of fitModalFrame boxes holding a short list
+// or a one-line message.
+const compactModalW = 56
+
 // queueModalBox renders the bordered queue box. Positioning is handled by
 // the compositor in overlayBox.
 func (m Model) queueModalBox() string {
 	title := headerStyle.Render("Queue" + countSuffix(len(m.queue), "track"))
-	body := m.queueList.View()
 	if len(m.queue) == 0 {
-		body = helpStyle.Render("queue is empty — press q on a track or album to add")
+		return m.fitModalFrame(title+"\n"+helpStyle.Render("queue is empty — press q on a track or album to add"), compactModalW)
 	}
-	return m.modalFrame(title + "\n" + body)
+	return m.modalFrame(title + "\n" + m.queueList.View())
 }
 
 // searchModalBox wraps the sub-model's body in the shared modal frame.
@@ -98,7 +121,7 @@ func (m Model) helpModalBox() string {
 	if !m.helpViewport.AtBottom() {
 		title += helpStyle.Render("  ↓ more")
 	}
-	return m.modalFrame(title + "\n" + m.helpViewport.View())
+	return m.wideModalFrame(title + "\n" + m.helpViewport.View())
 }
 
 // helpBodyContent renders the help-modal body, width columns wide, from

@@ -108,8 +108,10 @@ func TestHelpModalRenders(t *testing.T) {
 	if !strings.Contains(out, "Keybindings") {
 		t.Errorf("expected the help modal title in the view")
 	}
-	if !strings.Contains(out, "Soundtracks") {
-		t.Errorf("expected the background list to show through the overlay")
+	// The help modal is wide (it's mostly text), so check the screen
+	// behind it via the title bar above it rather than a list row.
+	if !strings.Contains(out, "amptui") {
+		t.Errorf("expected the background screen to show around the overlay")
 	}
 	t.Log("\n" + out)
 }

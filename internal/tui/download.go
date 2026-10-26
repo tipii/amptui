@@ -449,7 +449,9 @@ func (m Model) downloadsModalBox() string {
 		pad = 1
 	}
 	title := left + strings.Repeat(" ", pad) + right
-	return m.modalFrame(title + "\n" + m.downloadsModalBody(innerW))
+	// Height follows the job list: with none or a couple, the full-size
+	// box was mostly blank.
+	return m.fitModalFrame(title+"\n"+m.downloadsModalBody(innerW), mw)
 }
 
 func (m Model) downloadsModalBody(innerW int) string {
