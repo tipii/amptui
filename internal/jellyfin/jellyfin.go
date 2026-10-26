@@ -203,7 +203,10 @@ func (c *Client) getOnce(ctx context.Context, hc *http.Client, path string, q ur
 		return err
 	}
 	token, _ := c.creds()
-	req.Header.Set("X-Emby-Token", token)
+	// The standard MediaBrowser header, not the legacy X-Emby-Token,
+	// which Jellyfin 12 rejects with 401 (legacy authorization is off
+	// by default there). Every Jellyfin version accepts this one.
+	req.Header.Set("Authorization", c.authValue(token))
 	req.Header.Set("Accept", "application/json")
 	resp, err := hc.Do(req)
 	if err != nil {

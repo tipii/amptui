@@ -78,7 +78,6 @@ func (c *Client) postOnce(ctx context.Context, path string, body any) error {
 	// The full MediaBrowser header (not just the token) is what ties
 	// the report to this device's session.
 	req.Header.Set("Authorization", c.authValue(token))
-	req.Header.Set("X-Emby-Token", token)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
