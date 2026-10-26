@@ -35,6 +35,7 @@ import (
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
+	"github.com/tipii/amptui/internal/chafa"
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/library"
@@ -171,6 +172,11 @@ type Model struct {
 	gridPics        map[string]*picture.Model
 	// artRequested marks grid thumbs already fetched or in flight.
 	artRequested map[string]bool
+	// useChafa is set when artwork is drawn by the chafa CLI (no Kitty
+	// graphics, chafa installed); chafaOut holds its renders by
+	// chafaID. See chafa.go.
+	useChafa bool
+	chafaOut map[string]string
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
 	// same fetched image so toggling between list / grid never refetches.
@@ -262,7 +268,8 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	// thumbReadyMsg "grid:…" handling) so switching never refetches.
 	gridPics := map[string]*picture.Model{}
 	listPics := map[string]*picture.Model{}
-	l := list.New(items, newThumbDelegate(listPics), 0, 0)
+	chafaOut := map[string]string{}
+	l := list.New(items, newThumbDelegate(listPics, chafaOut), 0, 0)
 	l.Title = "Libraries"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
@@ -316,6 +323,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		picMode:         pictureModeFromProtocol(imgcache.Detect()),
 		gridPics:        gridPics,
 		artRequested:    map[string]bool{},
+		chafaOut:        chafaOut,
 		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
@@ -356,6 +364,10 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		m.loading = true
 		m.activeLib = defaultLib
 	}
+
+	// chafa only stands in for the half-block fallback; Kitty-capable
+	// terminals keep real images.
+	m.useChafa = m.picMode == picture.PictureGlyph && chafa.Available()
 
 	m.helpViewport.SetContent(m.helpBodyContent())
 

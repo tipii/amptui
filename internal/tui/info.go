@@ -37,17 +37,20 @@ func (m Model) headerThumb() string {
 	if !m.cfg.Images {
 		return ""
 	}
-	var p *picture.Model
+	var (
+		p   *picture.Model
+		key string
+	)
 	switch m.level {
 	case levelAlbums:
-		p = m.artistHeaderPic
+		p, key = m.artistHeaderPic, m.curArtistKey
 	case levelTracks:
-		p = m.albumHeaderPic
+		p, key = m.albumHeaderPic, m.curAlbumKey
 	}
 	if p == nil {
 		return ""
 	}
-	return p.View().Content
+	return m.thumbText(key, p, headerThumbCellsW, headerThumbCellsH)
 }
 
 // infoHeaderBlock renders the multi-line panel docked next to the
@@ -220,24 +223,25 @@ func (m Model) infoModalContent() string {
 	var (
 		meta string
 		pic  *picture.Model
+		key  string
 	)
 	switch m.level {
 	case levelAlbums:
 		if a := m.artistMeta; a != nil {
 			meta = formatArtistInfo(a)
-			pic = m.artistModalPic
+			pic, key = m.artistModalPic, m.curArtistKey
 		}
 	case levelTracks:
 		if a := m.albumMeta; a != nil {
 			meta = formatAlbumInfo(a)
-			pic = m.albumModalPic
+			pic, key = m.albumModalPic, m.curAlbumKey
 		}
 	}
 	if meta == "" {
 		return ""
 	}
 	if m.cfg.Images && pic != nil {
-		if img := pic.View().Content; img != "" {
+		if img := m.thumbText(key, pic, modalThumbCellsW, modalThumbCellsH); img != "" {
 			return img + "\n\n" + meta
 		}
 	}
