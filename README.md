@@ -28,7 +28,7 @@ Working today:
 - [x] Editable settings screen, in-app keybindings modal (`?`)
 - [x] Pluggable backend — Plex or Jellyfin, selected by config, behind one `media.Backend` interface
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; the server is only touched during sync or info fetches
-- [ ] Scrobble / mark played
+- [x] Playback reporting: shows in the server's Now Playing, counts plays (feeds "Recent plays")
 
 ## Roadmap
 
@@ -85,6 +85,7 @@ Settings (the required ones depend on the backend — see below):
 | Inline artwork      | `images`              | `false` / `true`        | Render artist / album thumbnails. See [Inline artwork](#inline-artwork). |
 | Download folder     | `download_folder`     | path                    | Where `d` saves tracks/albums. Empty disables downloads.            |
 | Download quality    | `download_quality`    | `original` / `mp3-NNN`  | What `d` asks the server for. See [Downloads](#downloads).          |
+| Report playback     | `report_playback`     | `true` / `false`        | Now Playing + play counts on the server. On by default. See [Playback reporting](#playback-reporting). |
 | Sort (artists)      | `sort_artist`         | `<field>:<direction>`   | Artist ordering. Written by the `o` modal. See [Sorting](#sorting). |
 | Sort (albums)       | `sort_album`          | `<field>:<direction>`   | Album ordering.                                                     |
 | Sort (tracks)       | `sort_track`          | `<field>:<direction>`   | Track ordering.                                                     |
@@ -226,6 +227,18 @@ Thumbnails are fetched on demand from the backend (Plex's
 to `~/.cache/amptui/img/` so subsequent views skip the network.
 Press `C` from the settings screen to purge the image cache; the **Image
 cache** section there shows the current path, file count, and disk size.
+
+### Playback reporting
+
+By default amptui tells the server what it's playing, the way official
+clients do: it appears in Plex's / Jellyfin's Now Playing (with progress
+and pause state), and a track counts as played once you're 90% through
+it — its play count and last-played time update, so the dashboard's
+*Recent plays* includes what you play in amptui. Plex gets timeline
+updates plus an explicit scrobble (its timeline alone doesn't count the
+play); Jellyfin gets session start / progress / stop reports and marks
+the play itself. Turn it off with **Report playback** in settings
+(`report_playback = false`).
 
 ### Picking up where you left off
 

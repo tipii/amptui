@@ -98,6 +98,7 @@ func run() error {
 	// is current.
 	if fm, ok := final.(tui.Model); ok {
 		_ = fm.SaveSession()
+		fm.StopReport()
 	}
 	return err
 }

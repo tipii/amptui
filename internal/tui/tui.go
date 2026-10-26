@@ -195,6 +195,8 @@ type Model struct {
 	// has the track open; lastCheckpoint is when it was last saved.
 	pendingSeek    time.Duration
 	lastCheckpoint time.Time
+	// report is the play currently reported to the server (report.go).
+	report *playReport
 
 	// showQueue / showHelp / showInfo / showSort are true while their
 	// modal is open; an open modal owns input. The search modal's open

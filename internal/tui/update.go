@@ -542,10 +542,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildQueueList()
 			m.queueList.Select(idx)
 		}
-		// publishMedia mutates m, so call it before m is copied into the
-		// return values (Go doesn't order the two).
+		// publishMedia / reportPlayback mutate m, so call them before m
+		// is copied into the return values (Go doesn't order the two).
 		pub := m.publishMedia()
-		return m, tea.Batch(tick(), pub)
+		rep := m.reportPlayback(time.Time(msg))
+		return m, tea.Batch(tick(), pub, rep)
 
 	case playerChangedMsg:
 		// Same reconcile as the tick, just sooner: a track change or
@@ -557,7 +558,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queueList.Select(idx)
 		}
 		pub := m.publishMedia()
-		return m, tea.Batch(waitPlayerChange(m.player), pub)
+		rep := m.reportPlayback(time.Now())
+		return m, tea.Batch(waitPlayerChange(m.player), pub, rep)
 
 	case mediaCommandMsg:
 		return m.applyMediaCommand(mpris.Command(msg))
@@ -691,6 +693,10 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			clear(m.artRequested)
 		}
 		m.cfg.Images = v.Images
+		if v.ReportPlayback != m.cfg.ReportsPlayback() {
+			on := v.ReportPlayback
+			m.cfg.ReportPlayback = &on
+		}
 		m.cfg.DownloadFolder = v.DownloadFolder
 		m.cfg.DownloadQuality = v.DownloadQuality
 		m.gridArtists = m.cfg.DefaultViewArtist == "grid"

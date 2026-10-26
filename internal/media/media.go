@@ -146,4 +146,32 @@ type Backend interface {
 	// FetchImage GETs an absolute URL (typically from ArtworkURL) and
 	// returns the bytes.
 	FetchImage(ctx context.Context, absURL string) ([]byte, error)
+
+	// ReportPlayback tells the server what's playing, so it shows in
+	// its Now Playing / sessions view: once on start, on pause and
+	// resume, periodically while playing, and on stop.
+	ReportPlayback(ctx context.Context, r PlaybackReport) error
+	// MarkPlayed records a completed play (play count, last played).
+	// Called once per play, past 90% of the track. A backend whose
+	// server already infers it from the stop report does nothing.
+	MarkPlayed(ctx context.Context, t Track) error
+}
+
+// PlaybackState is the state carried by a PlaybackReport.
+type PlaybackState string
+
+const (
+	PlaybackPlaying PlaybackState = "playing"
+	PlaybackPaused  PlaybackState = "paused"
+	PlaybackStopped PlaybackState = "stopped"
+)
+
+// PlaybackReport is one playback progress update for the server.
+// Started is set on the first report of a play.
+type PlaybackReport struct {
+	Track    Track
+	State    PlaybackState
+	Position time.Duration
+	Duration time.Duration
+	Started  bool
 }
