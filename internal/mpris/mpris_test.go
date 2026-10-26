@@ -154,3 +154,27 @@ func TestVolumeIsWritable(t *testing.T) {
 		t.Errorf("Volume = %v, %v", vol, err)
 	}
 }
+
+func TestShuffleAndLoopAreWritable(t *testing.T) {
+	s, obj := newTestPair(t)
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Shuffle", dbus.MakeVariant(true)).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetShuffle || !got.Shuffle {
+		t.Errorf("Set Shuffle: %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "LoopStatus", dbus.MakeVariant("Track")).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetLoop || got.Loop != LoopTrack {
+		t.Errorf("Set LoopStatus: %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "LoopStatus", dbus.MakeVariant("Sometimes")).Err; err == nil {
+		t.Error("invalid LoopStatus accepted")
+	}
+	s.Update(Status{Shuffle: true, Loop: LoopPlaylist})
+	var loop string
+	if err := obj.Call(ifaceProps+".Get", 0, ifacePlayer, "LoopStatus").Store(&loop); err != nil || loop != "Playlist" {
+		t.Errorf("LoopStatus = %q, %v", loop, err)
+	}
+}

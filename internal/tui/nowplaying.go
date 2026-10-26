@@ -7,6 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/tipii/amptui/internal/player"
 )
 
 // nowPlayingLine renders a two-row block: the current track + elapsed
@@ -32,6 +34,15 @@ func (m Model) nowPlayingLine() string {
 			status += "  muted"
 		case s.Volume < 100:
 			status += fmt.Sprintf("  vol %.0f%%", s.Volume)
+		}
+		switch m.repeat {
+		case player.RepeatQueue:
+			status += "  repeat"
+		case player.RepeatTrack:
+			status += "  repeat one"
+		}
+		if m.shuffle {
+			status += "  shuffle"
 		}
 		if t.Duration > 0 {
 			playPct = clampFraction(float64(s.Position) / float64(t.Duration))

@@ -3,11 +3,15 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
+	"sort"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/player"
 )
 
 // Queue playback is delegated to mpv: m.queue mirrors mpv's internal
@@ -55,11 +59,27 @@ func (m Model) playTracks(tracks []media.Track, start int) (tea.Model, tea.Cmd) 
 		m.err = errors.New("nothing playable: the server has no stream for that track")
 		return m, nil
 	}
+	oldQueue, oldSeq := m.queue, m.queueSeq
+	m.setQueue(queue) // numbered in the given order: what unshuffle restores
+	if m.shuffle {
+		// The chosen track first, then the rest at random.
+		order := make([]int, 0, len(queue))
+		order = append(order, start)
+		for i := range queue {
+			if i != start {
+				order = append(order, i)
+			}
+		}
+		rest := order[1:]
+		rand.Shuffle(len(rest), func(a, b int) { rest[a], rest[b] = rest[b], rest[a] })
+		m.queue, m.queueSeq, urls = permute(m.queue, order), permute(m.queueSeq, order), permute(urls, order)
+		start = 0
+	}
 	if err := m.player.LoadList(urls, start); err != nil {
 		m.err = err
+		m.queue, m.queueSeq = oldQueue, oldSeq
 		return m, nil
 	}
-	m.queue = queue
 	m.queueIdx = start
 	t := m.queue[start]
 	m.nowPlaying = &t
@@ -84,7 +104,9 @@ func (m *Model) enqueue(tracks ...media.Track) {
 			m.err = err
 			return
 		}
+		m.ensureSeq()
 		m.queue = append(m.queue, tracks[i])
+		m.queueSeq = append(m.queueSeq, m.nextSeq())
 	}
 	if wasEmpty && len(m.queue) > 0 {
 		m.queueIdx = 0
@@ -192,7 +214,9 @@ func (m *Model) moveQueueItem(delta int) {
 	if i < 0 || i >= len(m.queue) || j < 0 || j >= len(m.queue) {
 		return
 	}
+	m.ensureSeq()
 	m.queue[i], m.queue[j] = m.queue[j], m.queue[i]
+	m.queueSeq[i], m.queueSeq[j] = m.queueSeq[j], m.queueSeq[i]
 	if m.player != nil {
 		_ = m.player.MoveIndex(i, j)
 	}
@@ -217,7 +241,9 @@ func (m *Model) deleteQueueItem() {
 	if i < 0 || i >= len(m.queue) {
 		return
 	}
+	m.ensureSeq()
 	m.queue = append(m.queue[:i], m.queue[i+1:]...)
+	m.queueSeq = append(m.queueSeq[:i], m.queueSeq[i+1:]...)
 	if m.player != nil {
 		_ = m.player.RemoveIndex(i)
 	}
@@ -278,7 +304,7 @@ func (m Model) syncFromPlayer() Model {
 			m.err = errors.New("mpv exited unexpectedly; it will restart with the next track you play")
 		}
 		m.nowPlaying = nil
-		m.queue = nil
+		m.setQueue(nil)
 		m.queueIdx = 0
 	case len(m.queue) == 0:
 	case st.PlaylistPos >= 0 && st.PlaylistPos < len(m.queue):
@@ -293,8 +319,106 @@ func (m Model) syncFromPlayer() Model {
 		// m.queue puts it at 0.
 		_ = m.player.Stop()
 		m.nowPlaying = nil
-		m.queue = nil
+		m.setQueue(nil)
 		m.queueIdx = 0
 	}
 	return m
+}
+
+// setQueue replaces the queue, numbering entries in order (see queueSeq).
+func (m *Model) setQueue(tracks []media.Track) {
+	m.queue = tracks
+	m.queueSeq = make([]int, len(tracks))
+	for i := range m.queueSeq {
+		m.queueSeq[i] = m.nextSeq()
+	}
+}
+
+// ensureSeq renumbers queueSeq in queue order if the two have drifted
+// apart (m.queue assigned directly), so the parallel slices can never
+// index out of step.
+func (m *Model) ensureSeq() {
+	if len(m.queueSeq) == len(m.queue) {
+		return
+	}
+	m.queueSeq = make([]int, len(m.queue))
+	for i := range m.queueSeq {
+		m.queueSeq[i] = m.nextSeq()
+	}
+}
+
+// nextSeq hands out increasing queue sequence numbers.
+func (m *Model) nextSeq() int {
+	m.seqCounter++
+	return m.seqCounter
+}
+
+// toggleShuffle shuffles everything after the playing track (z), or puts
+// the queue back in its unshuffled order. The playing track keeps
+// playing either way; mpv's playlist is rearranged around it.
+//
+// "Unshuffled order" is the queue as it was when shuffle went on, plus
+// anything enqueued since at the end: entries keep their sequence number
+// through the shuffle, and unshuffling sorts by it.
+func (m *Model) toggleShuffle() {
+	m.shuffle = !m.shuffle
+	m.applyShuffle()
+}
+
+// applyShuffle reorders the playing queue to match m.shuffle.
+func (m *Model) applyShuffle() {
+	if len(m.queue) == 0 || m.nowPlaying == nil || m.player == nil {
+		return
+	}
+	m.ensureSeq()
+	idx := m.queueIdx
+	order := make([]int, len(m.queue)) // positions in the new order
+	for i := range order {
+		order[i] = i
+	}
+	if m.shuffle {
+		// Renumber so "unshuffled" means the order right now, including
+		// any manual moves made before turning shuffle on.
+		for i := range m.queueSeq {
+			m.queueSeq[i] = m.nextSeq()
+		}
+		tail := order[idx+1:]
+		rand.Shuffle(len(tail), func(a, b int) { tail[a], tail[b] = tail[b], tail[a] })
+	} else {
+		sort.SliceStable(order, func(a, b int) bool { return m.queueSeq[order[a]] < m.queueSeq[order[b]] })
+	}
+
+	queue, seq := permute(m.queue, order), permute(m.queueSeq, order)
+	newIdx := slices.Index(order, idx)
+	_, urls := m.playable(queue)
+	if len(urls) != len(queue) || m.player.Rearrange(urls[:newIdx], urls[newIdx+1:]) != nil {
+		m.err = errors.New("couldn't reorder the queue")
+		return
+	}
+	m.queue, m.queueSeq, m.queueIdx = queue, seq, newIdx
+	if m.showQueue {
+		m.rebuildQueueList()
+		m.queueList.Select(newIdx)
+	}
+}
+
+// cycleRepeat steps repeat off → queue → track → off (r).
+func (m *Model) cycleRepeat() {
+	m.setRepeat((m.repeat + 1) % 3)
+}
+
+func (m *Model) setRepeat(r player.Repeat) {
+	m.repeat = r
+	if m.player != nil {
+		_ = m.player.SetRepeat(r)
+	}
+}
+
+// permute returns s reordered so element i of the result is s[order[i]].
+func permute[T any](s []T, order []int) []T {
+	out := make([]T, len(order))
+	for to, from := range order {
+		out[to] = s[from]
+	}
+	return out
 }

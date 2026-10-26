@@ -63,6 +63,10 @@ func (m *Model) handlePlaybackKey(msg tea.KeyPressMsg) bool {
 		if m.player != nil {
 			_ = m.player.SetMuted(!m.player.State().Muted)
 		}
+	case key.Matches(msg, k.Repeat):
+		m.cycleRepeat()
+	case key.Matches(msg, k.Shuffle):
+		m.toggleShuffle()
 	default:
 		return false
 	}

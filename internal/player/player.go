@@ -22,6 +22,15 @@ import (
 	"time"
 )
 
+// Repeat is what happens when a track or the playlist ends.
+type Repeat int
+
+const (
+	RepeatOff   Repeat = iota
+	RepeatQueue        // after the last entry, start over at the first
+	RepeatTrack        // replay the current entry until skipped
+)
+
 // ErrDead is returned by commands sent while mpv isn't running.
 var ErrDead = errors.New("mpv is not running")
 
@@ -83,6 +92,7 @@ type Player struct {
 	lastEnd string
 
 	extraArgs []string // reused on restart
+	repeat    Repeat   // re-applied on restart; guarded by writeMu
 
 	// changes carries a coalesced "something other than the playhead
 	// moved" signal (pause, track, idle, duration, buffering, errors)
@@ -161,6 +171,10 @@ func (p *Player) start() error {
 	p.stateMu.Unlock()
 
 	go p.readLoop(conn)
+	p.writeMu.Lock()
+	repeat := p.repeat
+	p.writeMu.Unlock()
+	_ = p.applyRepeat(repeat)
 	if restoreVol {
 		_ = p.command("set_property", "volume", vol)
 		_ = p.command("set_property", "mute", muted)
@@ -333,6 +347,58 @@ func (p *Player) AddVolume(delta float64) error {
 // SetMuted mutes or unmutes without touching the volume level.
 func (p *Player) SetMuted(muted bool) error {
 	return p.command("set_property", "mute", muted)
+}
+
+// SetRepeat sets what happens at the end of a track / the playlist. It
+// persists across LoadList and mpv restarts.
+func (p *Player) SetRepeat(r Repeat) error {
+	p.writeMu.Lock()
+	p.repeat = r
+	p.writeMu.Unlock()
+	return p.applyRepeat(r)
+}
+
+func (p *Player) applyRepeat(r Repeat) error {
+	file, list := "no", "no"
+	switch r {
+	case RepeatQueue:
+		list = "inf"
+	case RepeatTrack:
+		file = "inf"
+	}
+	if err := p.command("set_property", "loop-file", file); err != nil {
+		return err
+	}
+	return p.command("set_property", "loop-playlist", list)
+}
+
+// Rearrange rebuilds the playlist around the entry now playing, which
+// keeps playing uninterrupted: before become the entries ahead of it and
+// after the ones following it, in order. Used to shuffle and unshuffle.
+func (p *Player) Rearrange(before, after []string) error {
+	// playlist-clear drops every entry except the current one, which
+	// becomes index 0.
+	if err := p.command("playlist-clear"); err != nil {
+		return err
+	}
+	for _, u := range before {
+		if err := p.command("loadfile", u, "append"); err != nil {
+			return err
+		}
+	}
+	if len(before) > 0 {
+		// Move the current entry from 0 to just after the ones before
+		// it (playlist-move inserts in front of its second index).
+		if err := p.command("playlist-move", 0, len(before)+1); err != nil {
+			return err
+		}
+	}
+	for _, u := range after {
+		if err := p.command("loadfile", u, "append"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SeekTo moves the playback position to pos within the current track.

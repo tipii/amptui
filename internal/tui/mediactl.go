@@ -70,6 +70,18 @@ func (m Model) applyMediaCommand(c mpris.Command) (tea.Model, tea.Cmd) {
 			_ = m.player.SetVolume(c.Volume * 100)
 		}
 		return m, waitMediaCommand(m.mpris)
+	case mpris.SetShuffle:
+		if c.Shuffle != m.shuffle {
+			m.toggleShuffle()
+		}
+		pub := m.publishMedia()
+		return m, tea.Batch(waitMediaCommand(m.mpris), pub)
+	case mpris.SetLoop:
+		m.setRepeat(map[mpris.LoopStatus]player.Repeat{
+			mpris.LoopNone: player.RepeatOff, mpris.LoopPlaylist: player.RepeatQueue, mpris.LoopTrack: player.RepeatTrack,
+		}[c.Loop])
+		pub := m.publishMedia()
+		return m, tea.Batch(waitMediaCommand(m.mpris), pub)
 	}
 	if m.player == nil || m.nowPlaying == nil {
 		return m, waitMediaCommand(m.mpris)
@@ -141,7 +153,8 @@ func (m *Model) publishMedia() tea.Cmd {
 	if m.mpris == nil {
 		return nil
 	}
-	st := mpris.Status{State: mpris.Stopped, Volume: 1}
+	st := mpris.Status{State: mpris.Stopped, Volume: 1, Shuffle: m.shuffle,
+		Loop: [...]mpris.LoopStatus{mpris.LoopNone, mpris.LoopPlaylist, mpris.LoopTrack}[m.repeat]}
 	if m.player != nil {
 		if ps := m.player.State(); ps.Muted {
 			st.Volume = 0

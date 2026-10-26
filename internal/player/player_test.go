@@ -143,3 +143,36 @@ func TestVolumeAndMute(t *testing.T) {
 	}
 	waitFor(t, "clamped to 100", func(s State) bool { return s.Volume == 100 }, p)
 }
+
+func TestRepeatQueueLoops(t *testing.T) {
+	p := newTestPlayer(t)
+	if err := p.SetRepeat(RepeatQueue); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.LoadList([]string{tone("0.2"), tone("0.2")}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Short tones end before time-pos is ever sampled, so follow the
+	// index: 1 → wraps to 0 → back to 1 means it's looping.
+	waitFor(t, "wrap to first", func(s State) bool { return s.PlaylistPos == 0 }, p)
+	waitFor(t, "around again", func(s State) bool { return s.PlaylistPos == 1 }, p)
+	if p.State().Exhausted {
+		t.Error("a looping playlist reported exhaustion")
+	}
+}
+
+// Rearrange keeps the playing entry playing and puts the rest around it.
+func TestRearrangeAroundCurrent(t *testing.T) {
+	p := newTestPlayer(t)
+	if err := p.LoadList([]string{tone("5"), tone("5"), tone("5")}, 1); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "entry 1 playing", func(s State) bool { return s.PlaylistPos == 1 && s.Position > 0 }, p)
+	if err := p.Rearrange([]string{tone("5"), tone("5")}, []string{tone("5")}); err != nil {
+		t.Fatal(err)
+	}
+	st := waitFor(t, "current moved to index 2", func(s State) bool { return s.PlaylistPos == 2 }, p)
+	if st.Position == 0 || st.Idle {
+		t.Errorf("playback interrupted: %+v", st)
+	}
+}

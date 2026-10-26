@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +9,7 @@ import (
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/player"
 )
 
 var (
@@ -113,4 +115,49 @@ func keys(ts []media.Track) []string {
 		out[i] = t.RatingKey
 	}
 	return out
+}
+
+// Shuffle reorders what's after the playing track without interrupting
+// it, mpv follows the new order, and turning it off restores the order.
+func TestShuffleToggleKeepsPlayingAndRestores(t *testing.T) {
+	secs := map[string]string{}
+	var tracks []media.Track
+	for _, k := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		secs[k] = "30"
+		tracks = append(tracks, media.Track{RatingKey: k})
+	}
+	m := newQueueTestModel(t, secs)
+	model, _ := m.playTracks(tracks, 2)
+	m = model.(Model)
+	m = syncUntil(t, m, "c to play", func(m Model) bool { return m.player.State().Position > 0 })
+
+	m.toggleShuffle()
+	if playingKey(m) != "c" || m.queue[m.queueIdx].RatingKey != "c" {
+		t.Fatalf("playing %q at %d after shuffle", playingKey(m), m.queueIdx)
+	}
+	m = syncUntil(t, m, "mpv to follow", func(m Model) bool { return m.player.State().PlaylistPos == m.queueIdx })
+	if st := m.player.State(); st.Idle || st.Position == 0 {
+		t.Errorf("shuffle interrupted playback: %+v", st)
+	}
+	want := m.queue[m.queueIdx+1].RatingKey
+	m.playNext()
+	m = syncUntil(t, m, "next in shuffled order", func(m Model) bool { return playingKey(m) == want })
+
+	m.toggleShuffle()
+	if got := keys(m.queue); strings.Join(got, "") != "abcdefgh" {
+		t.Errorf("unshuffled order = %v", got)
+	}
+	m = syncUntil(t, m, "mpv at the restored index", func(m Model) bool {
+		return m.player.State().PlaylistPos == m.queueIdx && m.queue[m.queueIdx].RatingKey == want
+	})
+}
+
+func TestRepeatCycles(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	for _, want := range []player.Repeat{player.RepeatQueue, player.RepeatTrack, player.RepeatOff} {
+		m = press(m, tea.KeyPressMsg{Code: 'r', Text: "r"})
+		if m.repeat != want {
+			t.Errorf("repeat = %v, want %v", m.repeat, want)
+		}
+	}
 }

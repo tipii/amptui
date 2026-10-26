@@ -244,7 +244,8 @@ playerctl -p amptui metadata --format '{{ artist }} — {{ title }}'
 
 Supported: play / pause / play-pause, next / previous (through amptui's
 own queue), relative seek, set position, volume (`playerctl -p amptui
-volume 0.5`), and quit. Published metadata
+volume 0.5`), shuffle and loop status (`playerctl -p amptui shuffle
+toggle`, `loop Playlist`), and quit. Published metadata
 covers title, artist, album, track number, length, and cover art. The
 cover is handed out as a `file://` path into the image cache, never as
 a server URL, so the auth token doesn't leak to whatever widget reads
@@ -273,6 +274,8 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `<` / `>`             | Seek −10s / +10s                             |
 | `+` / `-`             | Volume up / down 5%                          |
 | `m`                   | Mute / unmute                                |
+| `r`                   | Repeat: off → queue → track                  |
+| `z`                   | Shuffle on / off (off restores the queue's order) |
 | `,`                   | Open / close the settings screen             |
 | `q`                   | Add highlighted track, album, or artist (whole discography) to queue |
 | `v`                   | Toggle grid / list for the current level (remembered) |
