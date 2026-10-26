@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -436,20 +435,7 @@ func downloadQualityOptions() []huh.Option[string] {
 // while the user is figuring things out) but rejects anything that isn't
 // a valid http(s) URL — those values would fail at connect time anyway.
 func validateServerURL(s string) error {
-	if s == "" {
-		return nil
-	}
-	u, err := url.Parse(s)
-	if err != nil {
-		return fmt.Errorf("not a valid URL: %v", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme must be http or https")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("missing host")
-	}
-	return nil
+	return config.ValidateServerURL(strings.TrimSpace(s))
 }
 
 // validateToken is intentionally light — Plex tokens are opaque strings

@@ -15,6 +15,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/tipii/amptui/internal/backend"
+	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/mpris"
@@ -599,12 +600,12 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the config the live client was built from — so we can tell the
 		// user a relaunch is needed.
 		connChanged := m.cfg.Backend != v.Backend ||
-			m.cfg.ServerURL != v.ServerURL ||
+			m.cfg.ServerURL != config.NormalizeServerURL(v.ServerURL) ||
 			m.cfg.PlexToken != v.Token ||
 			m.cfg.JellyfinUsername != v.Username ||
 			m.cfg.JellyfinPassword != v.Password
 		m.cfg.Backend = v.Backend
-		m.cfg.ServerURL = v.ServerURL
+		m.cfg.ServerURL = config.NormalizeServerURL(v.ServerURL)
 		m.cfg.PlexToken = v.Token
 		m.cfg.JellyfinUsername = v.Username
 		m.cfg.JellyfinPassword = v.Password
