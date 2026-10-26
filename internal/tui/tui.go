@@ -204,9 +204,10 @@ type Model struct {
 	libraryErr     error
 	librarySyncing bool
 
-	// startupLibrary, if set, is fetched on Init so the UI opens straight
-	// into that library instead of the picker.
-	startupLibrary *media.MusicLibrary
+	// activeLib is the library the cache is for (see activeLibrary):
+	// the default library at startup, so Init opens straight into it,
+	// then whichever the user picks. nil means libs[0].
+	activeLib *media.MusicLibrary
 
 	width, height int
 }
@@ -316,9 +317,10 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 			title: defaultLib.Title,
 			items: items,
 			index: idx,
+			key:   defaultLib.Key,
 		})
 		m.loading = true
-		m.startupLibrary = defaultLib
+		m.activeLib = defaultLib
 	}
 
 	m.helpViewport.SetContent(m.helpBodyContent())
@@ -355,10 +357,7 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, fetchServerName(m.client))
 	}
 	if m.client != nil && len(m.libs) > 0 {
-		active := m.libs[0]
-		if m.startupLibrary != nil {
-			active = *m.startupLibrary
-		}
+		active, _ := m.activeLibrary()
 		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
 		cmds = append(cmds, m.dashboard.Load(m.client, active.Key))
 	}

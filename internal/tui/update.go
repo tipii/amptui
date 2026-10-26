@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -153,6 +154,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// already loaded).
 		if m.currentGridView() {
 			switch {
+			case key.Matches(msg, k.Filter):
+				// The grid never draws the list's filter input, so a
+				// filter here would capture typing invisibly. Search
+				// covers the same need.
+				m.err = errors.New("filter isn't available in grid view — press s to search")
+				return m, nil
 			case key.Matches(msg, k.Up):
 				m.moveGridCursor(-1, 0)
 				return m, m.visibleArtworkFetches()
@@ -220,10 +227,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.librarySyncing || len(m.libs) == 0 {
 				return m, nil
 			}
-			active := m.libs[0]
-			if m.startupLibrary != nil {
-				active = *m.startupLibrary
-			}
+			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
@@ -290,29 +294,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Remember the choice so R and the dashboard act on the same
+		// library the cache is for.
+		m.activeLib = &active
 		return m, tea.Batch(
 			loadOrSyncLibrary(m.client, active),
 			m.dashboard.Load(m.client, active.Key),
 		)
 
 	case libraryReadyMsg:
+		if active, ok := m.activeLibrary(); ok && msg.key != active.Key {
+			return m, nil // a library the user has since switched away from
+		}
 		m.library = msg.lib
 		m.librarySyncing = false
 		m.libraryErr = nil
 		if m.search.IsOpen() {
 			m.search.RunQuery(m.library)
 		}
-		if m.startupLibrary != nil && m.level == levelLibraries {
+		// Waiting on the picker (startup with a default library, or a
+		// library just picked) means open its artists; anywhere else the
+		// sync refreshes the current level in place — including the
+		// picker itself after an R there.
+		var refilter tea.Cmd
+		if m.loading && m.level == levelLibraries {
 			m.applyItems(levelArtists, m.artistItems())
 		} else {
-			m.refreshCurrentLevel()
+			refilter = m.refreshCurrentLevel()
 		}
 		// If we just landed on a grid-bearing level, kick off thumb
 		// fetches for the on-screen window only.
-		return m, m.visibleArtworkFetches()
+		return m, tea.Batch(refilter, m.visibleArtworkFetches())
 	case libraryErrMsg:
+		if active, ok := m.activeLibrary(); ok && msg.key != active.Key {
+			return m, nil
+		}
 		m.librarySyncing = false
 		m.libraryErr = msg.err
+		// Unblock enter/esc, which wait on loading, so the user can back
+		// out to the picker or try again with R.
+		m.loading = false
 		return m, nil
 
 	case artistMetaMsg:
@@ -508,10 +529,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenBrowser
 	case settingsOutcomeRefresh:
 		if !m.librarySyncing && len(m.libs) > 0 {
-			active := m.libs[0]
-			if m.startupLibrary != nil {
-				active = *m.startupLibrary
-			}
+			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, syncLibrary(m.client, active))
@@ -685,10 +703,7 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.client == nil || len(m.libs) == 0 {
 			return m, nil
 		}
-		active := m.libs[0]
-		if m.startupLibrary != nil {
-			active = *m.startupLibrary
-		}
+		active, _ := m.activeLibrary()
 		return m, m.dashboard.Load(m.client, active.Key)
 	case key.Matches(msg, k.NextTrack):
 		m.playNext()

@@ -112,10 +112,10 @@ func (m Model) applySortSelection() (Model, tea.Cmd) {
 	// unwritable config shouldn't stop the sort from applying to this
 	// session. The settings screen surfaces config problems separately.
 	_ = m.cfg.Save()
-	m.resortCurrentLevel()
+	refilter := m.resortCurrentLevel()
 	// Re-ordering scrolls different items into view; fetch their artwork
 	// (deduped against what's already loaded).
-	return m, m.visibleArtworkFetches()
+	return m, tea.Batch(refilter, m.visibleArtworkFetches())
 }
 
 // resortCurrentLevel rebuilds the current level's rows under the new
@@ -126,12 +126,13 @@ func (m Model) applySortSelection() (Model, tea.Cmd) {
 // at the front. Keeping your place instead leaves you parked mid-list — ask
 // for "most albums first" and you'd still be staring at the 2-album artist
 // you happened to be on, which reads as a broken sort.
-func (m *Model) resortCurrentLevel() {
-	m.refreshCurrentLevel()
+func (m *Model) resortCurrentLevel() tea.Cmd {
+	cmd := m.refreshCurrentLevel()
 	m.list.Title = m.listTitleForLevel(m.level)
 	m.list.Select(0)
 	m.gridCursor = 0
 	m.gridScrollTop = 0
+	return cmd
 }
 
 // sortSuffix is the "· year ↑" tail appended to a level's list heading so

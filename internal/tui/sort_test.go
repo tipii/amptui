@@ -48,6 +48,7 @@ func newAlbumsModel(t *testing.T, cfg config.Config) Model {
 		title: "Led Zeppelin",
 		items: m.artistItems(),
 		index: 0,
+		key:   "ar1",
 	}}
 	m.applyItems(levelAlbums, m.albumItems("ar1"))
 	return m

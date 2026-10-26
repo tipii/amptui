@@ -27,7 +27,7 @@ const searchResultLimit = 200
 func loadOrSyncLibrary(client media.Backend, plexLib media.MusicLibrary) tea.Cmd {
 	return func() tea.Msg {
 		if l, err := library.Load(plexLib.UUID); err == nil && l.IsFresh(plexLib) {
-			return libraryReadyMsg{lib: l}
+			return libraryReadyMsg{key: plexLib.Key, lib: l}
 		}
 		return runSync(client, plexLib)
 	}
@@ -46,15 +46,23 @@ func runSync(client media.Backend, plexLib media.MusicLibrary) tea.Msg {
 	defer cancel()
 	l, err := library.Sync(ctx, client, plexLib)
 	if err != nil {
-		return libraryErrMsg{err: err}
+		return libraryErrMsg{key: plexLib.Key, err: err}
 	}
-	return libraryReadyMsg{lib: l}
+	return libraryReadyMsg{key: plexLib.Key, lib: l}
 }
 
-// Messages from the background library loader.
+// Messages from the background library loader. key is the section the
+// load was for, so a slow result for a library the user has since
+// switched away from is dropped instead of replacing the new one.
 type (
-	libraryReadyMsg struct{ lib *library.Library }
-	libraryErrMsg   struct{ err error }
+	libraryReadyMsg struct {
+		key string
+		lib *library.Library
+	}
+	libraryErrMsg struct {
+		key string
+		err error
+	}
 )
 
 // librariesReadyMsg is the result of an async MusicLibraries fetch — fired
@@ -412,6 +420,7 @@ func (m *Model) pushArtistsCrumb(artistKey string) {
 		title: title,
 		items: items,
 		index: idx,
+		key:   artistKey,
 	})
 }
 
@@ -435,6 +444,7 @@ func (m *Model) pushAlbumsCrumb(artistKey, albumKey string) {
 		title: title,
 		items: items,
 		index: idx,
+		key:   albumKey,
 	})
 }
 
@@ -447,17 +457,20 @@ func (m *Model) pushLibrariesCrumb() {
 	for i, l := range m.libs {
 		items[i] = libraryItem{lib: l}
 	}
-	title := "Libraries"
-	switch {
-	case m.startupLibrary != nil:
-		title = m.startupLibrary.Title
-	case len(m.libs) > 0:
-		title = m.libs[0].Title
+	title, key, index := "Libraries", "", 0
+	if active, ok := m.activeLibrary(); ok {
+		title, key = active.Title, active.Key
+		for i, l := range m.libs {
+			if l.Key == key {
+				index = i
+			}
+		}
 	}
 	m.crumbs = append(m.crumbs, crumb{
 		level: levelLibraries,
 		title: title,
 		items: items,
-		index: 0,
+		index: index,
+		key:   key,
 	})
 }
