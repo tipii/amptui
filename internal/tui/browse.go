@@ -114,9 +114,41 @@ func fetchArtwork(client media.Backend, ratingKey, kind string) tea.Cmd {
 		}
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
+			// A truncated or corrupt entry would otherwise fail here on
+			// every visit; drop it so the next one refetches.
+			_ = imgcache.Delete(cacheKey, 0, 0)
 			return thumbReadyMsg{kind: kind, key: ratingKey, err: err}
 		}
 		return thumbReadyMsg{kind: kind, key: ratingKey, img: img}
+	}
+}
+
+// maxThumbPics bounds the grid/list thumbnails kept in memory. Each one
+// holds a decoded image, and browsing a large library used to keep every
+// one ever seen.
+const maxThumbPics = 150
+
+// trimThumbs drops off-screen thumbnails once there are more than
+// maxThumbPics. They come back from the disk cache when scrolled to.
+func (m *Model) trimThumbs() {
+	if len(m.gridPics) <= maxThumbPics {
+		return
+	}
+	keep := map[string]bool{}
+	for _, it := range m.visibleItems() {
+		switch v := it.(type) {
+		case artistItem:
+			keep[v.artist.RatingKey] = true
+		case albumItem:
+			keep[v.album.RatingKey] = true
+		}
+	}
+	for key := range m.gridPics {
+		if !keep[key] {
+			delete(m.gridPics, key)
+			delete(m.listPics, key)
+			delete(m.artRequested, key)
+		}
 	}
 }
 
@@ -138,9 +170,13 @@ func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
 		if key == "" {
 			continue
 		}
-		if _, ok := m.gridPics[key]; ok {
+		// artRequested covers fetches still in flight (fast scrolling
+		// fired duplicates) and ones that failed (an item without art
+		// was re-requested on every keypress).
+		if _, ok := m.gridPics[key]; ok || m.artRequested[key] {
 			continue
 		}
+		m.artRequested[key] = true
 		cmds = append(cmds, fetchArtwork(m.client, key, "grid:"+key))
 	}
 	return tea.Batch(cmds...)

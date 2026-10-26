@@ -12,6 +12,7 @@ import (
 
 	"github.com/tipii/amptui/internal/backend"
 	"github.com/tipii/amptui/internal/config"
+	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/mpris"
 	"github.com/tipii/amptui/internal/player"
@@ -40,6 +41,8 @@ func run() error {
 	)
 	if cfg.IsValid() {
 		client = backend.New(cfg)
+		imgcache.SetNamespace(cfg.Backend + "|" + cfg.ServerURL)
+		_ = imgcache.Migrate() // best effort: a stale cache only wastes disk
 
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		var err error

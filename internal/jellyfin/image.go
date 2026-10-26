@@ -44,5 +44,13 @@ func (c *Client) FetchImage(ctx context.Context, absURL string) ([]byte, error) 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return nil, fmt.Errorf("GET %s: %s: %s", media.RedactURL(absURL), resp.Status, strings.TrimSpace(string(body)))
 	}
-	return io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
+	if err == nil && len(b) > maxImageBytes {
+		return nil, fmt.Errorf("image larger than %d bytes", maxImageBytes)
+	}
+	return b, err
 }
+
+// maxImageBytes caps an artwork response, so a misbehaving server can't
+// make the image cache or a decode buffer grow without bound.
+const maxImageBytes = 16 << 20

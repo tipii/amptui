@@ -314,3 +314,21 @@ func TestDownloadStatusExpires(t *testing.T) {
 		t.Error("status hidden while a download is running")
 	}
 }
+
+// The spinner's tick chain stops once nothing is loading (it used to
+// redraw the screen ~10×/s forever) and restarts when something is.
+func TestSpinnerOnlyTicksWhileLoading(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m.loading, m.librarySyncing, m.metaLoading = false, false, false
+
+	upd, cmd := m.Update(m.spinner.Tick())
+	m = upd.(Model)
+	if cmd != nil || m.spinning {
+		t.Fatalf("idle tick re-armed (cmd=%v spinning=%v)", cmd != nil, m.spinning)
+	}
+
+	m = press(m, keyEnter) // opening an artist starts its metadata fetch
+	if !m.metaLoading || !m.spinning {
+		t.Errorf("spinner not restarted for a load (metaLoading=%v spinning=%v)", m.metaLoading, m.spinning)
+	}
+}

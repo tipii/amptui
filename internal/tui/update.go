@@ -20,7 +20,26 @@ import (
 	"github.com/tipii/amptui/internal/mpris"
 )
 
+// Update runs update, then starts the loading spinner if something now
+// shows it. The spinner only ticks while needed: a forever-ticking one
+// re-rendered the whole screen ~10 times a second even when idle.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	next, ok := model.(Model)
+	if !ok || next.spinning || !next.needsSpinner() {
+		return model, cmd
+	}
+	next.spinning = true
+	return next, tea.Batch(cmd, next.spinner.Tick)
+}
+
+// needsSpinner reports whether any loading indicator is on screen.
+func (m Model) needsSpinner() bool {
+	return m.loading || m.librarySyncing || m.metaLoading ||
+		(m.screen == screenDashboard && m.dashboard.Loading())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -425,6 +444,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 			m.gridPics[key] = &gp
 			m.listPics[key] = &lp
+			m.trimThumbs()
 		}
 		return m, tea.Batch(cmds...)
 
@@ -478,6 +498,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pub
 
 	case spinner.TickMsg:
+		if !m.needsSpinner() {
+			// Let the tick chain end; Update restarts it when needed.
+			m.spinning = false
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -558,6 +583,8 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// pictures and never see new ones.
 		clear(m.gridPics)
 		clear(m.listPics)
+		clear(m.artRequested)
+		m.diskStats.invalidate()
 		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
 		// Pull the new values from the sub-model, apply runtime effects
@@ -585,6 +612,14 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
 		m.cfg.Home = v.Home
+		if m.cfg.Images && !v.Images {
+			// The list delegate draws whatever is in listPics, so turning
+			// artwork off has to empty it (the header and grid check
+			// cfg.Images themselves).
+			clear(m.gridPics)
+			clear(m.listPics)
+			clear(m.artRequested)
+		}
 		m.cfg.Images = v.Images
 		m.cfg.DownloadFolder = v.DownloadFolder
 		m.cfg.DownloadQuality = v.DownloadQuality
@@ -611,6 +646,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// already exists don't rebuild it — they flag a relaunch above.
 		if m.client == nil && m.cfg.IsValid() {
 			m.client = backend.New(m.cfg)
+			imgcache.SetNamespace(m.cfg.Backend + "|" + m.cfg.ServerURL)
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, fetchLibraries(m.client), fetchServerName(m.client))

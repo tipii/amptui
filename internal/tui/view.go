@@ -134,7 +134,7 @@ func (m Model) dashboardScreen() string {
 // chrome (now-playing line + footer). The sub-model itself doesn't own
 // those — they're parent-level concerns shared with the browser view.
 func (m Model) settingsScreen() string {
-	stats := cacheStatsBody(m.library, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
+	stats := cacheStatsBody(m.library, m.diskStats, m.librarySyncing, m.libraryErr, m.spinner, m.player != nil, m.playerErr)
 	// Unlike the browser / dashboard, the settings sub-model renders
 	// its own "amptui Settings /" header INSIDE the padded body. So
 	// pass it the full screen height minus only the bottom chrome, not

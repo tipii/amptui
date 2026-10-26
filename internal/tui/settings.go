@@ -496,7 +496,11 @@ func normalizeHome(v string) string {
 // player state is owned by the parent. mpvReady reports whether the mpv
 // subprocess started successfully; playerErr, if non-nil, is the reason
 // it did not.
-func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
+func cacheStatsBody(lib *library.Library, ds *diskStats, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
+	if ds == nil {
+		ds = &diskStats{}
+	}
+	ds.refresh(lib)
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Library cache"))
 	b.WriteString("\n")
@@ -504,11 +508,10 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		b.WriteString(settingRow("Status", helpStyle.Render("syncing…")))
 		return b.String()
 	}
-	path, _ := library.CachePath(lib.SectionUUID)
-	b.WriteString(settingRow("Path", path))
+	b.WriteString(settingRow("Path", ds.libPath))
 	b.WriteString(settingRow("Last synced", formatSyncedAt(lib.SyncedAt)))
-	b.WriteString(settingRow("Entries", entryBreakdown(lib)))
-	b.WriteString(settingRow("File size", cacheSize(path)))
+	b.WriteString(settingRow("Entries", ds.entries))
+	b.WriteString(settingRow("File size", ds.libSize))
 	b.WriteString(settingRow("Schema", fmt.Sprintf("v%d", lib.SchemaVersion)))
 	if syncing {
 		b.WriteString(settingRow("", helpStyle.Render(sp.View()+"re-syncing from Plex…")))
@@ -522,14 +525,15 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("Image cache"))
 	b.WriteString("\n")
-	if imgStats, err := imgcache.GetStats(); err == nil {
+	if imgStats, err := ds.img, ds.imgErr; err == nil {
 		b.WriteString(settingRow("Path", imgStats.Path))
 		switch {
-		case imgStats.Missing:
+		case imgStats.Files == 0:
 			b.WriteString(settingRow("Status", helpStyle.Render("(empty — no thumbs fetched yet)")))
 		default:
 			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
-			b.WriteString(settingRow("Disk size", textutil.HumanBytes(imgStats.Bytes)))
+			b.WriteString(settingRow("Disk size", textutil.HumanBytes(imgStats.Bytes)+
+				helpStyle.Render(" of "+textutil.HumanBytes(imgStats.Max)+", oldest evicted first")))
 			b.WriteString(settingRow("", helpStyle.Render("press C to clear (disk + terminal cache)")))
 		}
 	} else {
@@ -553,11 +557,46 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		b.WriteString(settingRow("", helpStyle.Render("install mpv (https://mpv.io/) and relaunch to enable playback")))
 	}
 
-	cfgPath, _ := config.Path()
 	b.WriteString("\n")
-	b.WriteString(settingRow("Config file", cfgPath))
+	b.WriteString(settingRow("Config file", ds.cfgPath))
 	return b.String()
 }
+
+// diskStats caches the parts of the settings stats that cost disk I/O
+// (a stat per cached image, the cache file size) or a pass over every
+// library entry. The settings screen renders on every frame, so these
+// are re-read at most every diskStatsTTL, or sooner when the library
+// changes or invalidate is called. Held by pointer on the Model so the
+// cache survives Bubble Tea's per-update copies.
+type diskStats struct {
+	at      time.Time
+	lib     *library.Library
+	libPath string
+	libSize string
+	entries string
+	img     imgcache.Stats
+	imgErr  error
+	cfgPath string
+}
+
+const diskStatsTTL = 2 * time.Second
+
+func (ds *diskStats) refresh(lib *library.Library) {
+	if lib == ds.lib && time.Since(ds.at) < diskStatsTTL {
+		return
+	}
+	*ds = diskStats{at: time.Now(), lib: lib}
+	if lib != nil {
+		ds.libPath, _ = library.CachePath(lib.SectionUUID)
+		ds.libSize = cacheSize(ds.libPath)
+		ds.entries = entryBreakdown(lib)
+	}
+	ds.img, ds.imgErr = imgcache.GetStats()
+	ds.cfgPath, _ = config.Path()
+}
+
+// invalidate forces the next render to re-read everything.
+func (ds *diskStats) invalidate() { ds.at = time.Time{} }
 
 // settingRow formats one read-only "key: value" line.
 func settingRow(key, value string) string {

@@ -72,6 +72,9 @@ type Model struct {
 	// isn't retried every tick.
 	mpris       *mpris.Server
 	mediaArtKey string
+	// mediaArtURL is the cover URL last found for album mediaArtURLKey.
+	mediaArtURLKey string
+	mediaArtURL    string
 
 	// keymap is the single source of truth for keybindings; Update routes
 	// via key.Matches against it and helpModel renders footer/help-modal
@@ -106,6 +109,8 @@ type Model struct {
 	downloadPolling   bool
 
 	screen screen
+	// diskStats caches the settings screen's disk-derived stats.
+	diskStats *diskStats
 	// settingsReturn is the screen settings goes back to on close —
 	// where it was opened from.
 	settingsReturn screen
@@ -126,6 +131,7 @@ type Model struct {
 	helpViewport viewport.Model // scrollable body of the help modal
 	infoViewport viewport.Model // scrollable body of the artist/album info modal
 	spinner      spinner.Model
+	spinning     bool // a spinner tick chain is running
 	// progress is the now-playing track-position bar (original bubbles
 	// styling: accent ▌ fill, ░ empty track). progressBar recolors the
 	// buffered-ahead ░ cells to accent so they read as a faint dotted
@@ -163,6 +169,8 @@ type Model struct {
 	albumHeaderPic  *picture.Model
 	albumModalPic   *picture.Model
 	gridPics        map[string]*picture.Model
+	// artRequested marks grid thumbs already fetched or in flight.
+	artRequested map[string]bool
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
 	// same fetched image so toggling between list / grid never refetches.
@@ -293,6 +301,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		dashboard:       newDashboardModel(),
 		picMode:         pictureModeFromProtocol(imgcache.Detect()),
 		gridPics:        gridPics,
+		artRequested:    map[string]bool{},
 		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
@@ -301,6 +310,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		level:           levelLibraries,
 		librarySyncing:  true, // Init kicks off the background library sync
 		dl:              &liveDownload{},
+		diskStats:       &diskStats{},
 		gridArtists:     cfg.DefaultViewArtist == "grid",
 		gridAlbums:      cfg.DefaultViewAlbum == "grid",
 		// A missing or malformed sort key falls back to the level's
@@ -353,7 +363,9 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, tick(), waitMediaCommand(m.mpris), waitPlayerChange(m.player)}
+	// No spinner tick here: Update starts it whenever a loading
+	// indicator is showing (see needsSpinner).
+	cmds := []tea.Cmd{tick(), waitMediaCommand(m.mpris), waitPlayerChange(m.player)}
 	cmds = append(cmds, m.settings.Init())
 	// Ask the terminal for its real cell-pixel dims so the Kitty
 	// path renders at the right scale. picture.Models receive the
