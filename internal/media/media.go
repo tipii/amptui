@@ -116,7 +116,8 @@ type Backend interface {
 	// LibraryTracks returns every track in a library (paginated
 	// internally), with full parent context so the cache can derive
 	// artists and albums by deduplication.
-	LibraryTracks(ctx context.Context, libraryKey string) ([]Track, error)
+	// progress, if non-nil, is called after each page.
+	LibraryTracks(ctx context.Context, libraryKey string, progress Progress) ([]Track, error)
 
 	// ArtistMetadata / AlbumMetadata fetch one item's rich metadata.
 	ArtistMetadata(ctx context.Context, ratingKey string) (*ArtistMetadata, error)

@@ -120,8 +120,8 @@ type Track = media.Track
 
 // Sync fetches the latest tracks from the backend, builds the derived
 // caches, and persists the result. Returns the fresh, ready-to-use library.
-func Sync(ctx context.Context, backend media.Backend, lib media.MusicLibrary) (*Library, error) {
-	tracks, err := backend.LibraryTracks(ctx, lib.Key)
+func Sync(ctx context.Context, backend media.Backend, lib media.MusicLibrary, progress media.Progress) (*Library, error) {
+	tracks, err := backend.LibraryTracks(ctx, lib.Key, progress)
 	if err != nil {
 		return nil, fmt.Errorf("fetching library tracks: %w", err)
 	}

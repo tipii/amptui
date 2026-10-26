@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
+	"github.com/tipii/amptui/internal/chafa"
 	"github.com/tipii/amptui/internal/config"
 )
 
@@ -23,6 +24,9 @@ func forceKitty(t *testing.T, c picture.KittyCapability) {
 func TestPicturesSwitchToKittyWhenConfirmed(t *testing.T) {
 	forceKitty(t, picture.KittyCapabilityUnknown)
 	m := newArtistsModel(t, config.Config{Images: true})
+	if m.useChafa {
+		t.Fatal("chafa decided before the terminal answered")
+	}
 	grid := newSizedPicture(gridThumbCellsW, gridThumbCellsH)
 	m.gridPics["ar1"] = grid
 	if m.picMode != picture.PictureGlyph || grid.Mode() != picture.PictureGlyph {
@@ -34,6 +38,9 @@ func TestPicturesSwitchToKittyWhenConfirmed(t *testing.T) {
 	m = upd.(Model)
 	if m.picMode != picture.PictureKitty {
 		t.Fatal("picMode didn't switch to Kitty")
+	}
+	if m.useChafa {
+		t.Error("chafa enabled on a Kitty terminal; it would cover the real images")
 	}
 	for name, p := range map[string]*picture.Model{"grid": grid, "artist header": m.artistHeaderPic, "album modal": m.albumModalPic} {
 		if p.Mode() != picture.PictureKitty {
@@ -49,5 +56,9 @@ func TestPicturesStayHalfBlockWithoutKitty(t *testing.T) {
 	m = upd.(Model)
 	if m.picMode != picture.PictureGlyph || m.artistHeaderPic.Mode() != picture.PictureGlyph {
 		t.Error("switched to Kitty on a terminal that doesn't support it")
+	}
+	// Without Kitty, chafa takes over exactly when it's installed.
+	if m.useChafa != chafa.Available() {
+		t.Errorf("useChafa = %v with chafa installed = %v", m.useChafa, chafa.Available())
 	}
 }

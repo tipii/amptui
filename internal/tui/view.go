@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -173,7 +174,7 @@ func (m Model) footerLine(left string) string {
 			right = helpStyle.Render(m.downloadStatus)
 		}
 	case m.librarySyncing:
-		right = helpStyle.Render(m.spinner.View() + "syncing library")
+		right = helpStyle.Render(m.spinner.View() + "syncing library" + m.syncProgressText())
 	case m.libraryErr != nil:
 		right = errStyle.Render("library error: " + m.libraryErr.Error())
 	}
@@ -264,4 +265,30 @@ func (m Model) listHeight() int {
 // region can never push playback status and the footer off-screen.
 func fitRows(s string, h int) string {
 	return lipgloss.NewStyle().Height(h).MaxHeight(h).Render(s)
+}
+
+// syncProgressText is " 3,000 / 6,500 tracks" while a sync is running and
+// has heard from the server, so a long sync visibly moves instead of
+// looking hung.
+func (m Model) syncProgressText() string {
+	if m.syncProg == nil {
+		return ""
+	}
+	done, total := m.syncProg.get()
+	switch {
+	case total > 0:
+		return " " + groupThousands(done) + " / " + groupThousands(total) + " tracks"
+	case done > 0:
+		return " " + groupThousands(done) + " tracks"
+	}
+	return ""
+}
+
+// groupThousands formats n with comma separators (6500 → "6,500").
+func groupThousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

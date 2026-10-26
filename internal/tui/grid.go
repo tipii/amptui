@@ -296,7 +296,7 @@ func (m Model) gridCardThumb(it interface{ FilterValue() string }) string {
 	if !ok || pic == nil {
 		return ""
 	}
-	return pic.View().Content
+	return m.thumbText(key, pic, gridThumbCellsW, gridThumbCellsH)
 }
 
 // gridCellTexts returns the (title, subtitle) shown inside a grid card.

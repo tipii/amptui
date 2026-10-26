@@ -170,6 +170,11 @@ type Model struct {
 	gridPics        map[string]*picture.Model
 	// artRequested marks grid thumbs already fetched or in flight.
 	artRequested map[string]bool
+	// useChafa is set when artwork is drawn by the chafa CLI (no Kitty
+	// graphics, chafa installed); chafaOut holds its renders by
+	// chafaID. See chafa.go.
+	useChafa bool
+	chafaOut map[string]string
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
 	// same fetched image so toggling between list / grid never refetches.
@@ -234,6 +239,7 @@ type Model struct {
 	library        *library.Library
 	libraryErr     error
 	librarySyncing bool
+	syncProg       *syncProgress
 
 	// activeLib is the library the cache is for (see activeLibrary):
 	// the default library at startup, so Init opens straight into it,
@@ -262,7 +268,8 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	// thumbReadyMsg "grid:…" handling) so switching never refetches.
 	gridPics := map[string]*picture.Model{}
 	listPics := map[string]*picture.Model{}
-	l := list.New(items, newThumbDelegate(listPics), 0, 0)
+	chafaOut := map[string]string{}
+	l := list.New(items, newThumbDelegate(listPics, chafaOut), 0, 0)
 	l.Title = "Libraries"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
@@ -318,6 +325,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		picMode:         picture.PictureGlyph,
 		gridPics:        gridPics,
 		artRequested:    map[string]bool{},
+		chafaOut:        chafaOut,
 		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
@@ -327,6 +335,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		librarySyncing:  true, // Init kicks off the background library sync
 		dl:              &liveDownload{},
 		diskStats:       &diskStats{},
+		syncProg:        &syncProgress{},
 		gridArtists:     cfg.DefaultViewArtist == "grid",
 		gridAlbums:      cfg.DefaultViewAlbum == "grid",
 		// A missing or malformed sort key falls back to the level's
@@ -401,7 +410,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.client != nil && len(m.libs) > 0 {
 		active, _ := m.activeLibrary()
-		cmds = append(cmds, loadOrSyncLibrary(m.client, active))
+		cmds = append(cmds, loadOrSyncLibrary(m.client, active, m.syncProg))
 		cmds = append(cmds, m.dashboard.Load(m.client, active.Key))
 	}
 	return tea.Batch(cmds...)

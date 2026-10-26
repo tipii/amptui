@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -15,36 +16,52 @@ import (
 	"github.com/tipii/amptui/internal/media"
 )
 
-// librarySyncTimeout caps the cold-start library fetch when no cache exists.
-const librarySyncTimeout = 90 * time.Second
-
 // searchResultLimit caps the number of results returned per query.
 const searchResultLimit = 200
 
+// syncProgress is where a running library sync publishes how far it has
+// got, for the footer to read. Written by the sync goroutine, read by
+// View; one per Model (a pointer, so it survives Bubble Tea's copies).
+type syncProgress struct {
+	done, total atomic.Int64
+}
+
+func (p *syncProgress) set(done, total int) {
+	p.done.Store(int64(done))
+	p.total.Store(int64(total))
+}
+
+func (p *syncProgress) get() (done, total int) {
+	return int(p.done.Load()), int(p.total.Load())
+}
+
 // loadOrSyncLibrary returns a Cmd that loads the cache from disk when fresh,
-// otherwise syncs from Plex and persists. Result arrives as libraryReadyMsg
-// or libraryErrMsg.
-func loadOrSyncLibrary(client media.Backend, plexLib media.MusicLibrary) tea.Cmd {
+// otherwise syncs from the server and persists. Result arrives as
+// libraryReadyMsg or libraryErrMsg.
+func loadOrSyncLibrary(client media.Backend, plexLib media.MusicLibrary, prog *syncProgress) tea.Cmd {
 	return func() tea.Msg {
 		if l, err := library.Load(plexLib.UUID); err == nil && l.IsFresh(plexLib) {
 			return libraryReadyMsg{key: plexLib.Key, lib: l}
 		}
-		return runSync(client, plexLib)
+		return runSync(client, plexLib, prog)
 	}
 }
 
-// syncLibrary forces a re-sync from Plex, bypassing the on-disk cache.
-// Used by the manual refresh key (R).
-func syncLibrary(client media.Backend, plexLib media.MusicLibrary) tea.Cmd {
+// syncLibrary forces a re-sync from the server, bypassing the on-disk
+// cache. Used by the manual refresh key (R).
+func syncLibrary(client media.Backend, plexLib media.MusicLibrary, prog *syncProgress) tea.Cmd {
 	return func() tea.Msg {
-		return runSync(client, plexLib)
+		return runSync(client, plexLib, prog)
 	}
 }
 
-func runSync(client media.Backend, plexLib media.MusicLibrary) tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), librarySyncTimeout)
-	defer cancel()
-	l, err := library.Sync(ctx, client, plexLib)
+// runSync fetches the whole library. There's no overall timeout: each
+// page is bounded and retried (media.FetchAll), so a large library on a
+// slow server finishes however long it takes, while a dead server still
+// fails within a few page timeouts.
+func runSync(client media.Backend, plexLib media.MusicLibrary, prog *syncProgress) tea.Msg {
+	prog.set(0, 0)
+	l, err := library.Sync(context.Background(), client, plexLib, prog.set)
 	if err != nil {
 		return libraryErrMsg{key: plexLib.Key, err: err}
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/tipii/amptui/internal/backend"
+	"github.com/tipii/amptui/internal/chafa"
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
@@ -49,7 +50,19 @@ func (m *Model) applyKittyCapability() tea.Cmd {
 	}
 	m.kittyResolved = true
 	if picture.KittySupported() != picture.KittyCapabilitySupported {
-		return nil
+		// No Kitty graphics: chafa, if installed, takes over from the
+		// half-blocks. Decided only now — every terminal starts out
+		// half-block until the probe answers — and the artwork already
+		// on screen gets rendered too.
+		m.useChafa = chafa.Available()
+		var cmds []tea.Cmd
+		for key := range m.gridPics {
+			cmds = append(cmds, m.chafaRenders(key, itemSizes...))
+		}
+		for _, key := range []string{m.curArtistKey, m.curAlbumKey} {
+			cmds = append(cmds, m.chafaRenders(key, heroSizes...))
+		}
+		return tea.Batch(cmds...)
 	}
 	m.picMode = picture.PictureKitty
 	cmds := []tea.Cmd{
@@ -346,7 +359,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
-			return m, syncLibrary(m.client, active)
+			return m, syncLibrary(m.client, active, m.syncProg)
 		case key.Matches(msg, k.ToggleView):
 			if !m.supportsGrid() {
 				return m, nil
@@ -417,7 +430,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// library the cache is for.
 		m.activeLib = &active
 		return m, tea.Batch(
-			loadOrSyncLibrary(m.client, active),
+			loadOrSyncLibrary(m.client, active, m.syncProg),
 			m.dashboard.Load(m.client, active.Key),
 		)
 
@@ -506,7 +519,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		switch {
 		case msg.kind == "artist":
-			cmds = append(cmds,
+			cmds = append(cmds, m.chafaRenders(msg.key, heroSizes...),
 				m.applyPicMode(m.artistHeaderPic),
 				m.applyPicMode(m.artistModalPic),
 				m.artistHeaderPic.SetImage(msg.img),
@@ -518,7 +531,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// chrome or the status bar gets pushed off the terminal.
 			m.list.SetSize(m.width, m.listHeight())
 		case msg.kind == "album":
-			cmds = append(cmds,
+			cmds = append(cmds, m.chafaRenders(msg.key, heroSizes...),
 				m.applyPicMode(m.albumHeaderPic),
 				m.applyPicMode(m.albumModalPic),
 				m.albumHeaderPic.SetImage(msg.img),
@@ -543,9 +556,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 			m.gridPics[key] = &gp
 			m.listPics[key] = &lp
+			cmds = append(cmds, m.chafaRenders(key, itemSizes...))
 			m.trimThumbs()
 		}
 		return m, tea.Batch(cmds...)
+
+	case chafaReadyMsg:
+		m.chafaOut[msg.id] = msg.out
+		return m, nil
 
 	case dashboardPlaysMsg:
 		m.dashboard.ApplyPlays(msg)
@@ -673,7 +691,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
-			return m, tea.Batch(cmd, syncLibrary(m.client, active))
+			return m, tea.Batch(cmd, syncLibrary(m.client, active, m.syncProg))
 		}
 	case settingsOutcomePurgeImgs:
 		// Wipe disk, drop in-memory picture.Models, and tell the
@@ -687,6 +705,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		clear(m.gridPics)
 		clear(m.listPics)
 		clear(m.artRequested)
+		clear(m.chafaOut)
 		m.diskStats.invalidate()
 		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
@@ -722,6 +741,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			clear(m.gridPics)
 			clear(m.listPics)
 			clear(m.artRequested)
+			clear(m.chafaOut)
 		}
 		m.cfg.Images = v.Images
 		if v.ReportPlayback != m.cfg.ReportsPlayback() {

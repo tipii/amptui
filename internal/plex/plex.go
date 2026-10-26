@@ -42,7 +42,11 @@ var deviceName = func() string {
 
 // Client is a thin HTTP wrapper around a Plex Media Server.
 type Client struct {
-	http      *http.Client
+	http *http.Client
+	// pageHTTP has no fixed timeout: library pages are bounded per
+	// request by media.PageTimeout through their context instead, since
+	// a slow server can need longer than http's 15s for one.
+	pageHTTP  *http.Client
 	serverURL string
 	token     string
 }
@@ -51,6 +55,7 @@ type Client struct {
 func New(serverURL, token string) *Client {
 	return &Client{
 		http:      &http.Client{Timeout: 15 * time.Second},
+		pageHTTP:  &http.Client{},
 		serverURL: strings.TrimRight(serverURL, "/"),
 		token:     token,
 	}
@@ -59,6 +64,11 @@ func New(serverURL, token string) *Client {
 // getJSON performs a GET against the server with auth + JSON headers and
 // decodes the body into v.
 func (c *Client) getJSON(ctx context.Context, path string, v any) error {
+	return c.getJSONWith(ctx, c.http, path, v)
+}
+
+// getJSONWith is getJSON over a specific HTTP client.
+func (c *Client) getJSONWith(ctx context.Context, hc *http.Client, path string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serverURL+path, nil)
 	if err != nil {
 		return err
@@ -66,9 +76,9 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	req.Header.Set("Accept", "application/json")
 	c.setHeaders(req)
 
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
-		return err
+		return media.RedactErr(err)
 	}
 	defer resp.Body.Close()
 

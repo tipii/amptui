@@ -24,7 +24,7 @@ Working today:
 - [x] Downloads (`d` / `D`) with live per-file progress and transfer rate, and a quality preset — original file or server-side MP3
 - [x] Fuzzy search across the whole library
 - [x] Artist / album info: bio, genres, similar artists (`i` modal)
-- [x] Inline artwork — Kitty graphics on supported terminals, half-block fallback everywhere else; lazy-loaded for the on-screen window only
+- [x] Inline artwork — Kitty graphics on supported terminals, [chafa](https://hpjansson.org/chafa/) when installed, half-block fallback everywhere else; lazy-loaded for the on-screen window only
 - [x] Editable settings screen, in-app keybindings modal (`?`)
 - [x] Pluggable backend — Plex or Jellyfin, selected by config, behind one `media.Backend` interface
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; the server is only touched during sync or info fetches
@@ -222,8 +222,16 @@ Rendering picks the best protocol your terminal advertises:
   see the query) and switches artwork to Kitty when it answers — inside
   tmux too, with passthrough. If a capable terminal isn't recognized,
   force it with `NTCHARTS_KITTY=supported amptui`.
+- **[chafa](https://hpjansson.org/chafa/)**, when it's installed, on
+  every other terminal (foot, Alacritty, xterm, tmux, …): much finer
+  detail than half-blocks. amptui uses chafa's text ("symbols") output,
+  never sixel, so artwork fits the cell layout like everything else.
+  Each image is rendered once in the background and kept; the half-block
+  version shows until it's ready. Nothing to configure — install chafa
+  (`pacman -S chafa`, `apt install chafa`, `brew install chafa`) and
+  restart amptui.
 - **Half-block ANSI fallback** everywhere else (any 24-bit-color terminal
-  including Alacritty, foot, tmux, xterm — works over SSH too).
+  — works over SSH too).
 
 Thumbnails are fetched on demand from the backend (Plex's
 `/photo/:/transcode` or Jellyfin's `/Items/{id}/Images/Primary`) and cached
@@ -353,12 +361,16 @@ sync immediately — no restart needed. Re-editing those fields after a
 successful startup still requires a relaunch; the running app keeps
 its existing Plex client.
 
-The library cache is built on first launch (~8s for a 9k-track library),
-persisted to `~/.cache/amptui/<sectionUUID>.json`, and invalidated when
-Plex's section `contentChangedAt` counter advances. Every subsequent
-browse and search reads from this cache — Plex is only contacted during
-sync. While syncing, a small spinner appears on the right of the status
-bar; the browser opens into the cache once the sync finishes.
+The library cache is built on first launch (~8s for a 10k-track library
+on a healthy server), persisted to `~/.cache/amptui/<sectionUUID>.json`, and
+invalidated when Plex's section `contentChangedAt` counter advances. Every
+subsequent browse and search reads from this cache — the server is only
+contacted during sync. While syncing, the right of the status bar shows
+progress ("syncing library 3,000 / 6,500 tracks"); the browser opens into
+the cache once the sync finishes. A sync has no overall time limit — a big
+library on a slow server (a NAS, a Raspberry Pi) takes as long as it needs —
+but each 500-track page must arrive within two minutes, and a failed page
+is retried a few times before the sync gives up with the error.
 
 ## Project layout
 
