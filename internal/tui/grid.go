@@ -22,32 +22,26 @@ import (
 // area minus one row reserved for the title. outerW = inner+2, outerH
 // = inner+2+1 (title).
 const (
-	cardOuterH      = 13 // 10 thumb rows + 1 title + 2 border
+	cardOuterH      = 13 // 10 thumb rows + 1 title + 2 border (sizes the thumb)
 	cardIdealOuterW = 22 // 20 thumb cols + 2 border (20 cols × 20 image rows = square)
 	cardMinOuterW   = 18
 	cardBorderCols  = 2
 )
 
-// gridLayout picks the column count and a per-card OUTER width so that
-// cols * outerW == terminal width exactly. All cards in a row are the
-// same size; adjacent cards share visual borders.
+// cardOuterW is a grid card's fixed outer width: the thumb plus one
+// column of padding each side, plus the border. Cards used to stretch to
+// fill the terminal exactly, so the thumb's padding swung from 4 columns
+// at 60 wide to none at 200, where artwork touched the border.
+const cardOuterW = gridThumbCellsW + 2 + cardBorderCols
+
+// cardGutter separates neighbouring cards.
+const cardGutter = 1
+
+// gridLayout picks how many fixed-width cards fit in width, and their
+// outer width (only narrower than cardOuterW when one doesn't fit).
 func gridLayout(width int) (cols, outerW int) {
-	cols = width / cardIdealOuterW
-	if cols < 1 {
-		cols = 1
-	}
-	outerW = width / cols
-	if outerW < cardMinOuterW {
-		cols = width / cardMinOuterW
-		if cols < 1 {
-			cols = 1
-		}
-		outerW = width / cols
-		if outerW < cardMinOuterW {
-			outerW = cardMinOuterW
-		}
-	}
-	return
+	cols = max((width+cardGutter)/(cardOuterW+cardGutter), 1)
+	return cols, min(cardOuterW, max(width, cardMinOuterW))
 }
 
 // gridCols returns just the column count for cursor-movement math.
@@ -75,27 +69,30 @@ func (m Model) currentGridView() bool {
 	return false
 }
 
+// moveCursorBetweenViews keeps the highlighted item when v switches the
+// level between grid and list.
+func (m *Model) moveCursorBetweenViews(toGrid bool) {
+	if toGrid {
+		// The grid can't show a filter, so drop it, keeping the
+		// highlighted item by its index in the full list.
+		m.gridCursor = m.list.GlobalIndex()
+		m.list.ResetFilter()
+		m.gridScrollTop = 0
+		m.ensureCursorVisible()
+		return
+	}
+	m.list.Select(m.gridCursor)
+}
+
 // toggleGrid flips the current level's mode and keeps the same item
 // highlighted across the switch.
 func (m *Model) toggleGrid() {
 	if !m.supportsGrid() {
 		return
 	}
-	on := m.currentGridView()
-	if on {
-		// grid -> list
-		m.list.Select(m.gridCursor)
-	} else {
-		// list -> grid. The grid can't show a filter, so drop it, keeping
-		// the highlighted item by its index in the full list.
-		m.gridCursor = m.list.GlobalIndex()
-		m.list.ResetFilter()
-		m.gridScrollTop = 0
-	}
-	m.setCurrentGridView(!on)
-	if !on {
-		m.ensureCursorVisible()
-	}
+	toGrid := !m.currentGridView()
+	m.setCurrentGridView(toGrid)
+	m.moveCursorBetweenViews(toGrid)
 }
 
 func (m *Model) setCurrentGridView(v bool) {
@@ -184,17 +181,27 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
-// gridVisibleRows is how many card rows fit in the body region.
+// cardRenderedH is a card's height on screen: the thumb, title and
+// subtitle rows plus the border. (cardOuterH, which sizes the thumb,
+// leaves out the subtitle — dividing by it overestimated how many rows
+// fit, so the last one could be cropped.)
+const cardRenderedH = gridThumbCellsH + 2 + cardBorderCols
+
+// gridChromeRows is what the grid body spends on other than cards: the
+// heading, its gap, and the position line under the cards.
+const gridChromeRows = 3
+
+// gridCardsHeight is the rows the body leaves for cards.
+func (m Model) gridCardsHeight() int {
+	return max(m.listHeight()-gridChromeRows, 1)
+}
+
+// gridVisibleRows is how many card rows fit the body in full — the rows
+// the cursor scrolls within. Below them, a partial row fills whatever
+// height is left (see gridBodyView). At least 1, so a terminal too short
+// for any full row still scrolls a row at a time.
 func (m Model) gridVisibleRows() int {
-	availRows := m.listHeight() - 1
-	if availRows < cardOuterH {
-		availRows = cardOuterH
-	}
-	n := availRows / cardOuterH
-	if n < 1 {
-		n = 1
-	}
-	return n
+	return max(m.gridCardsHeight()/cardRenderedH, 1)
 }
 
 // ensureCursorVisible adjusts gridScrollTop the minimum amount required to
@@ -230,20 +237,23 @@ func (m Model) gridBodyView() string {
 	if scrollTop < 0 {
 		scrollTop = 0
 	}
-	scrollEnd := scrollTop + visibleCardRows
-	if scrollEnd > totalRows {
-		scrollEnd = totalRows
-	}
+	scrollEnd := min(scrollTop+visibleCardRows, totalRows) // rows shown in full
+	// Rows drawn: enough to fill the height, the last one cut off where
+	// the space ends — like a scrolled view, rather than blank space
+	// under the last full row.
+	drawEnd := min(scrollTop+(m.gridCardsHeight()+cardRenderedH-1)/cardRenderedH, totalRows)
 
 	normal := cardStyle.Width(outerW)
 	cursor := cardCursorStyle.Width(outerW)
 	innerW := outerW - cardBorderCols
 
 	var b strings.Builder
-	b.WriteString(headerStyle.Render(m.list.Title))
+	// Same heading style and gap as the list view's title.
+	b.WriteString(m.list.Styles.TitleBar.Render(m.list.Styles.Title.Render(m.list.Title)))
 	b.WriteByte('\n')
 
-	for row := scrollTop; row < scrollEnd; row++ {
+	var rows []string
+	for row := scrollTop; row < drawEnd; row++ {
 		cells := make([]string, 0, cols)
 		for col := 0; col < cols; col++ {
 			idx := row*cols + col
@@ -251,10 +261,17 @@ func (m Model) gridBodyView() string {
 				break
 			}
 			title, sub := gridCellTexts(items[idx])
+			if marked, ok := m.playing.playingTitle(items[idx]); ok {
+				title = marked
+			}
 			title = textutil.Truncate(title, innerW)
 			content := ""
 			if thumb := m.gridCardThumb(items[idx]); thumb != "" {
 				content = thumb + "\n"
+			} else if m.cfg.Images {
+				// Same footprint as artwork, so a card without any (or
+				// whose artwork hasn't arrived) lines up with its row.
+				content = artPlaceholder(gridThumbCellsW, gridThumbCellsH) + "\n"
 			}
 			content += title
 			if sub != "" {
@@ -264,13 +281,20 @@ func (m Model) gridBodyView() string {
 			if idx == m.gridCursor {
 				style = cursor
 			}
+			if col > 0 {
+				cells = append(cells, strings.Repeat(" ", cardGutter))
+			}
 			cells = append(cells, style.Render(content))
 		}
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
-		if row < scrollEnd-1 {
-			b.WriteByte('\n')
-		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 	}
+	cardLines := strings.Split(strings.Join(rows, "\n"), "\n")
+	if len(cardLines) > m.gridCardsHeight() {
+		cardLines = cardLines[:m.gridCardsHeight()]
+	}
+	b.WriteString(strings.Join(cardLines, "\n"))
+	b.WriteByte('\n')
+	b.WriteString(gridPosition(scrollTop*cols, min(scrollEnd*cols, len(items)), len(items)))
 
 	// Pad the body to exactly listHeight rows so the now-playing line and
 	// status bar stay pinned to the bottom of the terminal even when the
@@ -334,4 +358,31 @@ func viewName(grid bool) string {
 		return "grid"
 	}
 	return "list"
+}
+
+// gridPosition is the line under the grid saying which items are on
+// screen ("  1–10 of 312 ↓"), the grid's counterpart to the list's page
+// dots — without it nothing said there was more below. Empty when
+// everything fits.
+func gridPosition(from, to, total int) string {
+	if total == 0 || (from == 0 && to >= total) {
+		return ""
+	}
+	arrows := ""
+	if from > 0 {
+		arrows += " ↑"
+	}
+	if to < total {
+		arrows += " ↓"
+	}
+	return helpStyle.Render(fmt.Sprintf("  %d–%d of %d%s", from+1, to, total, arrows))
+}
+
+// artPlaceholder fills a thumbnail's footprint for an item without
+// artwork: blank, with a faint note in the middle.
+func artPlaceholder(w, h int) string {
+	lines := strings.Split(blankCells(w, h), "\n")
+	mid := strings.Repeat(" ", (w-1)/2) + "♪" + strings.Repeat(" ", w-1-(w-1)/2)
+	lines[h/2] = helpStyle.Render(mid)
+	return strings.Join(lines, "\n")
 }

@@ -32,6 +32,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
@@ -175,6 +176,9 @@ type Model struct {
 	// chafaID. See chafa.go.
 	useChafa bool
 	chafaOut map[string]string
+	// playing marks what's playing in lists and grids; shared with the
+	// list delegate.
+	playing *playingKeys
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
 	// same fetched image so toggling between list / grid never refetches.
@@ -269,8 +273,14 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	gridPics := map[string]*picture.Model{}
 	listPics := map[string]*picture.Model{}
 	chafaOut := map[string]string{}
-	l := list.New(items, newThumbDelegate(listPics, chafaOut), 0, 0)
+	playing := &playingKeys{}
+	l := list.New(items, newThumbDelegate(listPics, chafaOut, playing), 0, 0)
 	l.Title = "Libraries"
+	// Headings sit flush left in the accent color, with one blank line
+	// under them — the same as the grid's (which renders through these
+	// styles too) and the other screens' section titles.
+	l.Styles.Title = headerStyle
+	l.Styles.TitleBar = lipgloss.NewStyle().Padding(0, 0, 1, 0)
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
 	// bubbles list's default keymap binds 'q' and ctrl+c to Quit/ForceQuit.
@@ -326,6 +336,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		gridPics:        gridPics,
 		artRequested:    map[string]bool{},
 		chafaOut:        chafaOut,
+		playing:         playing,
 		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),
@@ -367,7 +378,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		m.activeLib = defaultLib
 	}
 
-	m.helpViewport.SetContent(m.helpBodyContent())
+	m.helpViewport.SetContent(m.helpBodyContent(60))
 
 	// Honor the user's preferred home screen. Library is the default
 	// landing page; opt in to the dashboard via cfg.Home = "dashboard".

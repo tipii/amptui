@@ -42,15 +42,38 @@ func (m Model) modalFrame(content string) string {
 	return modalStyle.Width(w).Height(h).Render(content)
 }
 
+// wideModalSize is for the modals that are mostly text to read — help
+// and artist / album info: nearly the full width (capped so lines stay
+// readable) and a bit taller. At 70% they were too narrow at 80 columns.
+func (m Model) wideModalSize() (w, h int) {
+	return max(min(m.width-4, 100), 20), max(m.height*8/10, 8)
+}
+
+func (m Model) wideModalFrame(content string) string {
+	w, h := m.wideModalSize()
+	return modalStyle.Width(w).Height(h).Render(content)
+}
+
+// fitModalFrame is a modal w wide whose height follows its content (up
+// to the usual modal height): for short, fixed content — the sort
+// options, an empty queue — that the full-size box left mostly blank.
+func (m Model) fitModalFrame(content string, w int) string {
+	mw, h := m.modalSize()
+	return modalStyle.Width(min(w, mw)).MaxHeight(h).Render(content)
+}
+
+// compactModalW is the width of fitModalFrame boxes holding a short list
+// or a one-line message.
+const compactModalW = 56
+
 // queueModalBox renders the bordered queue box. Positioning is handled by
 // the compositor in overlayBox.
 func (m Model) queueModalBox() string {
-	title := headerStyle.Render(fmt.Sprintf("Queue · %d track(s)", len(m.queue)))
-	body := m.queueList.View()
+	title := headerStyle.Render("Queue" + countSuffix(len(m.queue), "track"))
 	if len(m.queue) == 0 {
-		body = helpStyle.Render("queue is empty — press q on a track or album to add")
+		return m.fitModalFrame(title+"\n"+helpStyle.Render("queue is empty — press q on a track or album to add"), compactModalW)
 	}
-	return m.modalFrame(title + "\n" + body)
+	return m.modalFrame(title + "\n" + m.queueList.View())
 }
 
 // searchModalBox wraps the sub-model's body in the shared modal frame.
@@ -93,23 +116,81 @@ func formatSearchEntry(e library.Entry, maxWidth int) string {
 // with a scrollable body (helpViewport).
 func (m Model) helpModalBox() string {
 	title := headerStyle.Render("Keybindings")
-	return m.modalFrame(title + "\n" + m.helpViewport.View())
+	// Say when there's more than fits; the sections below the fold used
+	// to be undiscoverable.
+	if !m.helpViewport.AtBottom() {
+		title += helpStyle.Render("  ↓ more")
+	}
+	return m.wideModalFrame(title + "\n" + m.helpViewport.View())
 }
 
-// helpBodyContent renders the help-modal body from KeyMap.helpModalSections,
-// so it stays in sync with the actual bindings. A help.Model in ShowAll
-// mode formats each section's binding rows; we prepend a faint title above.
-func (m Model) helpBodyContent() string {
-	h := m.helpModel
-	h.ShowAll = true
+// helpBodyContent renders the help-modal body, width columns wide, from
+// KeyMap.helpModalSections, so it stays in sync with the actual bindings. Each section is a faint title over its bindings,
+// laid out in as many columns as fit: the bubbles help view sized its
+// columns to the whole terminal, so inside the modal they ran off the
+// right edge.
+func (m Model) helpBodyContent(width int) string {
+	type entry struct{ key, desc string }
+	sections := m.keymap.helpModalSections()
+	all := make([][]entry, len(sections))
+	keyW, descW := 0, 0
+	for i, s := range sections {
+		for _, group := range s.bindings {
+			for _, kb := range group {
+				if !kb.Enabled() {
+					continue
+				}
+				e := entry{kb.Help().Key, kb.Help().Desc}
+				all[i] = append(all[i], e)
+				keyW = max(keyW, lipgloss.Width(e.key))
+				descW = max(descW, lipgloss.Width(e.desc))
+			}
+		}
+	}
+	const gap = 3
+	colW := keyW + 1 + descW
+	if colW > width {
+		colW = width
+	}
+	cols := max(1, (width+gap)/(colW+gap))
+	keyStyle, descStyle := m.helpModel.Styles.FullKey, m.helpModel.Styles.FullDesc
+
 	var b strings.Builder
-	for i, s := range m.keymap.helpModalSections() {
+	for i, s := range sections {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(helpStyle.Render(s.title))
-		b.WriteString("\n")
-		b.WriteString(h.View(helpView{full: s.bindings}))
+		entries := all[i]
+		rows := (len(entries) + cols - 1) / cols
+		for r := 0; r < rows; r++ {
+			b.WriteString("\n")
+			for c := 0; c < cols; c++ {
+				idx := c*rows + r // column-major, so each column reads down
+				if idx >= len(entries) {
+					break
+				}
+				e := entries[idx]
+				cell := keyStyle.Render(e.key+strings.Repeat(" ", keyW-lipgloss.Width(e.key))) + " " +
+					descStyle.Render(textutil.Truncate(e.desc, colW-keyW-1))
+				if c > 0 {
+					b.WriteString(strings.Repeat(" ", gap))
+				}
+				b.WriteString(cell + strings.Repeat(" ", max(colW-lipgloss.Width(cell), 0)))
+			}
+		}
 	}
 	return b.String()
+}
+
+// countSuffix is " · 3 tracks" / " · 1 track" for a modal title, or ""
+// for none — the empty state says so in the body.
+func countSuffix(n int, noun string) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return " · 1 " + noun
+	}
+	return fmt.Sprintf(" · %d %ss", n, noun)
 }

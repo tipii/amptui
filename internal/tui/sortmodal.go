@@ -149,7 +149,7 @@ func (m Model) sortSuffix(lvl level) string {
 // direction it's sorted in; the cursor row is accented.
 func (m Model) sortModalBox() string {
 	title := headerStyle.Render("Sort · " + m.titleForLevel(m.level))
-	return m.modalFrame(title + "\n" + m.sortModalBody())
+	return m.fitModalFrame(title+"\n"+m.sortModalBody(), compactModalW)
 }
 
 func (m Model) sortModalBody() string {

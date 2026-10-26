@@ -76,7 +76,7 @@ func TestQueueModalRenders(t *testing.T) {
 	if !strings.Contains(out, "╭") || !strings.Contains(out, "╰") {
 		t.Errorf("expected a rounded border in the modal view")
 	}
-	if !strings.Contains(out, "Queue · 3 track(s)") {
+	if !strings.Contains(out, "Queue · 3 tracks") {
 		t.Errorf("expected the modal title in the view")
 	}
 	// The browser list should still be visible behind the modal.
@@ -108,8 +108,10 @@ func TestHelpModalRenders(t *testing.T) {
 	if !strings.Contains(out, "Keybindings") {
 		t.Errorf("expected the help modal title in the view")
 	}
-	if !strings.Contains(out, "Soundtracks") {
-		t.Errorf("expected the background list to show through the overlay")
+	// The help modal is wide (it's mostly text), so check the screen
+	// behind it via the title bar above it rather than a list row.
+	if !strings.Contains(out, "amptui") {
+		t.Errorf("expected the background screen to show around the overlay")
 	}
 	t.Log("\n" + out)
 }
@@ -193,12 +195,12 @@ func TestSettingsScreenRenders(t *testing.T) {
 
 	out := m.View().Content
 	for _, want := range []string{
-		"Settings /",
+		"Settings",
 		"https://plex.example.dev",
-		"Token",                  // password field label (value masked by huh)
-		"Music",                  // default library value
-		"1 artists",              // entry breakdown in cache stats
-		"Default view (Artists)", // huh select label
+		"Token",        // password field label (value masked)
+		"Music",        // default library value
+		"1 artists",    // entry breakdown in cache stats
+		"Artists view", // compact row label for the default view
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in settings view", want)
@@ -224,19 +226,19 @@ func settingsScreen(t *testing.T, cfg config.Config) string {
 // Jellyfin user/pass, and vice versa.
 func TestSettingsBackendFieldVisibility(t *testing.T) {
 	plex := settingsScreen(t, config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"})
-	if !strings.Contains(plex, "Token (Plex)") {
-		t.Error("plex backend should show the Token (Plex) field")
+	if !strings.Contains(plex, "Token") {
+		t.Error("plex backend should show the Token field")
 	}
-	if strings.Contains(plex, "(Jellyfin)") {
+	if strings.Contains(plex, "Username") || strings.Contains(plex, "Password") {
 		t.Error("plex backend should hide the Jellyfin credential fields")
 	}
 
 	jelly := settingsScreen(t, config.Config{Backend: "jellyfin", ServerURL: "https://x", JellyfinUsername: "u", JellyfinPassword: "p"})
-	if !strings.Contains(jelly, "Username (Jellyfin)") || !strings.Contains(jelly, "Password (Jellyfin)") {
+	if !strings.Contains(jelly, "Username") || !strings.Contains(jelly, "Password") {
 		t.Error("jellyfin backend should show the username/password fields")
 	}
-	if strings.Contains(jelly, "Token (Plex)") {
-		t.Error("jellyfin backend should hide the Token (Plex) field")
+	if strings.Contains(jelly, "Token") {
+		t.Error("jellyfin backend should hide the Token field")
 	}
 }
 

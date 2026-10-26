@@ -20,9 +20,10 @@ import (
 // gets the column (blank when that row has no thumb) so widths stay
 // aligned.
 type thumbDelegate struct {
-	inner  list.DefaultDelegate
-	thumbs map[string]*picture.Model
-	chafa  map[string]string
+	inner   list.DefaultDelegate
+	thumbs  map[string]*picture.Model
+	chafa   map[string]string
+	playing *playingKeys
 }
 
 // listThumbCellsW / H is the cell footprint of the thumbnail rendered
@@ -36,11 +37,12 @@ const (
 
 // chafa holds the Model's chafa renders (see chafa.go), shared by
 // reference like thumbs; it stays empty when chafa isn't in use.
-func newThumbDelegate(thumbs map[string]*picture.Model, chafa map[string]string) thumbDelegate {
+func newThumbDelegate(thumbs map[string]*picture.Model, chafa map[string]string, playing *playingKeys) thumbDelegate {
 	return thumbDelegate{
-		inner:  list.NewDefaultDelegate(),
-		thumbs: thumbs,
-		chafa:  chafa,
+		inner:   list.NewDefaultDelegate(),
+		thumbs:  thumbs,
+		chafa:   chafa,
+		playing: playing,
 	}
 }
 
@@ -51,6 +53,11 @@ func (d thumbDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 }
 
 func (d thumbDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if title, ok := d.playing.playingTitle(item); ok {
+		if di, isDefault := item.(list.DefaultItem); isDefault {
+			item = retitled{di, title}
+		}
+	}
 	if len(d.thumbs) == 0 {
 		d.inner.Render(w, m, index, item)
 		return
@@ -62,6 +69,12 @@ func (d thumbDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	case artistItem:
 		key = v.artist.RatingKey
 	}
+	if key == "" {
+		// Tracks, "Play album", libraries: never have artwork, so no
+		// (blank) thumb column either.
+		d.inner.Render(w, m, index, item)
+		return
+	}
 	var thumb string
 	if out := d.chafa[chafaID(key, listThumbCellsW, listThumbCellsH)]; out != "" {
 		thumb = out
@@ -72,12 +85,27 @@ func (d thumbDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		thumb = blankCells(listThumbCellsW, listThumbCellsH)
 	}
 
-	// Render the default row into a buffer so we can stack the
-	// thumb beside it via JoinHorizontal.
-	var inner strings.Builder
-	d.inner.Render(&inner, m, index, item)
+	// The selection bar goes in front of the thumb, at column 0 like on
+	// rows without one; the default delegate would draw it as the text's
+	// left border, between thumb and title. So the inner row gets no
+	// border, and the bar is drawn here.
+	inner := d.inner
+	st := &inner.Styles
+	bar := st.SelectedTitle.GetBorderLeftForeground()
+	st.SelectedTitle = st.SelectedTitle.BorderLeft(false).PaddingLeft(1)
+	st.SelectedDesc = st.SelectedDesc.BorderLeft(false).PaddingLeft(1)
+	st.NormalTitle = st.NormalTitle.PaddingLeft(1)
+	st.NormalDesc = st.NormalDesc.PaddingLeft(1)
+	st.DimmedTitle = st.DimmedTitle.PaddingLeft(1)
+	st.DimmedDesc = st.DimmedDesc.PaddingLeft(1)
+	var row strings.Builder
+	inner.Render(&row, m, index, item)
 
-	fmt.Fprint(w, lipgloss.JoinHorizontal(lipgloss.Top, thumb, " ", inner.String()))
+	marker := blankCells(1, listThumbCellsH)
+	if index == m.Index() && m.FilterState() != list.Filtering {
+		marker = strings.TrimSuffix(strings.Repeat(lipgloss.NewStyle().Foreground(bar).Render("│")+"\n", listThumbCellsH), "\n")
+	}
+	fmt.Fprint(w, lipgloss.JoinHorizontal(lipgloss.Top, marker, " ", thumb, row.String()))
 }
 
 // blankCells returns a w×h cell block of spaces. Used to reserve the

@@ -31,6 +31,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return model, cmd
 	}
+	if next.playing != nil {
+		next.playing.set(next.nowPlaying)
+	}
 	cmds := []tea.Cmd{cmd, next.applyKittyCapability()}
 	if !next.spinning && next.needsSpinner() {
 		next.spinning = true
@@ -131,18 +134,24 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// A different height can change how many card rows fit.
+		m.ensureCursorVisible()
 		m.list.SetSize(msg.Width, m.listHeight())
 		// Modal interiors: subtract the border (2), horizontal padding (2),
 		// and one row for the box title.
 		mw, mh := m.modalSize()
 		m.queueList.SetSize(mw-4, mh-3)
-		m.helpViewport.SetWidth(mw - 4)
-		m.helpViewport.SetHeight(mh - 3)
+		// Help and info use the wider text modal.
+		ww, wh := m.wideModalSize()
+		m.helpViewport.SetWidth(ww - 4)
+		m.helpViewport.SetHeight(wh - 3)
+		m.helpViewport.SetContent(m.helpBodyContent(ww - 4))
 		m.helpModel.SetWidth(msg.Width)
-		m.infoViewport.SetWidth(mw - 4)
-		m.infoViewport.SetHeight(mh - 3)
-		// Progress bar fits between the left indent and the right edge.
-		m.progress.SetWidth(msg.Width - 4)
+		m.infoViewport.SetWidth(ww - 4)
+		m.infoViewport.SetHeight(wh - 3)
+		// Full width, like the now-playing line above it (it used to
+		// stop 4 columns short of the edge).
+		m.progress.SetWidth(msg.Width)
 		// huh fields need WindowSizeMsg too so they can size themselves.
 		var fcmd tea.Cmd
 		m.settings, fcmd = m.settings.ForwardMsg(msg)
@@ -311,14 +320,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil // an error belongs to the screen it happened on
 			return m, nil
 		case key.Matches(msg, k.Info):
-			if body := m.infoModalContent(); body != "" {
+			w := m.infoViewport.Width()
+			if w < 10 {
+				w = 60
+			}
+			if body := m.infoModalContent(w); body != "" {
 				// viewport doesn't soft-wrap; lipgloss with Width does.
 				// Wrap to the viewport's visible width so bios reflow
 				// instead of getting truncated mid-word at the edge.
-				w := m.infoViewport.Width()
-				if w < 10 {
-					w = 60
-				}
 				wrapped := lipgloss.NewStyle().Width(w).Render(body)
 				m.infoViewport.SetContent(wrapped)
 				m.infoViewport.GotoTop()

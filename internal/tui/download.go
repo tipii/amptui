@@ -442,14 +442,16 @@ func downloadFooterSummary(jobs []*downloadJob) string {
 func (m Model) downloadsModalBox() string {
 	mw, _ := m.modalSize()
 	innerW := mw - 4 // border (2) + horiz padding (2)
-	left := headerStyle.Render(fmt.Sprintf("Downloads · %d", len(m.downloadJobs)))
+	left := headerStyle.Render("Downloads" + countSuffix(len(m.downloadJobs), "job"))
 	right := helpStyle.Render(m.downloadQuality().Label())
 	pad := innerW - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 1 {
 		pad = 1
 	}
 	title := left + strings.Repeat(" ", pad) + right
-	return m.modalFrame(title + "\n" + m.downloadsModalBody(innerW))
+	// Height follows the job list: with none or a couple, the full-size
+	// box was mostly blank.
+	return m.fitModalFrame(title+"\n"+m.downloadsModalBody(innerW), mw)
 }
 
 func (m Model) downloadsModalBody(innerW int) string {

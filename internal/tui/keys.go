@@ -98,7 +98,7 @@ func NewKeyMap() KeyMap {
 		Mute:          key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		Repeat:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
 		Shuffle:       key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "shuffle")),
-		Enqueue:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "queue")),
+		Enqueue:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "add to queue")),
 		Download:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download")),
 		OpenDownloads: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "downloads")),
 
@@ -115,6 +115,11 @@ func NewKeyMap() KeyMap {
 	}
 }
 
+// moveKeys is a footer-only entry standing for all four arrows, instead
+// of four entries ("↑/k up • ↓/j down • ← left • → right") taking most
+// of an 80-column footer.
+var moveKeys = key.NewBinding(key.WithKeys("up", "down", "left", "right"), key.WithHelp("←↑↓→", "move"))
+
 // helpView is the per-context view a help.Model can render. Each screen
 // or modal returns one of these so the same help.Model renders the right
 // thing for the user's current position in the app.
@@ -129,7 +134,9 @@ func (h helpView) FullHelp() [][]key.Binding { return h.full }
 // browserHelp is the help context for the main browser screen.
 func (k KeyMap) browserHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Help, k.OpenSearch, k.Enter, k.SwitchScreen, k.OpenQueue, k.Info, k.NextTrack, k.PrevTrack, k.Quit},
+		// Most-used first: the footer is cut off with "…" when narrow.
+		// enter is left out — opening the highlighted row is a given.
+		short: []key.Binding{k.Help, k.OpenSearch, k.Pause, k.NextTrack, k.PrevTrack, k.OpenQueue, k.SwitchScreen, k.Info, k.Quit},
 		full: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
@@ -179,14 +186,16 @@ func (k KeyMap) infoModalHelp() helpView {
 // dashboardHelp is the help shown on the home dashboard screen.
 func (k KeyMap) dashboardHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Up, k.Down, k.Left, k.Right, k.Enter, k.SwitchScreen, k.OpenSearch, k.Refresh, k.Quit},
+		short: []key.Binding{k.Help, moveKeys, k.Enter, k.Pause, k.NextTrack, k.SwitchScreen, k.OpenSearch, k.Refresh, k.Quit},
 	}
 }
 
 // settingsHelp is the help shown on the settings screen (navigation mode).
 func (k KeyMap) settingsHelp() helpView {
+	// Enter edits the highlighted setting here, not "open".
+	edit := key.NewBinding(key.WithKeys(k.Enter.Keys()...), key.WithHelp("enter", "edit"))
 	return helpView{
-		short: []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Refresh, k.PurgeImgs, k.Quit},
+		short: []key.Binding{k.Up, k.Down, edit, k.Back, k.Refresh, k.PurgeImgs, k.Quit},
 	}
 }
 

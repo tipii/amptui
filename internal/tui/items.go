@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"charm.land/bubbles/v2/list"
 	"fmt"
 
 	"github.com/tipii/amptui/internal/library"
@@ -59,11 +60,13 @@ func (i albumItem) FilterValue() string { return i.album.Title }
 type albumActionItem struct{ tracks []media.Track }
 
 func (i albumActionItem) Title() string { return "▶  Play album" }
+
+// Description lines up under "Play album", past the "▶  " marker.
 func (i albumActionItem) Description() string {
 	if len(i.tracks) == 1 {
-		return "1 track"
+		return "   1 track"
 	}
-	return fmt.Sprintf("%d tracks", len(i.tracks))
+	return fmt.Sprintf("   %d tracks", len(i.tracks))
 }
 func (i albumActionItem) FilterValue() string { return "Play album" }
 
@@ -79,10 +82,28 @@ type trackItem struct {
 func (i trackItem) Title() string {
 	return fmt.Sprintf("%2d. %s", i.track.Index, i.track.Title)
 }
+
+// Description is the duration (and the disc, on a multi-disc album),
+// indented to line up under the title text past the "NN. " number. It
+// used to repeat the album name, which on the album's own track list
+// is the page heading.
 func (i trackItem) Description() string {
 	d := i.track.Duration.Round(1e9) // whole seconds
-	return fmt.Sprintf("%s · %02d:%02d", i.track.Album,
-		int(d.Minutes()), int(d.Seconds())%60)
+	out := fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+	if i.track.Disc > 0 && multiDisc(i.tracks) {
+		out = fmt.Sprintf("disc %d · %s", i.track.Disc, out)
+	}
+	return "    " + out
+}
+
+// multiDisc reports whether an album's tracks span more than one disc.
+func multiDisc(tracks []media.Track) bool {
+	for _, t := range tracks {
+		if t.Disc > 1 {
+			return true
+		}
+	}
+	return false
 }
 func (i trackItem) FilterValue() string { return i.track.Title }
 
@@ -103,3 +124,48 @@ func (i queueItem) Description() string {
 	return "   " + i.track.Artist + " · " + i.track.Album
 }
 func (i queueItem) FilterValue() string { return i.track.Title }
+
+// playingKeys is what's playing, for marking it in lists and grids: the
+// track, its album and its artist. The Model and the list delegate share
+// one (by pointer); Update refreshes it after every message.
+type playingKeys struct{ track, album, artist string }
+
+func (p *playingKeys) set(t *media.Track) {
+	if t == nil {
+		*p = playingKeys{}
+		return
+	}
+	*p = playingKeys{t.RatingKey, t.AlbumRatingKey, t.ArtistRatingKey}
+}
+
+// playingTitle is item's title marked with ♪ when it's what's playing,
+// and ok reports whether it is. A track's number gives way to the note,
+// keeping the column; an album or artist gets the note in front.
+func (p *playingKeys) playingTitle(item list.Item) (title string, ok bool) {
+	if p == nil {
+		return "", false
+	}
+	switch it := item.(type) {
+	case trackItem:
+		if p.track != "" && it.track.RatingKey == p.track {
+			return fmt.Sprintf("%2s  %s", "♪", it.track.Title), true
+		}
+	case albumItem:
+		if p.album != "" && it.album.RatingKey == p.album {
+			return "♪ " + it.album.Title, true
+		}
+	case artistItem:
+		if p.artist != "" && it.artist.RatingKey == p.artist {
+			return "♪ " + it.artist.Title, true
+		}
+	}
+	return "", false
+}
+
+// retitled is a list item shown with a different title.
+type retitled struct {
+	list.DefaultItem
+	title string
+}
+
+func (r retitled) Title() string { return r.title }

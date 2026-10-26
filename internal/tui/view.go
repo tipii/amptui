@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
 )
 
 // View is the Bubble Tea render entry point. It picks the active screen,
@@ -57,10 +59,7 @@ func (m Model) View() tea.View {
 // line, and footer. Modals are composited on top of this.
 func (m Model) browserView() string {
 	var b strings.Builder
-	title := headerStyle.Render("amptui")
-	if crumbs := m.crumbLine(); crumbs != "" {
-		title += "  " + crumbStyle.Render(crumbs)
-	}
+	title := m.titleBar(m.crumbTitles()...)
 	// Chrome layout:
 	//   row 1:   title + breadcrumb (always full-width — image must not
 	//            sit on the same row).
@@ -78,6 +77,9 @@ func (m Model) browserView() string {
 		// touch the terminal edge.
 		rightWidth := m.width - headerThumbCellsW - 4
 		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, thumb, "  ", m.infoHeaderBlock(rightWidth)))
+		// The same gap above the list heading as on screens without a
+		// hero block, instead of the heading butting against the art.
+		b.WriteString("\n")
 	} else {
 		b.WriteString(m.infoHeaderLine())
 	}
@@ -123,8 +125,7 @@ func (m Model) footerLeft() string {
 // the parent just wraps it.
 func (m Model) dashboardScreen() string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("amptui"))
-	b.WriteString("  " + crumbStyle.Render("Dashboard"))
+	b.WriteString(m.titleBar("Dashboard"))
 	b.WriteString("\n\n")
 	// Dashboard renders its title + spacer outside the sub-model body,
 	// matching the browser layout, so the body itself gets exactly
@@ -147,7 +148,7 @@ func (m Model) settingsScreen() string {
 	// pass it the full screen height minus only the bottom chrome, not
 	// bodyHeight (which assumes the title chrome lives outside the body).
 	bodyHeight := max(m.height-bottomChromeRows, 1)
-	body := fitRows(m.settings.View(bodyHeight, stats), bodyHeight)
+	body := fitRows(m.settings.View(m.titleBar("Settings"), bodyHeight, stats), bodyHeight)
 
 	var b strings.Builder
 	b.WriteString(body)
@@ -215,23 +216,41 @@ func (m Model) overlayBox(background, box string) string {
 		y = 0
 	}
 
+	// Dim what's behind the modal so it reads as the focus. Not with Kitty
+	// images: they're encoded in the text's colors, which dimming (by
+	// re-rendering the background as plain faint text) would strip.
+	if m.picMode != picture.PictureKitty {
+		background = lipgloss.NewStyle().Faint(true).Render(ansi.Strip(background))
+	}
 	bg := lipgloss.NewLayer(background)
 	fg := lipgloss.NewLayer(box).X(x).Y(y).Z(1)
 	return lipgloss.NewCompositor(bg, fg).Render()
 }
 
-func (m Model) crumbLine() string {
-	parts := make([]string, 0, len(m.crumbs)+1)
+// titleBar is the first row of every screen: the app name, then where
+// you are — "amptui  tipiplex / Music / Nirvana". Every screen builds it
+// here; the browser ended its path with a slash, the dashboard and
+// settings left the server out.
+func (m Model) titleBar(path ...string) string {
+	parts := make([]string, 0, len(path)+1)
 	if m.serverName != "" {
 		parts = append(parts, m.serverName)
 	}
-	for _, c := range m.crumbs {
-		parts = append(parts, c.title)
+	parts = append(parts, path...)
+	title := headerStyle.Render("amptui")
+	if len(parts) > 0 {
+		title += "  " + crumbStyle.Render(strings.Join(parts, " / "))
 	}
-	if len(parts) == 0 {
-		return ""
+	return title
+}
+
+// crumbTitles is the browser's path: one entry per crumb.
+func (m Model) crumbTitles() []string {
+	out := make([]string, len(m.crumbs))
+	for i, c := range m.crumbs {
+		out[i] = c.title
 	}
-	return strings.Join(parts, " / ") + " /"
+	return out
 }
 
 // bottomChromeRows is what every screen keeps below its body: the
@@ -255,7 +274,7 @@ func (m Model) bodyHeight() int {
 func (m Model) listHeight() int {
 	h := m.bodyHeight()
 	if m.headerThumb() != "" {
-		h -= headerThumbCellsH
+		h -= headerThumbCellsH + 1 // the block and the gap under it
 	}
 	return max(h, 1)
 }

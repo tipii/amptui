@@ -30,11 +30,17 @@ const (
 	modalThumbCellsH = 12
 )
 
+// heroMinHeight is the terminal height below which the hero thumbnail
+// (and the multi-line bio teaser beside it) gives way to the one-line
+// summary: under it, the 8 rows the hero block takes leave no room for
+// a full row of album cards, or for more than a track or two.
+const heroMinHeight = 28
+
 // headerThumb returns the rendered hero thumbnail for the current
 // artist / album screen, or "" when artwork is off / unavailable /
-// not on a screen that has one.
+// not on a screen that has one, or the terminal is too short for it.
 func (m Model) headerThumb() string {
-	if !m.cfg.Images {
+	if !m.cfg.Images || m.height < heroMinHeight {
 		return ""
 	}
 	var (
@@ -203,7 +209,7 @@ func (m Model) infoModalBox() string {
 		if a := m.albumMeta; a != nil {
 			heading = headerStyle.Render(a.Title)
 			if a.Artist != "" {
-				heading += helpStyle.Render("  " + a.Artist)
+				heading += helpStyle.Render(" · " + a.Artist)
 			}
 		} else {
 			heading = headerStyle.Render("Album")
@@ -211,15 +217,16 @@ func (m Model) infoModalBox() string {
 	default:
 		heading = headerStyle.Render("Info")
 	}
-	return m.modalFrame(heading + "\n" + m.infoViewport.View())
+	return m.wideModalFrame(heading + "\n" + m.infoViewport.View())
 }
 
-// infoModalContent assembles the modal body for whichever level the
-// user is on. Returns "" if there's nothing to show — caller uses that
-// as a "don't open the modal" signal. When artwork is on and we have
-// the bytes, the rendered image is prepended so the bio appears below
-// the thumbnail.
-func (m Model) infoModalContent() string {
+// infoModalContent assembles the modal body, width columns wide, for
+// whichever level the user is on. Returns "" if there's nothing to show
+// — caller uses that as a "don't open the modal" signal. With artwork,
+// the image sits left of the text when there's room for a readable
+// column beside it (stacked above it, the bio started below the fold
+// and the right of the box stayed empty), and above it otherwise.
+func (m Model) infoModalContent(width int) string {
 	var (
 		meta string
 		pic  *picture.Model
@@ -242,6 +249,11 @@ func (m Model) infoModalContent() string {
 	}
 	if m.cfg.Images && pic != nil {
 		if img := m.thumbText(key, pic, modalThumbCellsW, modalThumbCellsH); img != "" {
+			const gutter = 3
+			if textW := width - modalThumbCellsW - gutter; textW >= 30 {
+				return lipgloss.JoinHorizontal(lipgloss.Top, img, strings.Repeat(" ", gutter),
+					lipgloss.NewStyle().Width(textW).Render(meta))
+			}
 			return img + "\n\n" + meta
 		}
 	}
