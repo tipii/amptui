@@ -62,6 +62,10 @@ type Config struct {
 	// downloads read this. See media.ParseDownloadQuality for the
 	// accepted values — an unrecognized one falls back to the original.
 	DownloadQuality string `toml:"download_quality,omitempty"`
+	// ReportPlayback tells the server what's playing (its Now Playing
+	// view) and records plays (play counts, "Recent plays"). On unless
+	// set to false; a pointer so an absent key reads as the default.
+	ReportPlayback *bool `toml:"report_playback,omitempty"`
 
 	// overrides records the env vars Load applied (see Save). Unexported,
 	// so the TOML encoder never sees it.
@@ -171,6 +175,9 @@ func Load() (Config, error) {
 	}
 	return c, nil
 }
+
+// ReportsPlayback reports whether playback reporting is on (the default).
+func (c Config) ReportsPlayback() bool { return c.ReportPlayback == nil || *c.ReportPlayback }
 
 // IsJellyfin reports whether the configured backend is Jellyfin. Plex is
 // the default for any unset or unrecognized value.

@@ -136,3 +136,45 @@ func TestTrackPath(t *testing.T) {
 		}
 	}
 }
+
+func TestVolumeIsWritable(t *testing.T) {
+	s, obj := newTestPair(t)
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Volume", dbus.MakeVariant(0.4)).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetVolume || got.Volume != 0.4 {
+		t.Errorf("Set Volume: got %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Rate", dbus.MakeVariant(2.0)).Err; err == nil {
+		t.Error("Rate should stay read-only")
+	}
+	s.Update(Status{Volume: 0.4})
+	var vol float64
+	if err := obj.Call(ifaceProps+".Get", 0, ifacePlayer, "Volume").Store(&vol); err != nil || vol != 0.4 {
+		t.Errorf("Volume = %v, %v", vol, err)
+	}
+}
+
+func TestShuffleAndLoopAreWritable(t *testing.T) {
+	s, obj := newTestPair(t)
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Shuffle", dbus.MakeVariant(true)).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetShuffle || !got.Shuffle {
+		t.Errorf("Set Shuffle: %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "LoopStatus", dbus.MakeVariant("Track")).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetLoop || got.Loop != LoopTrack {
+		t.Errorf("Set LoopStatus: %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "LoopStatus", dbus.MakeVariant("Sometimes")).Err; err == nil {
+		t.Error("invalid LoopStatus accepted")
+	}
+	s.Update(Status{Shuffle: true, Loop: LoopPlaylist})
+	var loop string
+	if err := obj.Call(ifaceProps+".Get", 0, ifacePlayer, "LoopStatus").Store(&loop); err != nil || loop != "Playlist" {
+		t.Errorf("LoopStatus = %q, %v", loop, err)
+	}
+}

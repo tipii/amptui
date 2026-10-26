@@ -86,8 +86,11 @@ func (m *Model) toggleGrid() {
 		// grid -> list
 		m.list.Select(m.gridCursor)
 	} else {
-		// list -> grid
-		m.gridCursor = m.list.Index()
+		// list -> grid. The grid can't show a filter, so drop it, keeping
+		// the highlighted item by its index in the full list.
+		m.gridCursor = m.list.GlobalIndex()
+		m.list.ResetFilter()
+		m.gridScrollTop = 0
 	}
 	m.setCurrentGridView(!on)
 	if !on {
@@ -323,4 +326,12 @@ func gridCellTexts(item interface{ FilterValue() string }) (title, sub string) {
 	}
 	title = item.FilterValue()
 	return
+}
+
+// viewName is the config value for a level's view mode.
+func viewName(grid bool) string {
+	if grid {
+		return "grid"
+	}
+	return "list"
 }

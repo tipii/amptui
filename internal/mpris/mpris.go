@@ -12,6 +12,7 @@
 package mpris
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"reflect"
@@ -49,7 +50,22 @@ const (
 	// SetPosition moves to the absolute Command.Position. The server
 	// has already checked that the request targets the current track.
 	SetPosition
+	// SetVolume sets the volume to Command.Volume (0–1).
+	SetVolume
+	// SetShuffle turns shuffle on or off (Command.Shuffle).
+	SetShuffle
+	// SetLoop sets the repeat mode (Command.Loop).
+	SetLoop
 	Quit
+)
+
+// LoopStatus mirrors MPRIS's LoopStatus values.
+type LoopStatus string
+
+const (
+	LoopNone     LoopStatus = "None"
+	LoopTrack    LoopStatus = "Track"
+	LoopPlaylist LoopStatus = "Playlist"
 )
 
 // Command is one request from a bus client.
@@ -57,6 +73,9 @@ type Command struct {
 	Kind     CommandKind
 	Offset   time.Duration
 	Position time.Duration
+	Volume   float64
+	Shuffle  bool
+	Loop     LoopStatus
 }
 
 // PlaybackState mirrors MPRIS's PlaybackStatus values.
@@ -88,6 +107,10 @@ type Status struct {
 	Track   *Track
 	CanNext bool
 	CanPrev bool
+	// Volume is 0–1 (MPRIS reports a muted player as 0).
+	Volume  float64
+	Shuffle bool
+	Loop    LoopStatus
 }
 
 // Server is a registered MPRIS player on the session bus.
@@ -247,7 +270,9 @@ func (s *Server) playerProps(st Status) map[string]dbus.Variant {
 		"Rate":           dbus.MakeVariant(1.0),
 		"MinimumRate":    dbus.MakeVariant(1.0),
 		"MaximumRate":    dbus.MakeVariant(1.0),
-		"Volume":         dbus.MakeVariant(1.0),
+		"Volume":         dbus.MakeVariant(st.Volume),
+		"Shuffle":        dbus.MakeVariant(st.Shuffle),
+		"LoopStatus":     dbus.MakeVariant(string(cmp.Or(st.Loop, LoopNone))),
 		"CanGoNext":      dbus.MakeVariant(st.CanNext),
 		"CanGoPrevious":  dbus.MakeVariant(st.CanPrev),
 		"CanPlay":        dbus.MakeVariant(loaded),
@@ -344,9 +369,35 @@ func (o propsObj) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error) {
 	return out, nil
 }
 
-// Set rejects every write: rate, volume, shuffle and loop aren't
-// controllable from outside (yet).
-func (o propsObj) Set(iface, name string, _ dbus.Variant) *dbus.Error {
+// Set handles the writable Player properties by queueing a command; the
+// new value is published back through Update once it's applied.
+func (o propsObj) Set(iface, name string, v dbus.Variant) *dbus.Error {
+	if iface == ifacePlayer {
+		switch name {
+		case "Volume":
+			vol, ok := v.Value().(float64)
+			if !ok {
+				return dbus.NewError("org.freedesktop.DBus.Error.InvalidArgs", []any{"Volume must be a double"})
+			}
+			o.s.send(Command{Kind: SetVolume, Volume: min(max(vol, 0), 1)})
+			return nil
+		case "Shuffle":
+			on, ok := v.Value().(bool)
+			if !ok {
+				return dbus.NewError("org.freedesktop.DBus.Error.InvalidArgs", []any{"Shuffle must be a boolean"})
+			}
+			o.s.send(Command{Kind: SetShuffle, Shuffle: on})
+			return nil
+		case "LoopStatus":
+			ls, _ := v.Value().(string)
+			switch LoopStatus(ls) {
+			case LoopNone, LoopTrack, LoopPlaylist:
+				o.s.send(Command{Kind: SetLoop, Loop: LoopStatus(ls)})
+				return nil
+			}
+			return dbus.NewError("org.freedesktop.DBus.Error.InvalidArgs", []any{"LoopStatus must be None, Track or Playlist"})
+		}
+	}
 	return dbus.NewError("org.freedesktop.DBus.Error.PropertyReadOnly",
 		[]any{fmt.Sprintf("%s.%s is read-only", iface, name)})
 }
@@ -379,7 +430,9 @@ const introspectXML = `<node>
     <property name="PlaybackStatus" type="s" access="read"/>
     <property name="Rate" type="d" access="read"/>
     <property name="Metadata" type="a{sv}" access="read"/>
-    <property name="Volume" type="d" access="read"/>
+    <property name="Volume" type="d" access="readwrite"/>
+    <property name="Shuffle" type="b" access="readwrite"/>
+    <property name="LoopStatus" type="s" access="readwrite"/>
     <property name="Position" type="x" access="read"/>
     <property name="MinimumRate" type="d" access="read"/>
     <property name="MaximumRate" type="d" access="read"/>

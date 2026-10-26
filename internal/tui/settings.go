@@ -32,6 +32,7 @@ type settingsValues struct {
 	ViewAlbum       string
 	Home            string
 	Images          bool
+	ReportPlayback  bool
 	DownloadFolder  string
 	DownloadQuality string
 }
@@ -115,6 +116,7 @@ func newSettingsModel(cfg config.Config) settingsModel {
 		ViewAlbum:      normalizeView(cfg.DefaultViewAlbum),
 		Home:           normalizeHome(cfg.Home),
 		Images:         cfg.Images,
+		ReportPlayback: cfg.ReportsPlayback(),
 		DownloadFolder: cfg.DownloadFolder,
 		// Round-tripped through the parser so a stale or hand-typo'd
 		// config value shows the picker on the option it actually
@@ -399,6 +401,11 @@ func buildSettingsFields(v *settingsValues) []settingsField {
 			huh.NewOption("off", false),
 			huh.NewOption("on", true),
 		).Value(&v.Images)},
+		{field: huh.NewSelect[bool]().Title("Report playback").
+			Description("Show in the server's Now Playing and count plays.").Height(3).Options(
+			huh.NewOption("on", true),
+			huh.NewOption("off", false),
+		).Value(&v.ReportPlayback)},
 		{field: huh.NewInput().
 			Title("Download folder").
 			Description("Where `d` saves tracks and albums. Empty disables downloads.").

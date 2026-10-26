@@ -88,8 +88,17 @@ func run() error {
 		}
 	}
 
-	model := tui.New(cfg, client, p, playerErr, libs, defaultLib).WithMediaControls(osc)
+	// Picks up the queue (paused) and play modes from the last run.
+	model := tui.New(cfg, client, p, playerErr, libs, defaultLib).
+		WithMediaControls(osc).
+		RestoreSession()
 	prog := tea.NewProgram(model)
-	_, err := prog.Run()
+	final, err := prog.Run()
+	// Saved while mpv is still up (Close is deferred), so the position
+	// is current.
+	if fm, ok := final.(tui.Model); ok {
+		_ = fm.SaveSession()
+		fm.StopReport()
+	}
 	return err
 }
