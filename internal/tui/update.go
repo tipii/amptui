@@ -15,12 +15,55 @@ import (
 	"github.com/NimbleMarkets/ntcharts/v2/picture"
 
 	"github.com/tipii/amptui/internal/backend"
+	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/mpris"
 )
 
+// Update runs update, then starts the loading spinner if something now
+// shows it. The spinner only ticks while needed: a forever-ticking one
+// re-rendered the whole screen ~10 times a second even when idle.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	next, ok := model.(Model)
+	if !ok || next.spinning || !next.needsSpinner() {
+		return model, cmd
+	}
+	next.spinning = true
+	return next, tea.Batch(cmd, next.spinner.Tick)
+}
+
+// handlePlaybackKey applies the transport keys (pause, next/prev, seek)
+// that work on every screen, reporting whether msg was one of them.
+func (m *Model) handlePlaybackKey(msg tea.KeyPressMsg) bool {
+	k := m.keymap
+	switch {
+	case key.Matches(msg, k.Pause):
+		if m.player != nil {
+			_ = m.player.TogglePause()
+		}
+	case key.Matches(msg, k.NextTrack):
+		m.playNext()
+	case key.Matches(msg, k.PrevTrack):
+		m.playPrev()
+	case key.Matches(msg, k.SeekBack):
+		m.seekBy(-10 * time.Second)
+	case key.Matches(msg, k.SeekForward):
+		m.seekBy(10 * time.Second)
+	default:
+		return false
+	}
+	return true
+}
+
+// needsSpinner reports whether any loading indicator is on screen.
+func (m Model) needsSpinner() bool {
+	return m.loading || m.librarySyncing || m.metaLoading ||
+		(m.screen == screenDashboard && m.dashboard.Loading())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -78,8 +121,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.search.IsOpen() {
 			return m.routeSearchKey(msg)
 		}
-		// The queue modal owns input while it is open.
+		// The queue modal owns input while it is open, playback keys
+		// aside — it's where you'd look while skipping around.
 		if m.showQueue {
+			if m.handlePlaybackKey(msg) {
+				m.rebuildQueueList()
+				return m, nil
+			}
 			switch {
 			case key.Matches(msg, k.Quit):
 				return m, tea.Quit
@@ -136,16 +184,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Settings screen owns its own input set; route there first.
+		// Playback keys work there too, except while a field is being
+		// edited (they're text then).
 		if m.screen == screenSettings {
+			if !m.settings.IsEditing() && m.handlePlaybackKey(msg) {
+				return m, nil
+			}
 			return m.routeSettingsKey(msg)
+		}
+		// Checked before the key is applied: while typing a filter, "n"
+		// and "p" are letters.
+		if m.list.FilterState() != list.Filtering && m.handlePlaybackKey(msg) {
+			return m, nil
 		}
 		// Dashboard screen has its own nav (cards + sections); route
 		// there before falling through to browser keys.
 		if m.screen == screenDashboard {
 			return m.routeDashboardKey(msg)
 		}
-		// Let the list own keys while it is filtering (typing a query).
+		// Let the list own keys while it is filtering (typing a query),
+		// except quit, which must always work.
 		if m.list.FilterState() == list.Filtering {
+			if key.Matches(msg, k.Quit) {
+				return m, tea.Quit
+			}
 			break
 		}
 		// Grid cursor navigation (only meaningful at supported levels).
@@ -182,6 +244,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, k.SwitchScreen):
 			m.screen = screenDashboard
+			m.err = nil // an error belongs to the screen it happened on
 			return m, nil
 		case key.Matches(msg, k.Info):
 			if body := m.infoModalContent(); body != "" {
@@ -221,7 +284,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openSortModal()
 			return m, nil
 		case key.Matches(msg, k.Settings):
+			m.settingsReturn = m.screen
 			m.screen = screenSettings
+			m.err = nil
 			return m, nil
 		case key.Matches(msg, k.Refresh):
 			if m.librarySyncing || len(m.libs) == 0 {
@@ -231,23 +296,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
-		case key.Matches(msg, k.NextTrack):
-			m.playNext()
-			return m, nil
-		case key.Matches(msg, k.PrevTrack):
-			m.playPrev()
-			return m, nil
-		case key.Matches(msg, k.Pause):
-			if m.player != nil {
-				_ = m.player.TogglePause()
-			}
-			return m, nil
-		case key.Matches(msg, k.SeekBack):
-			m.seekBy(-10 * time.Second)
-			return m, nil
-		case key.Matches(msg, k.SeekForward):
-			m.seekBy(10 * time.Second)
-			return m, nil
+		case key.Matches(msg, k.Right):
+			// List view: → / ← open and go back, as documented (grid view
+			// took them above for cursor movement).
+			return m.drillDown()
+		case key.Matches(msg, k.Left):
+			return m.goBack()
 		}
 
 	case serverNameMsg:
@@ -341,14 +395,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// jumps), so meta arrival no longer needs to chain a thumb
 		// fetch — usually the image is already in the picture.Model by
 		// the time the metadata JSON returns.
+		if msg.key != m.curArtistKey {
+			return m, nil
+		}
 		m.metaLoading = false
 		m.artistMeta = msg.meta
 		return m, nil
 	case albumMetaMsg:
+		if msg.key != m.curAlbumKey {
+			return m, nil
+		}
 		m.metaLoading = false
 		m.albumMeta = msg.meta
 		return m, nil
 	case thumbReadyMsg:
+		// Header / modal artwork for an artist or album no longer on
+		// screen would land on (or clear) the current one's.
+		if (msg.kind == "artist" && msg.key != m.curArtistKey) ||
+			(msg.kind == "album" && msg.key != m.curAlbumKey) {
+			return m, nil
+		}
 		if msg.err != nil || msg.img == nil {
 			// No artwork for this item — clear any stale image left on
 			// the header from the previous artist/album so we don't show
@@ -376,8 +442,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.kind == "artist":
 			cmds = append(cmds,
-				m.applyPicMode(&m.artistHeaderPic),
-				m.applyPicMode(&m.artistModalPic),
+				m.applyPicMode(m.artistHeaderPic),
+				m.applyPicMode(m.artistModalPic),
 				m.artistHeaderPic.SetImage(msg.img),
 				m.artistModalPic.SetImage(msg.img),
 			)
@@ -388,8 +454,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.SetSize(m.width, m.listHeight())
 		case msg.kind == "album":
 			cmds = append(cmds,
-				m.applyPicMode(&m.albumHeaderPic),
-				m.applyPicMode(&m.albumModalPic),
+				m.applyPicMode(m.albumHeaderPic),
+				m.applyPicMode(m.albumModalPic),
 				m.albumHeaderPic.SetImage(msg.img),
 				m.albumModalPic.SetImage(msg.img),
 			)
@@ -412,6 +478,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 			m.gridPics[key] = &gp
 			m.listPics[key] = &lp
+			m.trimThumbs()
 		}
 		return m, tea.Batch(cmds...)
 
@@ -465,6 +532,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pub
 
 	case spinner.TickMsg:
+		if !m.needsSpinner() {
+			// Let the tick chain end; Update restarts it when needed.
+			m.spinning = false
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -526,7 +598,8 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.settings, cmd, outcome = m.settings.HandleKey(msg, m.keymap)
 	switch outcome {
 	case settingsOutcomeClose:
-		m.screen = screenBrowser
+		m.screen = m.settingsReturn
+		m.err = nil
 	case settingsOutcomeRefresh:
 		if !m.librarySyncing && len(m.libs) > 0 {
 			active, _ := m.activeLibrary()
@@ -540,8 +613,13 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the terminal step the registry would still serve the old
 		// images on the next placement under the same kittyID.
 		_ = imgcache.Purge()
-		m.gridPics = map[string]*picture.Model{}
-		m.listPics = map[string]*picture.Model{}
+		// Cleared in place: the list delegate holds the listPics map
+		// itself, so a fresh map would leave it drawing the purged
+		// pictures and never see new ones.
+		clear(m.gridPics)
+		clear(m.listPics)
+		clear(m.artRequested)
+		m.diskStats.invalidate()
 		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
 		// Pull the new values from the sub-model, apply runtime effects
@@ -556,12 +634,12 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the config the live client was built from — so we can tell the
 		// user a relaunch is needed.
 		connChanged := m.cfg.Backend != v.Backend ||
-			m.cfg.ServerURL != v.ServerURL ||
+			m.cfg.ServerURL != config.NormalizeServerURL(v.ServerURL) ||
 			m.cfg.PlexToken != v.Token ||
 			m.cfg.JellyfinUsername != v.Username ||
 			m.cfg.JellyfinPassword != v.Password
 		m.cfg.Backend = v.Backend
-		m.cfg.ServerURL = v.ServerURL
+		m.cfg.ServerURL = config.NormalizeServerURL(v.ServerURL)
 		m.cfg.PlexToken = v.Token
 		m.cfg.JellyfinUsername = v.Username
 		m.cfg.JellyfinPassword = v.Password
@@ -569,6 +647,14 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.DefaultViewArtist = v.ViewArtist
 		m.cfg.DefaultViewAlbum = v.ViewAlbum
 		m.cfg.Home = v.Home
+		if m.cfg.Images && !v.Images {
+			// The list delegate draws whatever is in listPics, so turning
+			// artwork off has to empty it (the header and grid check
+			// cfg.Images themselves).
+			clear(m.gridPics)
+			clear(m.listPics)
+			clear(m.artRequested)
+		}
 		m.cfg.Images = v.Images
 		m.cfg.DownloadFolder = v.DownloadFolder
 		m.cfg.DownloadQuality = v.DownloadQuality
@@ -595,6 +681,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// already exists don't rebuild it — they flag a relaunch above.
 		if m.client == nil && m.cfg.IsValid() {
 			m.client = backend.New(m.cfg)
+			imgcache.SetNamespace(m.cfg.Backend + "|" + m.cfg.ServerURL)
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, tea.Batch(cmd, fetchLibraries(m.client), fetchServerName(m.client))
@@ -685,10 +772,13 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = true
 		return m, nil
 	case key.Matches(msg, k.Settings):
+		m.settingsReturn = m.screen
 		m.screen = screenSettings
+		m.err = nil
 		return m, nil
 	case key.Matches(msg, k.SwitchScreen):
 		m.screen = screenBrowser
+		m.err = nil
 		return m, nil
 	case key.Matches(msg, k.OpenSearch):
 		var cmd tea.Cmd
@@ -705,23 +795,6 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		active, _ := m.activeLibrary()
 		return m, m.dashboard.Load(m.client, active.Key)
-	case key.Matches(msg, k.NextTrack):
-		m.playNext()
-		return m, nil
-	case key.Matches(msg, k.PrevTrack):
-		m.playPrev()
-		return m, nil
-	case key.Matches(msg, k.Pause):
-		if m.player != nil {
-			_ = m.player.TogglePause()
-		}
-		return m, nil
-	case key.Matches(msg, k.SeekBack):
-		m.seekBy(-10 * time.Second)
-		return m, nil
-	case key.Matches(msg, k.SeekForward):
-		m.seekBy(10 * time.Second)
-		return m, nil
 	}
 
 	// Anything not above belongs to the dashboard sub-model (nav +

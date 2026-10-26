@@ -43,9 +43,7 @@ func (m trackMetadata) toTrack() media.Track {
 		Year:            m.ParentYear,
 		Duration:        time.Duration(m.Duration) * time.Millisecond,
 	}
-	if m.AddedAt > 0 {
-		t.AddedAt = time.Unix(m.AddedAt, 0)
-	}
+	t.AddedAt = unixOrZero(m.AddedAt)
 	if len(m.Media) > 0 && len(m.Media[0].Part) > 0 {
 		t.PartKey = m.Media[0].Part[0].Key
 	}
@@ -96,4 +94,14 @@ func (c *Client) StreamURL(t media.Track) string {
 		return ""
 	}
 	return fmt.Sprintf("%s%s?X-Plex-Token=%s", c.serverURL, t.PartKey, url.QueryEscape(c.token))
+}
+
+// unixOrZero converts a Plex epoch-seconds field, mapping the 0 Plex
+// sends for "unknown" to the zero time rather than 1970-01-01, which
+// would sort as the oldest item and render as a real date.
+func unixOrZero(secs int64) time.Time {
+	if secs <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(secs, 0)
 }

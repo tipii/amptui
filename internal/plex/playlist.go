@@ -43,7 +43,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]media.Playlis
 			Summary:   m.Summary,
 			LeafCount: m.LeafCount,
 			Duration:  time.Duration(m.Duration) * time.Millisecond,
-			UpdatedAt: time.Unix(m.UpdatedAt, 0),
+			UpdatedAt: unixOrZero(m.UpdatedAt),
 			Smart:     m.Smart,
 		})
 	}

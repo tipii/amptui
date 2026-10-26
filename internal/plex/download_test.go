@@ -67,3 +67,18 @@ func TestDownloadURLFallsBackToOriginal(t *testing.T) {
 		t.Errorf("keyless track should fall back to the original, got %q", got)
 	}
 }
+
+func TestArtworkURLIsTranscodedAndBounded(t *testing.T) {
+	c := &Client{serverURL: "http://plex:32400", token: "tok&en"}
+	u, err := url.Parse(c.ArtworkURL("123"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/photo/:/transcode" {
+		t.Errorf("path = %q, want the photo transcoder", u.Path)
+	}
+	q := u.Query()
+	if q.Get("url") != "/library/metadata/123/thumb" || q.Get("width") != "512" || q.Get("X-Plex-Token") != "tok&en" {
+		t.Errorf("query = %v", q)
+	}
+}

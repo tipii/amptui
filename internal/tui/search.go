@@ -350,17 +350,8 @@ func (m Model) jumpToArtist(artistKey string) (Model, tea.Cmd) {
 	m.pushLibrariesCrumb()
 	m.pushArtistsCrumb(artistKey)
 	m.applyItems(levelAlbums, m.albumItems(artistKey))
-	m.artistMeta, m.albumMeta = nil, nil
-	m.metaLoading = true
-	// Rebuild the artist surfaces with kittyIDs tied to this ratingKey,
-	// matching the per-key pattern in drillDown so a revisit reuses the
-	// terminal's already-cached image at the same ID.
-	m.artistHeaderPic = newKeyedPicture("artist-header", artistKey, headerThumbCellsW, headerThumbCellsH)
-	m.artistModalPic = newKeyedPicture("artist-modal", artistKey, modalThumbCellsW, modalThumbCellsH)
-	return m, tea.Batch(
-		fetchArtistMeta(m.client, artistKey),
-		fetchArtwork(m.client, artistKey, "artist"),
-	)
+	m.screen = screenBrowser // the jump may start from the dashboard
+	return m, tea.Batch(m.showArtist(artistKey), m.visibleArtworkFetches())
 }
 
 // jumpToAlbum closes the search modal and points the browser at the
@@ -375,6 +366,7 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 	// Look the album up in the cache so we know its parent artist —
 	// pushArtists/AlbumsCrumb need the artist key to build the right
 	// item lists.
+	var cmds []tea.Cmd
 	if m.library != nil {
 		var artistKey string
 		for _, e := range m.library.Entries {
@@ -386,17 +378,15 @@ func (m Model) jumpToAlbum(albumKey string) (Model, tea.Cmd) {
 		if artistKey != "" {
 			m.pushArtistsCrumb(artistKey)
 			m.pushAlbumsCrumb(artistKey, albumKey)
+			// "back" lands on this artist's albums, whose header must be
+			// this artist's — not whichever artist was browsed before.
+			cmds = append(cmds, m.showArtist(artistKey))
 		}
 	}
 	m.applyItems(levelTracks, m.trackItems(albumKey))
-	m.albumMeta = nil
-	m.metaLoading = true
-	m.albumHeaderPic = newKeyedPicture("album-header", albumKey, headerThumbCellsW, headerThumbCellsH)
-	m.albumModalPic = newKeyedPicture("album-modal", albumKey, modalThumbCellsW, modalThumbCellsH)
-	return m, tea.Batch(
-		fetchAlbumMeta(m.client, albumKey),
-		fetchArtwork(m.client, albumKey, "album"),
-	)
+	m.screen = screenBrowser // the jump may start from the dashboard
+	cmds = append(cmds, m.showAlbum(albumKey))
+	return m, tea.Batch(cmds...)
 }
 
 // pushArtistsCrumb pushes a synthetic Artists-level crumb whose cursor

@@ -119,3 +119,38 @@ func TestLoadTightensOpenFile(t *testing.T) {
 		t.Errorf("mode = %o, want 600", st.Mode().Perm())
 	}
 }
+
+func TestLoadNormalizesBackendAndURL(t *testing.T) {
+	path := useTempConfig(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "backend = \"Jellyfin\"\nserver_url = \" http://jf:8096/ \"\njellyfin_username = \"u\"\njellyfin_password = \"p\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := Load()
+	if !c.IsJellyfin() || c.ServerURL != "http://jf:8096" || !c.IsValid() {
+		t.Errorf("got backend %q url %q valid=%v", c.Backend, c.ServerURL, c.IsValid())
+	}
+
+	// Normalized env values still count as untouched overrides.
+	t.Setenv("AMPTUI_BACKEND", "JELLYFIN")
+	c, _ = Load()
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), "JELLYFIN") || !strings.Contains(string(b), `"Jellyfin"`) && !strings.Contains(string(b), `"jellyfin"`) {
+		t.Errorf("env backend leaked into the file:\n%s", b)
+	}
+}
+
+func TestServerURLWithoutSchemeIsInvalid(t *testing.T) {
+	c := Config{ServerURL: "192.168.1.10:32400", PlexToken: "t"}
+	if c.IsValid() {
+		t.Error("a URL without a scheme was accepted")
+	}
+	if err := ValidateServerURL("192.168.1.10:32400"); err == nil || !strings.Contains(err.Error(), "http://") {
+		t.Errorf("error = %v, want a hint about the scheme", err)
+	}
+}

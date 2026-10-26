@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -75,6 +74,12 @@ type settingsModel struct {
 	// relaunch is set once the user changes a connection setting under a
 	// running client; the View then shows a persistent relaunch notice.
 	relaunch bool
+	// before is the bound values as they were when editing started, so
+	// esc can put them back (huh writes into them on every keystroke).
+	before settingsValues
+	// size is the last window size, replayed into a field rebuilt on
+	// cancel so it lays out like its siblings.
+	size tea.WindowSizeMsg
 }
 
 // fieldVisible reports whether the field at index i should be shown given
@@ -156,6 +161,7 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 			return s, nil, settingsOutcomeNone
 		}
 		s.editing = true
+		s.before = *s.values
 		return s, s.fields[s.cursor].field.Focus(), settingsOutcomeNone
 	case key.Matches(msg, km.Refresh):
 		return s, nil, settingsOutcomeRefresh
@@ -166,9 +172,9 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 }
 
 // handleEditKey processes a keystroke while a field is focused. Most
-// keys forward to the huh field; InputEnter / InputBack commit (the
-// bound value is already up-to-date) and exit edit mode. Commit is
-// refused while the field's own validation is failing.
+// keys forward to the huh field; InputEnter commits (the bound value is
+// already up-to-date) and exits edit mode, refused while the field's own
+// validation is failing; InputBack cancels, restoring the old value.
 func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel, tea.Cmd, settingsOutcome) {
 	if key.Matches(msg, km.Quit) {
 		return s, tea.Quit, settingsOutcomeNone
@@ -179,10 +185,29 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 		s.fields[s.cursor].field = f
 	}
 
+	// Esc abandons the edit: restore the values from before it began and
+	// rebuild the field, whose own widget state (typed text, highlighted
+	// option) would otherwise still show the abandoned input.
+	if key.Matches(msg, km.InputBack) {
+		*s.values = s.before
+		f := buildSettingsFields(s.values)[s.cursor].field
+		if sized, _ := f.Update(s.size); sized != nil {
+			if hf, ok := sized.(huh.Field); ok {
+				f = hf
+			}
+		}
+		s.fields[s.cursor].field = f
+		s.editing = false
+		if !s.fieldVisible(s.cursor) {
+			s.cursor = s.nextVisible(s.cursor, -1)
+		}
+		return s, nil, settingsOutcomeNone
+	}
+
 	// Input* bindings (arrows / enter / esc only) so vim-letter aliases
 	// on Enter/Back don't trigger commit when the user types "l" or "h"
 	// into the field they're editing.
-	if key.Matches(msg, km.InputEnter) || key.Matches(msg, km.InputBack) {
+	if key.Matches(msg, km.InputEnter) {
 		if s.fields[s.cursor].field.Error() != nil {
 			return s, cmd, settingsOutcomeNone
 		}
@@ -203,6 +228,9 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 // cmds) to every field so each can advance its internal state. Safe to
 // call from any context — fields ignore msgs they don't care about.
 func (s settingsModel) ForwardMsg(msg tea.Msg) (settingsModel, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		s.size = ws
+	}
 	var cmds []tea.Cmd
 	for i, f := range s.fields {
 		updated, c := f.field.Update(msg)
@@ -407,20 +435,7 @@ func downloadQualityOptions() []huh.Option[string] {
 // while the user is figuring things out) but rejects anything that isn't
 // a valid http(s) URL — those values would fail at connect time anyway.
 func validateServerURL(s string) error {
-	if s == "" {
-		return nil
-	}
-	u, err := url.Parse(s)
-	if err != nil {
-		return fmt.Errorf("not a valid URL: %v", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme must be http or https")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("missing host")
-	}
-	return nil
+	return config.ValidateServerURL(strings.TrimSpace(s))
 }
 
 // validateToken is intentionally light — Plex tokens are opaque strings
@@ -467,7 +482,11 @@ func normalizeHome(v string) string {
 // player state is owned by the parent. mpvReady reports whether the mpv
 // subprocess started successfully; playerErr, if non-nil, is the reason
 // it did not.
-func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
+func cacheStatsBody(lib *library.Library, ds *diskStats, syncing bool, libErr error, sp spinner.Model, mpvReady bool, playerErr error) string {
+	if ds == nil {
+		ds = &diskStats{}
+	}
+	ds.refresh(lib)
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Library cache"))
 	b.WriteString("\n")
@@ -475,11 +494,10 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		b.WriteString(settingRow("Status", helpStyle.Render("syncing…")))
 		return b.String()
 	}
-	path, _ := library.CachePath(lib.SectionUUID)
-	b.WriteString(settingRow("Path", path))
+	b.WriteString(settingRow("Path", ds.libPath))
 	b.WriteString(settingRow("Last synced", formatSyncedAt(lib.SyncedAt)))
-	b.WriteString(settingRow("Entries", entryBreakdown(lib)))
-	b.WriteString(settingRow("File size", cacheSize(path)))
+	b.WriteString(settingRow("Entries", ds.entries))
+	b.WriteString(settingRow("File size", ds.libSize))
 	b.WriteString(settingRow("Schema", fmt.Sprintf("v%d", lib.SchemaVersion)))
 	if syncing {
 		b.WriteString(settingRow("", helpStyle.Render(sp.View()+"re-syncing from Plex…")))
@@ -493,14 +511,15 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("Image cache"))
 	b.WriteString("\n")
-	if imgStats, err := imgcache.GetStats(); err == nil {
+	if imgStats, err := ds.img, ds.imgErr; err == nil {
 		b.WriteString(settingRow("Path", imgStats.Path))
 		switch {
-		case imgStats.Missing:
+		case imgStats.Files == 0:
 			b.WriteString(settingRow("Status", helpStyle.Render("(empty — no thumbs fetched yet)")))
 		default:
 			b.WriteString(settingRow("Files", fmt.Sprintf("%d", imgStats.Files)))
-			b.WriteString(settingRow("Disk size", textutil.HumanBytes(imgStats.Bytes)))
+			b.WriteString(settingRow("Disk size", textutil.HumanBytes(imgStats.Bytes)+
+				helpStyle.Render(" of "+textutil.HumanBytes(imgStats.Max)+", oldest evicted first")))
 			b.WriteString(settingRow("", helpStyle.Render("press C to clear (disk + terminal cache)")))
 		}
 	} else {
@@ -524,11 +543,46 @@ func cacheStatsBody(lib *library.Library, syncing bool, libErr error, sp spinner
 		b.WriteString(settingRow("", helpStyle.Render("install mpv (https://mpv.io/) and relaunch to enable playback")))
 	}
 
-	cfgPath, _ := config.Path()
 	b.WriteString("\n")
-	b.WriteString(settingRow("Config file", cfgPath))
+	b.WriteString(settingRow("Config file", ds.cfgPath))
 	return b.String()
 }
+
+// diskStats caches the parts of the settings stats that cost disk I/O
+// (a stat per cached image, the cache file size) or a pass over every
+// library entry. The settings screen renders on every frame, so these
+// are re-read at most every diskStatsTTL, or sooner when the library
+// changes or invalidate is called. Held by pointer on the Model so the
+// cache survives Bubble Tea's per-update copies.
+type diskStats struct {
+	at      time.Time
+	lib     *library.Library
+	libPath string
+	libSize string
+	entries string
+	img     imgcache.Stats
+	imgErr  error
+	cfgPath string
+}
+
+const diskStatsTTL = 2 * time.Second
+
+func (ds *diskStats) refresh(lib *library.Library) {
+	if lib == ds.lib && time.Since(ds.at) < diskStatsTTL {
+		return
+	}
+	*ds = diskStats{at: time.Now(), lib: lib}
+	if lib != nil {
+		ds.libPath, _ = library.CachePath(lib.SectionUUID)
+		ds.libSize = cacheSize(ds.libPath)
+		ds.entries = entryBreakdown(lib)
+	}
+	ds.img, ds.imgErr = imgcache.GetStats()
+	ds.cfgPath, _ = config.Path()
+}
+
+// invalidate forces the next render to re-read everything.
+func (ds *diskStats) invalidate() { ds.at = time.Time{} }
 
 // settingRow formats one read-only "key: value" line.
 func settingRow(key, value string) string {

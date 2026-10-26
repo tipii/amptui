@@ -159,7 +159,12 @@ func (m *Model) publishMedia() tea.Cmd {
 		st.CanPrev = m.queueIdx > 0
 		st.CanNext = m.queueIdx < len(m.queue)-1
 
-		if art, ok := cachedCoverURL(t.AlbumRatingKey); ok {
+		// mediaArtURL remembers the hit, so this runs on every tick
+		// without a stat each time.
+		if m.mediaArtURLKey == t.AlbumRatingKey && m.mediaArtURL != "" {
+			st.Track.ArtURL = m.mediaArtURL
+		} else if art, ok := cachedCoverURL(t.AlbumRatingKey); ok {
+			m.mediaArtURLKey, m.mediaArtURL = t.AlbumRatingKey, art
 			st.Track.ArtURL = art
 		} else if t.AlbumRatingKey != m.mediaArtKey {
 			m.mediaArtKey = t.AlbumRatingKey

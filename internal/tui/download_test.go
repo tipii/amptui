@@ -196,7 +196,7 @@ func TestDownloadQualityComesFromConfig(t *testing.T) {
 // status, so a help line that doesn't fit must be the thing that gives
 // way — otherwise the number the user is watching is the first casualty.
 func TestFooterKeepsStatusWhenHelpIsLong(t *testing.T) {
-	m := Model{width: 80, downloadStatus: "downloading Album (2/9) · 1.2 MB/s"}
+	m := Model{width: 80, downloadStatus: "downloading Album (2/9) · 1.2 MB/s", downloadStatusAt: time.Now()}
 	help := "? help • s search • enter open • tab dash/lib • Q queue • i info • n next • p prev • ctrl+q quit"
 	got := m.footerLine(help)
 
@@ -219,5 +219,19 @@ func TestFooterKeepsStatusWhenHelpIsLong(t *testing.T) {
 	// after stripping styles: the rendered row ends with a reset.
 	if !strings.HasSuffix(ansi.Strip(got), "1.2 MB/s") {
 		t.Errorf("status should be flush right, got %q", got)
+	}
+}
+
+// The downloads modal says why tracks failed, not just how many.
+func TestDownloadsModalListsErrors(t *testing.T) {
+	j := &downloadJob{label: "Album", state: downloadErrored, idx: 5,
+		tracks: make([]media.Track, 5),
+		errs:   []string{"One: GET …: 404 Not Found", "Two: e", "Three: e", "Four: e", "Five: e"}}
+	out := renderDownloadRow(j, 80)
+	if !strings.Contains(out, "One: GET …: 404 Not Found") {
+		t.Errorf("first error missing:\n%s", out)
+	}
+	if strings.Contains(out, "Four: e") || !strings.Contains(out, "and 2 more") {
+		t.Errorf("expected 3 errors then a summary:\n%s", out)
 	}
 }

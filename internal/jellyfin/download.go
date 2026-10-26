@@ -24,6 +24,9 @@ func (c *Client) DownloadURL(t media.Track, q media.DownloadQuality) string {
 		return c.StreamURL(t)
 	}
 	token, _ := c.creds()
+	if token == "" {
+		return "" // not logged in: a tokenless URL would just 401 later
+	}
 	v := url.Values{}
 	v.Set("static", "false")
 	v.Set("audioCodec", q.Codec)

@@ -22,13 +22,16 @@ const metaFetchTimeout = 10 * time.Second
 
 // artistMetaMsg / albumMetaMsg deliver the result of a per-screen
 // metadata fetch fired by drillDown when entering levelAlbums /
-// levelTracks.
+// levelTracks. key is the item fetched: a slow reply for an artist the
+// user has already left must not overwrite the one now on screen.
 type (
 	artistMetaMsg struct {
+		key  string
 		meta *media.ArtistMetadata
 		err  error
 	}
 	albumMetaMsg struct {
+		key  string
 		meta *media.AlbumMetadata
 		err  error
 	}
@@ -42,7 +45,7 @@ func fetchArtistMeta(client media.Backend, ratingKey string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
 		defer cancel()
 		meta, err := client.ArtistMetadata(ctx, ratingKey)
-		return artistMetaMsg{meta: meta, err: err}
+		return artistMetaMsg{key: ratingKey, meta: meta, err: err}
 	}
 }
 
@@ -54,7 +57,7 @@ func fetchAlbumMeta(client media.Backend, ratingKey string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), metaFetchTimeout)
 		defer cancel()
 		meta, err := client.AlbumMetadata(ctx, ratingKey)
-		return albumMetaMsg{meta: meta, err: err}
+		return albumMetaMsg{key: ratingKey, meta: meta, err: err}
 	}
 }
 
@@ -65,6 +68,7 @@ func fetchAlbumMeta(client media.Backend, ratingKey string) tea.Cmd {
 // keeping all image-state ownership in picture.Model.
 type thumbReadyMsg struct {
 	kind string // "artist", "album", or "grid:<ratingKey>"
+	key  string // the item's RatingKey, checked for "artist" / "album"
 	img  image.Image
 	err  error
 }
@@ -104,15 +108,47 @@ func fetchArtwork(client media.Backend, ratingKey, kind string) tea.Cmd {
 			var err error
 			data, err = client.FetchImage(ctx, client.ArtworkURL(ratingKey))
 			if err != nil {
-				return thumbReadyMsg{kind: kind, err: err}
+				return thumbReadyMsg{kind: kind, key: ratingKey, err: err}
 			}
 			_ = imgcache.Put(cacheKey, 0, 0, data)
 		}
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return thumbReadyMsg{kind: kind, err: err}
+			// A truncated or corrupt entry would otherwise fail here on
+			// every visit; drop it so the next one refetches.
+			_ = imgcache.Delete(cacheKey, 0, 0)
+			return thumbReadyMsg{kind: kind, key: ratingKey, err: err}
 		}
-		return thumbReadyMsg{kind: kind, img: img}
+		return thumbReadyMsg{kind: kind, key: ratingKey, img: img}
+	}
+}
+
+// maxThumbPics bounds the grid/list thumbnails kept in memory. Each one
+// holds a decoded image, and browsing a large library used to keep every
+// one ever seen.
+const maxThumbPics = 150
+
+// trimThumbs drops off-screen thumbnails once there are more than
+// maxThumbPics. They come back from the disk cache when scrolled to.
+func (m *Model) trimThumbs() {
+	if len(m.gridPics) <= maxThumbPics {
+		return
+	}
+	keep := map[string]bool{}
+	for _, it := range m.visibleItems() {
+		switch v := it.(type) {
+		case artistItem:
+			keep[v.artist.RatingKey] = true
+		case albumItem:
+			keep[v.album.RatingKey] = true
+		}
+	}
+	for key := range m.gridPics {
+		if !keep[key] {
+			delete(m.gridPics, key)
+			delete(m.listPics, key)
+			delete(m.artRequested, key)
+		}
 	}
 }
 
@@ -134,9 +170,13 @@ func (m Model) gridThumbFetches(items []list.Item) tea.Cmd {
 		if key == "" {
 			continue
 		}
-		if _, ok := m.gridPics[key]; ok {
+		// artRequested covers fetches still in flight (fast scrolling
+		// fired duplicates) and ones that failed (an item without art
+		// was re-requested on every keypress).
+		if _, ok := m.gridPics[key]; ok || m.artRequested[key] {
 			continue
 		}
+		m.artRequested[key] = true
 		cmds = append(cmds, fetchArtwork(m.client, key, "grid:"+key))
 	}
 	return tea.Batch(cmds...)
@@ -188,45 +228,48 @@ func (m Model) drillDown() (tea.Model, tea.Cmd) {
 	switch it := sel.(type) {
 	case artistItem:
 		m.pushCrumb(it.artist.Title, it.artist.RatingKey)
-		items := m.albumItems(it.artist.RatingKey)
-		m.applyItems(levelAlbums, items)
-		m.artistMeta, m.albumMeta = nil, nil
-		m.metaLoading = true
-		// Rebuild the artist surfaces with kittyIDs derived from this
-		// artist's ratingKey so a revisit hits the terminal's existing
-		// image at the same ID — no inter-run stale-image flicker.
-		m.artistHeaderPic = newKeyedPicture("artist-header", it.artist.RatingKey, headerThumbCellsW, headerThumbCellsH)
-		m.artistModalPic = newKeyedPicture("artist-modal", it.artist.RatingKey, modalThumbCellsW, modalThumbCellsH)
-		// No SetImage(nil) on the old models: picture.Model.SetImage
-		// docs call out that synchronously clearing the placeholder
-		// grid creates a visible blank + glyph-fallback frame between
-		// renders. The freshly-constructed models above have no image
-		// yet, so View renders empty until SetImage lands. When the
-		// fetch fails (artist without artwork), the thumbReadyMsg
-		// error handler clears.
-		cmds := []tea.Cmd{
-			fetchArtistMeta(m.client, it.artist.RatingKey),
-			fetchArtwork(m.client, it.artist.RatingKey, "artist"),
-			m.visibleArtworkFetches(),
-		}
-		return m, tea.Batch(cmds...)
+		m.applyItems(levelAlbums, m.albumItems(it.artist.RatingKey))
+		return m, tea.Batch(m.showArtist(it.artist.RatingKey), m.visibleArtworkFetches())
 	case albumItem:
 		m.pushCrumb(it.album.Title, it.album.RatingKey)
 		m.applyItems(levelTracks, m.trackItems(it.album.RatingKey))
-		m.albumMeta = nil
-		m.metaLoading = true
-		m.albumHeaderPic = newKeyedPicture("album-header", it.album.RatingKey, headerThumbCellsW, headerThumbCellsH)
-		m.albumModalPic = newKeyedPicture("album-modal", it.album.RatingKey, modalThumbCellsW, modalThumbCellsH)
-		return m, tea.Batch(
-			fetchAlbumMeta(m.client, it.album.RatingKey),
-			fetchArtwork(m.client, it.album.RatingKey, "album"),
-		)
+		return m, m.showAlbum(it.album.RatingKey)
 	case albumActionItem:
 		return m.playTracks(it.tracks, 0)
 	case trackItem:
 		return m.playTracks(it.tracks, it.pos)
 	}
 	return m, nil
+}
+
+// showArtist points the artist header / info modal at key and fetches
+// its metadata and artwork. Replies are matched against curArtistKey,
+// so one for a previously shown artist is dropped.
+func (m *Model) showArtist(key string) tea.Cmd {
+	m.curArtistKey = key
+	m.artistMeta = nil
+	m.metaLoading = true
+	// Rebuild the surfaces with kittyIDs derived from this ratingKey so a
+	// revisit hits the terminal's existing image at the same ID — no
+	// inter-run stale-image flicker. No SetImage(nil) on the old models:
+	// picture.Model.SetImage docs call out that synchronously clearing the
+	// placeholder grid creates a visible blank + glyph-fallback frame
+	// between renders. The fresh models have no image yet, so View
+	// renders empty until SetImage lands; when the fetch fails (no
+	// artwork), the thumbReadyMsg error handler clears.
+	m.artistHeaderPic = newKeyedPicture("artist-header", key, headerThumbCellsW, headerThumbCellsH)
+	m.artistModalPic = newKeyedPicture("artist-modal", key, modalThumbCellsW, modalThumbCellsH)
+	return tea.Batch(fetchArtistMeta(m.client, key), fetchArtwork(m.client, key, "artist"))
+}
+
+// showAlbum is showArtist for the album header / info modal.
+func (m *Model) showAlbum(key string) tea.Cmd {
+	m.curAlbumKey = key
+	m.albumMeta = nil
+	m.metaLoading = true
+	m.albumHeaderPic = newKeyedPicture("album-header", key, headerThumbCellsW, headerThumbCellsH)
+	m.albumModalPic = newKeyedPicture("album-modal", key, modalThumbCellsW, modalThumbCellsH)
+	return tea.Batch(fetchAlbumMeta(m.client, key), fetchArtwork(m.client, key, "album"))
 }
 
 // goBack restores the previous navigation frame.

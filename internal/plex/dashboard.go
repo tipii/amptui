@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"time"
 
 	"github.com/tipii/amptui/internal/media"
 )
@@ -41,7 +40,7 @@ func (c *Client) RecentlyAddedAlbums(ctx context.Context, sectionKey string, lim
 			Title:     m.Title,
 			Artist:    m.ParentTitle,
 			Year:      m.Year,
-			AddedAt:   time.Unix(m.AddedAt, 0),
+			AddedAt:   unixOrZero(m.AddedAt),
 		})
 	}
 	return out, nil

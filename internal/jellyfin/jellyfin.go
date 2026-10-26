@@ -13,11 +13,15 @@ package jellyfin
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -25,13 +29,24 @@ import (
 	"github.com/tipii/amptui/internal/media"
 )
 
-// clientName / deviceID identify amptui to Jellyfin. A stable deviceID
-// keeps the server from accumulating a new session per launch.
+// clientName identifies amptui to Jellyfin.
 const (
 	clientName = "amptui"
-	deviceID   = "amptui"
 	version    = "0.2"
 )
+
+// deviceIDFor derives the DeviceId amptui reports: stable for one
+// machine + OS user + server, so relaunches reuse a single session entry
+// on the server, but different per machine. A constant id made every
+// install look like one device, and Jellyfin signs out a device's other
+// sessions when it logs in again, so two machines on one account kept
+// logging each other out.
+func deviceIDFor(serverURL string) string {
+	host, _ := os.Hostname()
+	user := os.Getenv("USER")
+	sum := sha1.Sum([]byte(host + "|" + user + "|" + serverURL))
+	return "amptui-" + hex.EncodeToString(sum[:8])
+}
 
 // Compile-time assertion that the client satisfies the backend interface.
 var _ media.Backend = (*Client)(nil)
@@ -44,7 +59,12 @@ type Client struct {
 	serverURL string
 	username  string
 	password  string
+	deviceID  string
 
+	// authMu serializes logins; mu guards token / userID only briefly,
+	// so the URL builders (called on the UI goroutine) never wait on a
+	// login's network round-trip.
+	authMu sync.Mutex
 	mu     sync.Mutex
 	token  string
 	userID string
@@ -53,19 +73,21 @@ type Client struct {
 // New returns a Jellyfin client for serverURL authenticating as the given
 // user. No network call is made until the first request.
 func New(serverURL, username, password string) *Client {
+	serverURL = strings.TrimRight(serverURL, "/")
 	return &Client{
 		http:      &http.Client{Timeout: 30 * time.Second},
-		serverURL: strings.TrimRight(serverURL, "/"),
+		serverURL: serverURL,
 		username:  username,
 		password:  password,
+		deviceID:  deviceIDFor(serverURL),
 	}
 }
 
 // authValue builds the MediaBrowser authorization header. token is included
 // only once we have one (the auth request itself sends it empty).
-func authValue(token string) string {
+func (c *Client) authValue(token string) string {
 	v := fmt.Sprintf(`MediaBrowser Client=%q, Device=%q, DeviceId=%q, Version=%q`,
-		clientName, clientName, deviceID, version)
+		clientName, clientName, c.deviceID, version)
 	if token != "" {
 		v += fmt.Sprintf(`, Token=%q`, token)
 	}
@@ -74,11 +96,11 @@ func authValue(token string) string {
 
 // ensureAuth performs the username/password exchange once, caching the
 // access token and userId. Safe for concurrent callers — the first wins
-// the lock and authenticates; the rest return immediately afterwards.
+// authMu and authenticates; the rest find the token once it's done.
 func (c *Client) ensureAuth(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.token != "" {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if token, _ := c.creds(); token != "" {
 		return nil
 	}
 	body, _ := json.Marshal(map[string]string{"Username": c.username, "Pw": c.password})
@@ -88,7 +110,7 @@ func (c *Client) ensureAuth(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", authValue(""))
+	req.Header.Set("Authorization", c.authValue(""))
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("jellyfin auth: %w", err)
@@ -110,8 +132,21 @@ func (c *Client) ensureAuth(ctx context.Context) error {
 	if ar.AccessToken == "" || ar.User.Id == "" {
 		return fmt.Errorf("jellyfin auth: server returned no token/userId")
 	}
+	c.mu.Lock()
 	c.token, c.userID = ar.AccessToken, ar.User.Id
+	c.mu.Unlock()
 	return nil
+}
+
+// dropToken forgets token after the server rejected it, so the next
+// ensureAuth logs in again. A token that has already been replaced (by
+// a concurrent re-login) is left alone.
+func (c *Client) dropToken(token string) {
+	c.mu.Lock()
+	if c.token == token {
+		c.token = ""
+	}
+	c.mu.Unlock()
 }
 
 // creds returns the cached token and userId. Callers must have triggered
@@ -123,8 +158,29 @@ func (c *Client) creds() (token, userID string) {
 }
 
 // get authenticates if needed, performs a GET against path with the given
-// query, and decodes the JSON response into out.
+// query, and decodes the JSON response into out. A 401 means the token
+// was revoked (signed out from the dashboard, password changed, device
+// removed): it logs in again and retries once, rather than failing
+// every request until a relaunch.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
+	err := c.getOnce(ctx, path, q, out)
+	var unauth errUnauthorized
+	if errors.As(err, &unauth) {
+		c.dropToken(unauth.token)
+		err = c.getOnce(ctx, path, q, out)
+	}
+	return err
+}
+
+// errUnauthorized is a 401 from the server, carrying the rejected token.
+type errUnauthorized struct {
+	path  string
+	token string
+}
+
+func (e errUnauthorized) Error() string { return "GET " + e.path + ": 401 Unauthorized" }
+
+func (c *Client) getOnce(ctx context.Context, path string, q url.Values, out any) error {
 	if err := c.ensureAuth(ctx); err != nil {
 		return err
 	}
@@ -144,6 +200,9 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errUnauthorized{path: path, token: token}
+	}
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return fmt.Errorf("GET %s: %s: %s", path, resp.Status, strings.TrimSpace(string(msg)))
@@ -192,7 +251,10 @@ func (c *Client) ServerName(ctx context.Context) (string, error) {
 // MusicLibraries returns the server's music libraries (Views whose
 // CollectionType is "music").
 func (c *Client) MusicLibraries(ctx context.Context) ([]media.MusicLibrary, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var body itemsResponse
 	if err := c.get(ctx, "/Users/"+userID+"/Views", nil, &body); err != nil {
 		return nil, err
@@ -214,9 +276,14 @@ func (c *Client) MusicLibraries(ctx context.Context) ([]media.MusicLibrary, erro
 	return libs, nil
 }
 
-// credsAfterAuth forces auth then returns the token/userId, for callers
-// that need the userId to build a path before issuing the request.
-func (c *Client) credsAfterAuth(ctx context.Context) (token, userID string) {
-	_ = c.ensureAuth(ctx)
-	return c.creds()
+// userIDAfterAuth forces auth then returns the userId, for callers that
+// need it to build a path before issuing the request. An auth failure
+// is returned rather than producing a "/Users//…" path that fails with
+// a confusing 404.
+func (c *Client) userIDAfterAuth(ctx context.Context) (string, error) {
+	if err := c.ensureAuth(ctx); err != nil {
+		return "", err
+	}
+	_, userID := c.creds()
+	return userID, nil
 }

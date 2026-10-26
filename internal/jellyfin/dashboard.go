@@ -11,7 +11,10 @@ import (
 // RecentlyAddedAlbums returns the most-recently-added albums in a library.
 // /Items/Latest returns a bare array (not the paginated wrapper).
 func (c *Client) RecentlyAddedAlbums(ctx context.Context, libraryKey string, limit int) ([]media.RecentlyAddedAlbum, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := url.Values{}
 	q.Set("IncludeItemTypes", "MusicAlbum")
 	q.Set("ParentId", libraryKey)
@@ -38,7 +41,10 @@ func (c *Client) RecentlyAddedAlbums(ctx context.Context, libraryKey string, lim
 // RecentlyPlayedTracks returns played tracks sorted by most-recently
 // played. Filters=IsPlayed drops never-played material.
 func (c *Client) RecentlyPlayedTracks(ctx context.Context, libraryKey string, limit int) ([]media.Track, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := url.Values{}
 	q.Set("userId", userID)
 	q.Set("ParentId", libraryKey)

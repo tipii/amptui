@@ -209,3 +209,158 @@ func TestSettingsScrollsToKeepChromeVisible(t *testing.T) {
 		t.Errorf("cache stats not reachable at the last field:\n%s", out)
 	}
 }
+
+// A slow metadata or artwork reply for an artist the user already left
+// must not land on the one now on screen.
+func TestStaleArtistRepliesDropped(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m = press(m, keyEnter) // Abba
+	m = press(m, keyEsc)
+	m = press(press(m, keyJ), keyEnter) // Beck
+	if m.curArtistKey != "ar2" {
+		t.Fatalf("curArtistKey = %q, want ar2", m.curArtistKey)
+	}
+
+	upd, _ := m.Update(artistMetaMsg{key: "ar1", meta: &media.ArtistMetadata{Title: "Abba"}})
+	m = upd.(Model)
+	if m.artistMeta != nil {
+		t.Errorf("Abba's metadata replaced Beck's: %+v", m.artistMeta)
+	}
+	upd, _ = m.Update(artistMetaMsg{key: "ar2", meta: &media.ArtistMetadata{Title: "Beck"}})
+	m = upd.(Model)
+	if m.artistMeta == nil || m.artistMeta.Title != "Beck" {
+		t.Errorf("Beck's own metadata not applied: %+v", m.artistMeta)
+	}
+}
+
+// Jumping to an album from search sets up its artist too (so back shows
+// the right artist header), and leaves the dashboard if that's where
+// the search was opened.
+func TestJumpToAlbumFromDashboard(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m = press(m, keyEnter) // browse Abba first
+	m.screen = screenDashboard
+
+	m, _ = m.jumpToAlbum("al2") // Odelay, by Beck
+	if m.screen != screenBrowser {
+		t.Errorf("screen = %v, want browser", m.screen)
+	}
+	if m.curArtistKey != "ar2" || m.curAlbumKey != "al2" {
+		t.Errorf("headers point at artist %q / album %q, want ar2 / al2", m.curArtistKey, m.curAlbumKey)
+	}
+}
+
+// Esc while editing a settings field puts the old value back (it used to
+// save whatever had been typed), and nothing is committed.
+func TestSettingsEscCancelsEdit(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // in case anything saves
+	cfg := config.Config{ServerURL: "https://keep.example", PlexToken: "t"}
+	m := New(cfg, nil, nil, nil, []media.MusicLibrary{{Key: "1", Title: "Music"}}, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	m.screen = screenSettings
+
+	m = press(m, keyJ)     // Backend → Server URL
+	m = press(m, keyEnter) // edit
+	m = typeText(m, "/typo")
+	if m.settings.values.ServerURL != "https://keep.example/typo" {
+		t.Fatalf("typing didn't reach the bound value: %q", m.settings.values.ServerURL)
+	}
+	m = press(m, keyEsc)
+	if got := m.settings.values.ServerURL; got != "https://keep.example" {
+		t.Errorf("after esc ServerURL = %q, want the original", got)
+	}
+	if m.cfg.ServerURL != "https://keep.example" {
+		t.Errorf("esc committed %q to the config", m.cfg.ServerURL)
+	}
+	if m.settings.editing {
+		t.Error("still editing after esc")
+	}
+	if out := m.View().Content; strings.Contains(out, "/typo") {
+		t.Error("rebuilt field still shows the abandoned text")
+	}
+}
+
+// Closing settings returns to the screen it was opened from.
+func TestSettingsReturnsToDashboard(t *testing.T) {
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t", Home: "dashboard"}
+	m := New(cfg, nil, nil, nil, []media.MusicLibrary{{Key: "1", Title: "Music"}}, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	m = press(m, tea.KeyPressMsg{Code: ',', Text: ","})
+	if m.screen != screenSettings {
+		t.Fatalf("screen = %v, want settings", m.screen)
+	}
+	m = press(m, keyEsc)
+	if m.screen != screenDashboard {
+		t.Errorf("screen after closing settings = %v, want dashboard", m.screen)
+	}
+}
+
+// A finished download's summary leaves the footer after a while, so it
+// no longer hides the sync spinner and library errors for good.
+func TestDownloadStatusExpires(t *testing.T) {
+	m := Model{width: 100, librarySyncing: true}
+	m.setDownloadStatus("downloaded 12")
+	if !strings.Contains(m.footerLine("help"), "downloaded 12") {
+		t.Fatal("fresh status not shown")
+	}
+	m.downloadStatusAt = time.Now().Add(-downloadStatusLinger - time.Second)
+	if got := m.footerLine("help"); strings.Contains(got, "downloaded 12") || !strings.Contains(got, "syncing library") {
+		t.Errorf("expired status still shown / sync hidden: %q", got)
+	}
+	m.downloadJobs = []*downloadJob{{state: downloadRunning}}
+	if !strings.Contains(m.footerLine("help"), "downloaded 12") {
+		t.Error("status hidden while a download is running")
+	}
+}
+
+// The spinner's tick chain stops once nothing is loading (it used to
+// redraw the screen ~10×/s forever) and restarts when something is.
+func TestSpinnerOnlyTicksWhileLoading(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m.loading, m.librarySyncing, m.metaLoading = false, false, false
+
+	upd, cmd := m.Update(m.spinner.Tick())
+	m = upd.(Model)
+	if cmd != nil || m.spinning {
+		t.Fatalf("idle tick re-armed (cmd=%v spinning=%v)", cmd != nil, m.spinning)
+	}
+
+	m = press(m, keyEnter) // opening an artist starts its metadata fetch
+	if !m.metaLoading || !m.spinning {
+		t.Errorf("spinner not restarted for a load (metaLoading=%v spinning=%v)", m.metaLoading, m.spinning)
+	}
+}
+
+// Transport keys work from the queue modal and the settings screen, and
+// never fire while typing a filter.
+func TestPlaybackKeysEverywhere(t *testing.T) {
+	m := newQueueTestModel(t, map[string]string{"a": "5", "b": "5"})
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	model, _ := m.playTracks([]media.Track{{RatingKey: "a"}, {RatingKey: "b"}}, 0)
+	m = model.(Model)
+	m = syncUntil(t, m, "a to play", func(m Model) bool { return m.player.State().Position > 0 })
+
+	keyN := tea.KeyPressMsg{Code: 'n', Text: "n"}
+	m.openQueue()
+	m = press(m, keyN)
+	m = syncUntil(t, m, "next from the queue modal", func(m Model) bool { return playingKey(m) == "b" })
+
+	m.showQueue = false
+	m.screen = screenSettings
+	m = press(m, tea.KeyPressMsg{Code: 'p', Text: "p"})
+	m = syncUntil(t, m, "prev from settings", func(m Model) bool { return playingKey(m) == "a" })
+
+	m.screen = screenBrowser
+	m.list.SetItems([]list.Item{artistItem{artist: library.Artist{Title: "Nina", RatingKey: "ar1"}}})
+	m = typeText(press(m, keySlash), "n")
+	if m.list.FilterState() != list.Filtering {
+		t.Fatal("filter didn't open")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if m = m.syncFromPlayer(); playingKey(m) != "a" {
+		t.Errorf("typing n into a filter skipped to %q", playingKey(m))
+	}
+}

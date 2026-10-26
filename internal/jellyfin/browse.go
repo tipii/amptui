@@ -77,7 +77,10 @@ const libraryTracksPageSize = 500
 // album and album-artist (name + id), so the cache derives artists and
 // albums by deduplication exactly as it does for Plex.
 func (c *Client) LibraryTracks(ctx context.Context, libraryKey string) ([]media.Track, error) {
-	_, userID := c.credsAfterAuth(ctx)
+	userID, err := c.userIDAfterAuth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var all []media.Track
 	for start := 0; ; start += libraryTracksPageSize {
 		q := url.Values{}
@@ -112,6 +115,9 @@ func (c *Client) StreamURL(t media.Track) string {
 		return ""
 	}
 	token, _ := c.creds()
+	if token == "" {
+		return "" // not logged in: a tokenless URL would just 401 later
+	}
 	return fmt.Sprintf("%s/Audio/%s/stream?static=true&api_key=%s",
 		c.serverURL, url.PathEscape(t.RatingKey), url.QueryEscape(token))
 }

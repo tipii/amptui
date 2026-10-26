@@ -83,6 +83,17 @@ type dashboardModel struct {
 
 func newDashboardModel() dashboardModel { return dashboardModel{} }
 
+// Loading reports whether any tile is still waiting on its fetch (a
+// failed fetch also counts as loaded — it shows its error instead).
+func (d dashboardModel) Loading() bool {
+	for _, loaded := range d.loaded {
+		if !loaded {
+			return true
+		}
+	}
+	return false
+}
+
 // Load returns a tea.Cmd that fans out the three section fetches in
 // parallel; results arrive as dashboard*Msg values.
 func (d dashboardModel) Load(client media.Backend, sectionKey string) tea.Cmd {

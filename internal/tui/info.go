@@ -40,9 +40,9 @@ func (m Model) headerThumb() string {
 	var p *picture.Model
 	switch m.level {
 	case levelAlbums:
-		p = &m.artistHeaderPic
+		p = m.artistHeaderPic
 	case levelTracks:
-		p = &m.albumHeaderPic
+		p = m.albumHeaderPic
 	}
 	if p == nil {
 		return ""
@@ -225,12 +225,12 @@ func (m Model) infoModalContent() string {
 	case levelAlbums:
 		if a := m.artistMeta; a != nil {
 			meta = formatArtistInfo(a)
-			pic = &m.artistModalPic
+			pic = m.artistModalPic
 		}
 	case levelTracks:
 		if a := m.albumMeta; a != nil {
 			meta = formatAlbumInfo(a)
-			pic = &m.albumModalPic
+			pic = m.albumModalPic
 		}
 	}
 	if meta == "" {

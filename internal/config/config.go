@@ -3,8 +3,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -151,9 +153,17 @@ func Load() (Config, error) {
 			fmt.Fprintln(os.Stderr, "warning: invalid config file at", path+":", decodeErr)
 		}
 	}
+	c.Backend = normalizeBackend(c.Backend)
+	c.ServerURL = NormalizeServerURL(c.ServerURL)
 
 	for _, e := range envVars {
 		if v := os.Getenv(e.name); v != "" {
+			switch e.name {
+			case "AMPTUI_BACKEND":
+				v = normalizeBackend(v)
+			case "AMPTUI_SERVER_URL":
+				v = NormalizeServerURL(v)
+			}
 			f := e.field(&c)
 			c.overrides = append(c.overrides, override{field: e.field, fileVal: *f, envVal: v})
 			*f = v
@@ -166,12 +176,44 @@ func Load() (Config, error) {
 // the default for any unset or unrecognized value.
 func (c Config) IsJellyfin() bool { return c.Backend == "jellyfin" }
 
+// normalizeBackend lower-cases and trims a backend name, so "Jellyfin"
+// selects Jellyfin rather than silently falling back to Plex.
+func normalizeBackend(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// NormalizeServerURL trims whitespace (a pasted URL often carries a
+// trailing newline or space) and trailing slashes.
+func NormalizeServerURL(s string) string { return strings.TrimRight(strings.TrimSpace(s), "/") }
+
+// ValidateServerURL reports why s can't be used as a server URL, or nil.
+// Empty is allowed (unset). "192.168.1.10:32400" without a scheme failed
+// every request with an opaque "first path segment in URL cannot contain
+// colon" before this existed.
+func ValidateServerURL(s string) error {
+	if s == "" {
+		return nil
+	}
+	if !strings.Contains(s, "://") {
+		return fmt.Errorf("must start with http:// or https://")
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("not a valid URL: %v", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("must start with http:// or https://")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
 // IsValid reports whether the config has the minimum required fields to
 // reach its backend: URL + token for Plex, URL + username + password for
 // Jellyfin. Used by the app to decide whether to connect at startup or
 // open the settings screen for the user to fill in.
 func (c Config) IsValid() bool {
-	if c.ServerURL == "" {
+	if c.ServerURL == "" || ValidateServerURL(c.ServerURL) != nil {
 		return false
 	}
 	if c.IsJellyfin() {

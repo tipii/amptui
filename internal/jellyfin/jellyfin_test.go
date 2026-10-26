@@ -240,3 +240,82 @@ func TestDownloadURL(t *testing.T) {
 		t.Errorf("unsupported codec should fall back to the original, got %q", got)
 	}
 }
+
+// fakeAuthServer issues "tok-1", "tok-2", … on each login, and serves
+// /Users/u1/Views only to the most recently issued token — so revoking
+// a token is just logging in again from elsewhere.
+func fakeAuthServer(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+	logins := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Users/AuthenticateByName":
+			logins++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"AccessToken": "tok-" + string(rune('0'+logins)),
+				"User":        map[string]string{"Id": "u1"},
+			})
+		case "/Users/u1/Views":
+			if r.Header.Get("X-Emby-Token") != "tok-"+string(rune('0'+logins)) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"Items":[{"Id":"lib","Name":"Music","CollectionType":"music"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &logins
+}
+
+// A revoked token used to fail every request until a relaunch.
+func TestReauthenticatesAfter401(t *testing.T) {
+	srv, logins := fakeAuthServer(t)
+	c := New(srv.URL, "me", "pw")
+	if _, err := c.MusicLibraries(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	*logins++ // another login elsewhere revokes tok-1
+
+	libs, err := c.MusicLibraries(context.Background())
+	if err != nil {
+		t.Fatalf("after revocation: %v", err)
+	}
+	if len(libs) != 1 || *logins != 3 {
+		t.Errorf("libs=%d logins=%d; want 1 library after one re-login", len(libs), *logins)
+	}
+}
+
+// A failed login is reported as such, not as a 404 on "/Users//Views".
+func TestAuthFailureIsReturned(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users/AuthenticateByName" {
+			http.Error(w, "bad password", http.StatusUnauthorized)
+			return
+		}
+		t.Errorf("request to %s without a successful login", r.URL.Path)
+	}))
+	defer srv.Close()
+	_, err := New(srv.URL, "me", "wrong").MusicLibraries(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "jellyfin auth") {
+		t.Errorf("err = %v, want the auth failure", err)
+	}
+}
+
+func TestURLsNeedAToken(t *testing.T) {
+	c := New("http://jf", "me", "pw")
+	if u := c.StreamURL(media.Track{RatingKey: "x"}); u != "" {
+		t.Errorf("StreamURL before login = %q, want empty", u)
+	}
+	if u := c.ArtworkURL("x"); u != "" {
+		t.Errorf("ArtworkURL before login = %q, want empty", u)
+	}
+}
+
+func TestDeviceIDIsPerServerAndStable(t *testing.T) {
+	a, b := deviceIDFor("http://a"), deviceIDFor("http://b")
+	if a == b || a != deviceIDFor("http://a") || !strings.HasPrefix(a, "amptui-") {
+		t.Errorf("device ids: %q %q", a, b)
+	}
+}
