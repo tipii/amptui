@@ -296,6 +296,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
+		case key.Matches(msg, k.ToggleView):
+			if !m.supportsGrid() {
+				return m, nil
+			}
+			m.toggleGrid()
+			// Remembered like the sort order: the setting this flips is
+			// the level's default view.
+			m.cfg.DefaultViewArtist = viewName(m.gridArtists)
+			m.cfg.DefaultViewAlbum = viewName(m.gridAlbums)
+			_ = m.cfg.Save()
+			m.list.SetSize(m.width, m.listHeight())
+			return m, m.visibleArtworkFetches()
+		case key.Matches(msg, k.GoToPlaying):
+			return m.goToNowPlaying()
 		case key.Matches(msg, k.Right):
 			// List view: → / ← open and go back, as documented (grid view
 			// took them above for cursor movement).
@@ -787,6 +801,8 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.OpenQueue):
 		m.openQueue()
 		return m, nil
+	case key.Matches(msg, k.GoToPlaying):
+		return m.goToNowPlaying()
 	case key.Matches(msg, k.Refresh):
 		// Re-fetch the three dashboard tiles. Only meaningful when we
 		// have a client + a library to query against.
@@ -807,7 +823,10 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch outcome {
 	case dashOutcomePlayTrack:
 		if t, ok := m.dashboard.SelectedTrack(); ok {
-			model, pcmd := m.playTracks([]media.Track{t}, 0)
+			// Carry on through the rest of its album, as starting a track
+			// from the browser does, rather than stopping after one.
+			tracks, start := m.albumContext(t)
+			model, pcmd := m.playTracks(tracks, start)
 			return model, tea.Batch(cmd, pcmd)
 		}
 	case dashOutcomeOpenAlbum:

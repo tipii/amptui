@@ -268,12 +268,14 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `/`                   | Filter the current list                      |
 | `i`                   | Artist / album info (bio, genres, similar)   |
 | `space`               | Pause / resume                               |
-| `n` / `p`             | Next / previous in queue                     |
+| `n` / `p`             | Next / previous in queue (`p` more than 3s into a track restarts it) |
 | `<` / `>`             | Seek −10s / +10s                             |
 | `,`                   | Open / close the settings screen             |
-| `q`                   | Add highlighted track or album to queue      |
+| `q`                   | Add highlighted track, album, or artist (whole discography) to queue |
+| `v`                   | Toggle grid / list for the current level (remembered) |
+| `g`                   | Go to the now-playing track in its album     |
 | `Q`                   | Open / close the queue modal                 |
-| `d`                   | Download highlighted track or album (see [Downloads](#downloads)) |
+| `d`                   | Download highlighted track, album, or artist (see [Downloads](#downloads)) |
 | `D`                   | Open / close the downloads modal             |
 | `s`                   | Open the fuzzy search modal                  |
 | `o`                   | Sort the current level (see [Sorting](#sorting)) |

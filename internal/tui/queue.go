@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -107,6 +108,8 @@ func (m Model) enqueueSelected() Model {
 		if m.library != nil {
 			m.enqueue(m.library.Tracks(it.album.RatingKey)...)
 		}
+	case artistItem:
+		m.enqueue(m.artistTracks(it.artist.RatingKey)...)
 	}
 	return m
 }
@@ -136,10 +139,49 @@ func (m *Model) playNext() {
 	}
 }
 
+// restartThreshold is how far into a track "previous" restarts it
+// instead of going back a track — what every music player does.
+const restartThreshold = 3 * time.Second
+
 func (m *Model) playPrev() {
-	if m.player != nil {
-		_ = m.player.Prev()
+	if m.player == nil {
+		return
 	}
+	if m.player.State().Position > restartThreshold || m.queueIdx == 0 {
+		m.seekTo(0)
+		return
+	}
+	_ = m.player.Prev()
+}
+
+// albumContext returns t's album (in album order) and t's position in
+// it, so playing one track carries on through the rest of the album.
+// Falls back to just t when the album isn't in the library cache.
+func (m Model) albumContext(t media.Track) ([]media.Track, int) {
+	if m.library != nil && t.AlbumRatingKey != "" {
+		tracks := m.library.Tracks(t.AlbumRatingKey)
+		for i, at := range tracks {
+			if at.RatingKey == t.RatingKey {
+				return tracks, i
+			}
+		}
+	}
+	return []media.Track{t}, 0
+}
+
+// artistTracks is every track by an artist, album by album in the
+// current album ordering, for q / d on an artist row.
+func (m Model) artistTracks(artistKey string) []media.Track {
+	if m.library == nil {
+		return nil
+	}
+	var out []media.Track
+	for _, it := range m.albumItems(artistKey) {
+		if ai, ok := it.(albumItem); ok {
+			out = append(out, m.library.Tracks(ai.album.RatingKey)...)
+		}
+	}
+	return out
 }
 
 // moveQueueItem shifts the track at the queue-list cursor by delta

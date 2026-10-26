@@ -245,6 +245,8 @@ func (m Model) downloadSelection() (tracks []media.Track, label string) {
 			return nil, it.album.Title
 		}
 		return m.library.Tracks(it.album.RatingKey), it.album.Title
+	case artistItem:
+		return m.artistTracks(it.artist.RatingKey), it.artist.Title
 	}
 	return nil, ""
 }

@@ -28,6 +28,8 @@ type KeyMap struct {
 	OpenQueue    key.Binding
 	OpenSearch   key.Binding
 	OpenSort     key.Binding // 'o' — open the sort-order modal
+	ToggleView   key.Binding // 'v' — grid ⇄ list for the current level
+	GoToPlaying  key.Binding // 'g' — jump to the now-playing track's album
 
 	// --- playback / queue actions (from browser) ---
 	Pause         key.Binding
@@ -78,6 +80,8 @@ func NewKeyMap() KeyMap {
 		OpenQueue:    key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "queue")),
 		OpenSearch:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
 		OpenSort:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sort")),
+		ToggleView:   key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "grid/list")),
+		GoToPlaying:  key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "go to playing")),
 
 		Pause:         key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pause")),
 		NextTrack:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
@@ -120,7 +124,7 @@ func (k KeyMap) browserHelp() helpView {
 			{k.Enter, k.Back, k.Up, k.Down, k.Filter, k.SwitchScreen},
 			{k.Pause, k.NextTrack, k.PrevTrack, k.SeekBack, k.SeekForward},
 			{k.Enqueue, k.OpenQueue, k.Download, k.OpenDownloads, k.Info},
-			{k.OpenSearch, k.OpenSort, k.Help, k.Settings, k.Refresh, k.Quit},
+			{k.OpenSearch, k.OpenSort, k.ToggleView, k.GoToPlaying, k.Help, k.Settings, k.Refresh, k.Quit},
 		},
 	}
 }
@@ -198,6 +202,7 @@ func (k KeyMap) helpModalSections() []keySection {
 		{title: "Browse", bindings: [][]key.Binding{
 			{k.Enter, k.Back, k.Up, k.Down},
 			{k.SwitchScreen, k.Filter, k.Info, k.OpenSort},
+			{k.ToggleView, k.GoToPlaying},
 		}},
 		{title: "Playback", bindings: [][]key.Binding{
 			{k.Pause, k.NextTrack, k.PrevTrack},
