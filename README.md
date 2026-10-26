@@ -37,7 +37,7 @@ Working today:
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.26.8+
 - [mpv](https://mpv.io/) on your `PATH` (playback is disabled gracefully if missing)
 - A music library on either a Plex Media Server (with an `X-Plex-Token`) or a
   Jellyfin server (with a username + password)
