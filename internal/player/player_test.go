@@ -176,3 +176,53 @@ func TestRearrangeAroundCurrent(t *testing.T) {
 		t.Errorf("playback interrupted: %+v", st)
 	}
 }
+
+// Mid-Rearrange playlist-pos reports (the playing entry at index 0 after
+// the clear) are ignored until mpv answers the settling query; reports
+// after that apply as usual — including a "next" pressed right away,
+// which a time-based pin swallowed.
+func TestRearrangePinsPosition(t *testing.T) {
+	p := &Player{changes: make(chan struct{}, 1)}
+	_ = p.Rearrange([]string{"a", "b"}, []string{"d"}) // no mpv: commands fail, the pin is set first
+	if got := p.State().PlaylistPos; got != 2 {
+		t.Fatalf("PlaylistPos right after Rearrange = %d, want 2", got)
+	}
+	p.applyPropertyChange("playlist-pos", json.RawMessage("0"))
+	if got := p.State().PlaylistPos; got != 2 {
+		t.Errorf("transient 0 was applied: PlaylistPos = %d", got)
+	}
+
+	p.settleReq = 7                       // as querySettled would have
+	p.applyReply(6, json.RawMessage("0")) // some other command's reply
+	p.applyPropertyChange("playlist-pos", json.RawMessage("1"))
+	if got := p.State().PlaylistPos; got != 2 {
+		t.Errorf("unrelated reply ended the settling: PlaylistPos = %d", got)
+	}
+	p.applyReply(7, json.RawMessage("2"))
+	p.applyPropertyChange("playlist-pos", json.RawMessage("3")) // next, right away
+	if got := p.State().PlaylistPos; got != 3 {
+		t.Errorf("after settling, PlaylistPos = %d, want 3", got)
+	}
+}
+
+// Against mpv: polling as fast as possible, the position never shows the
+// transient index while the playlist is rearranged around entry 2.
+func TestRearrangeNeverReportsTransientPosition(t *testing.T) {
+	p := newTestPlayer(t)
+	urls := []string{tone("30"), tone("30"), tone("30"), tone("30")}
+	if err := p.LoadList(urls, 2); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "entry 2 playing", func(s State) bool { return s.PlaylistPos == 2 && s.Position > 0 }, p)
+	for range 5 {
+		if err := p.Rearrange(urls[:2], urls[3:]); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(300 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if pos := p.State().PlaylistPos; pos != 2 {
+				t.Fatalf("PlaylistPos reported %d mid-rearrange", pos)
+			}
+		}
+	}
+}

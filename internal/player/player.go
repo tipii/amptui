@@ -31,6 +31,10 @@ const (
 	RepeatTrack        // replay the current entry until skipped
 )
 
+// settleTimeout is a safety net for Rearrange's pinning: normally mpv's
+// reply to the settling query ends it within milliseconds.
+const settleTimeout = 2 * time.Second
+
 // ErrDead is returned by commands sent while mpv isn't running.
 var ErrDead = errors.New("mpv is not running")
 
@@ -90,6 +94,12 @@ type Player struct {
 	// lastEnd is the reason of the most recent end-file event, read
 	// when idle-active flips to true to decide whether it's Exhausted.
 	lastEnd string
+	// While a Rearrange is being applied, playlist-pos reports are
+	// transient (see Rearrange) and ignored until mpv answers settleReq,
+	// a playlist-pos query sent after the rearranging commands — or, as
+	// a safety net, until settleUntil.
+	settleReq   int
+	settleUntil time.Time
 
 	extraArgs []string // reused on restart
 	repeat    Repeat   // re-applied on restart; guarded by writeMu
@@ -386,6 +396,16 @@ func (p *Player) applyRepeat(r Repeat) error {
 // keeps playing uninterrupted: before become the entries ahead of it and
 // after the ones following it, in order. Used to shuffle and unshuffle.
 func (p *Player) Rearrange(before, after []string) error {
+	// Midway, mpv reports the playing entry at index 0 (after the clear)
+	// before it moves into place. Taken at face value that read as a
+	// track change: the UI and the server reports briefly showed the
+	// queue's first track, and a "next" in that window skipped from the
+	// wrong place. So the position is pinned to where it ends up.
+	p.stateMu.Lock()
+	p.settleReq, p.settleUntil = 0, time.Now().Add(settleTimeout)
+	p.state.PlaylistPos = len(before)
+	p.stateMu.Unlock()
+
 	// playlist-clear drops every entry except the current one, which
 	// becomes index 0.
 	if err := p.command("playlist-clear"); err != nil {
@@ -408,7 +428,36 @@ func (p *Player) Rearrange(before, after []string) error {
 			return err
 		}
 	}
-	return nil
+	// mpv runs commands in order, so its answer to this reflects the
+	// finished rearrangement; applyReply ends the settling with it.
+	return p.querySettled()
+}
+
+// querySettled asks mpv for playlist-pos, marking the request as the one
+// that ends a Rearrange's settling. The id is recorded before the request
+// is written, so the reply can't arrive first.
+func (p *Player) querySettled() error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.stateMu.Lock()
+	p.settleReq = p.reqID + 1 // the id writeLocked assigns next
+	p.stateMu.Unlock()
+	return p.writeLocked("get_property", "playlist-pos")
+}
+
+// applyReply handles mpv's answer to a command. Only the Rearrange
+// settling query is of interest; other replies are ignored.
+func (p *Player) applyReply(id int, data json.RawMessage) {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	if id == 0 || id != p.settleReq {
+		return
+	}
+	if pos := decode[int](data); pos != nil {
+		p.state.PlaylistPos = *pos
+	}
+	p.settleReq, p.settleUntil = 0, time.Time{}
+	p.notify()
 }
 
 // SeekTo moves the playback position to pos within the current track.
@@ -509,11 +558,14 @@ func (p *Player) readLoop(conn net.Conn) {
 			Data      json.RawMessage `json:"data"`
 			Reason    string          `json:"reason"`
 			FileError string          `json:"file_error"`
+			RequestID int             `json:"request_id"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			continue
 		}
 		switch msg.Event {
+		case "":
+			p.applyReply(msg.RequestID, msg.Data)
 		case "property-change":
 			p.applyPropertyChange(msg.Name, msg.Data)
 		case "end-file":
@@ -596,11 +648,14 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 			p.state.Exhausted = *v && (p.lastEnd == "eof" || p.lastEnd == "error")
 		}
 	case "playlist-pos":
+		pos := -1
 		if v := decode[int](data); v != nil {
-			p.state.PlaylistPos = *v
-		} else {
-			p.state.PlaylistPos = -1
+			pos = *v
 		}
+		if time.Now().Before(p.settleUntil) {
+			return // transient, mid-Rearrange; applyReply settles it
+		}
+		p.state.PlaylistPos = pos
 	case "paused-for-cache":
 		if v := decode[bool](data); v != nil {
 			p.state.Buffering = *v
