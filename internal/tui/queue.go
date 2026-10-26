@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -15,17 +16,23 @@ import (
 // applies the same change to both m.queue and the mpv playlist so the
 // indices stay aligned.
 
-// streamURLs maps the current queue to playable URLs, 1:1 so the slice
-// index matches mpv's playlist index.
-func (m Model) streamURLs() []string {
-	urls := make([]string, len(m.queue))
+// playable pairs each track with its stream URL, dropping any the
+// backend can't stream (no media part, no client). Everything that
+// reaches m.queue goes through here: a track in m.queue without a
+// matching mpv entry would shift every later index by one.
+func (m Model) playable(tracks []media.Track) ([]media.Track, []string) {
 	if m.client == nil {
-		return urls
+		return nil, nil
 	}
-	for i, t := range m.queue {
-		urls[i] = m.client.StreamURL(t)
+	out := make([]media.Track, 0, len(tracks))
+	urls := make([]string, 0, len(tracks))
+	for _, t := range tracks {
+		if u := m.client.StreamURL(t); u != "" {
+			out = append(out, t)
+			urls = append(urls, u)
+		}
 	}
-	return urls
+	return out, urls
 }
 
 // playTracks sets the playback queue to tracks and starts at index start
@@ -38,25 +45,25 @@ func (m Model) playTracks(tracks []media.Track, start int) (tea.Model, tea.Cmd) 
 	if start < 0 || start >= len(tracks) {
 		return m, nil
 	}
-	m.queue = tracks
-	m.queueIdx = start
-	m.loadQueue(start)
-	return m, nil
-}
-
-// loadQueue hands the whole queue to mpv, starting at index start, and
-// sets nowPlaying optimistically. No-ops without a player/client.
-func (m *Model) loadQueue(start int) {
-	if m.player == nil || m.client == nil {
-		return
+	// Re-find the chosen track once unplayable ones are dropped. If it
+	// is unplayable itself, start from whatever follows it.
+	before, _ := m.playable(tracks[:start])
+	queue, urls := m.playable(tracks)
+	start = len(before)
+	if start >= len(queue) {
+		m.err = errors.New("nothing playable: the server has no stream for that track")
+		return m, nil
 	}
-	if err := m.player.LoadList(m.streamURLs(), start); err != nil {
+	if err := m.player.LoadList(urls, start); err != nil {
 		m.err = err
-		return
+		return m, nil
 	}
+	m.queue = queue
+	m.queueIdx = start
 	t := m.queue[start]
 	m.nowPlaying = &t
 	m.err = nil
+	return m, nil
 }
 
 // enqueue appends tracks to the playback queue (and to mpv's playlist).
@@ -69,16 +76,16 @@ func (m *Model) enqueue(tracks ...media.Track) {
 		m.err = errors.New("playback unavailable: mpv is not running")
 		return
 	}
+	tracks, urls := m.playable(tracks)
 	wasEmpty := len(m.queue) == 0
-	m.queue = append(m.queue, tracks...)
-	if m.client != nil {
-		for _, t := range tracks {
-			if u := m.client.StreamURL(t); u != "" {
-				_ = m.player.Append(u)
-			}
+	for i, u := range urls {
+		if err := m.player.Append(u); err != nil {
+			m.err = err
+			return
 		}
+		m.queue = append(m.queue, tracks[i])
 	}
-	if wasEmpty {
+	if wasEmpty && len(m.queue) > 0 {
 		m.queueIdx = 0
 		t := m.queue[0]
 		m.nowPlaying = &t
@@ -161,7 +168,8 @@ func (m *Model) moveQueueItem(delta int) {
 
 // deleteQueueItem removes the track at the cursor from the queue and
 // mpv's playlist. mpv advances on its own if the playing entry was the
-// one removed; syncFromPlayer updates nowPlaying afterward.
+// one removed — onto the entry that now sits at the same index, which
+// syncFromPlayer can't see as a change, so nowPlaying is moved here.
 func (m *Model) deleteQueueItem() {
 	i := m.queueList.Index()
 	if i < 0 || i >= len(m.queue) {
@@ -171,12 +179,22 @@ func (m *Model) deleteQueueItem() {
 	if m.player != nil {
 		_ = m.player.RemoveIndex(i)
 	}
-	if i < m.queueIdx {
-		m.queueIdx--
-	}
-	if len(m.queue) == 0 {
+	switch {
+	case len(m.queue) == 0:
 		m.nowPlaying = nil
 		m.queueIdx = 0
+	case i < m.queueIdx:
+		m.queueIdx--
+	case i == m.queueIdx && m.nowPlaying != nil:
+		if i < len(m.queue) {
+			t := m.queue[i]
+			m.nowPlaying = &t
+		} else {
+			// Removed the last, playing entry: mpv stops. The earlier
+			// entries stay in both lists, so indices still line up.
+			m.nowPlaying = nil
+			m.queueIdx = len(m.queue) - 1
+		}
 	}
 	m.rebuildQueueList()
 	if i >= len(m.queue) && len(m.queue) > 0 {
@@ -199,23 +217,39 @@ func (m *Model) playQueueItem() {
 
 // syncFromPlayer reconciles queueIdx / nowPlaying with mpv's current
 // playlist position. mpv owns advancement (auto-advance, prefetch,
-// gapless), so this is how the UI learns a track changed. When the
-// playlist is exhausted (mpv idle, playlist-pos < 0) the now-playing
-// state is cleared.
+// gapless), so this is how the UI learns a track changed. It also
+// handles the two ways playback ends on its own: the last entry played
+// out (clear both queues, so the next enqueue starts at index 0 in
+// each) or mpv died (its playlist died with it).
 func (m Model) syncFromPlayer() Model {
-	if m.player == nil || len(m.queue) == 0 {
+	if m.player == nil {
 		return m
 	}
 	st := m.player.State()
+	if st.ErrorSeq != m.playerErrSeq {
+		m.playerErrSeq = st.ErrorSeq
+		m.err = fmt.Errorf("couldn't play a track: %s", st.LastError)
+	}
 	switch {
+	case st.Dead:
+		if m.queue != nil || m.nowPlaying != nil {
+			m.err = errors.New("mpv exited unexpectedly; it will restart with the next track you play")
+		}
+		m.nowPlaying = nil
+		m.queue = nil
+		m.queueIdx = 0
+	case len(m.queue) == 0:
 	case st.PlaylistPos >= 0 && st.PlaylistPos < len(m.queue):
 		if st.PlaylistPos != m.queueIdx || m.nowPlaying == nil {
 			m.queueIdx = st.PlaylistPos
 			t := m.queue[m.queueIdx]
 			m.nowPlaying = &t
 		}
-	case st.Idle && st.PlaylistPos < 0 && m.nowPlaying != nil:
-		// Playlist exhausted.
+	case st.Exhausted:
+		// mpv keeps finished entries in its playlist when it idles;
+		// drop them too or the next append-play lands at index N while
+		// m.queue puts it at 0.
+		_ = m.player.Stop()
 		m.nowPlaying = nil
 		m.queue = nil
 		m.queueIdx = 0

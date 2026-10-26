@@ -165,6 +165,8 @@ type Model struct {
 	// the queue is exhausted.
 	queue    []media.Track
 	queueIdx int
+	// playerErrSeq is the last player.State().ErrorSeq surfaced in m.err.
+	playerErrSeq int
 
 	// showQueue / showHelp / showInfo / showSort are true while their
 	// modal is open; an open modal owns input. The search modal's open
