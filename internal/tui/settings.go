@@ -250,7 +250,11 @@ func (s settingsModel) View(bodyHeight int, statsBody string) string {
 	// silently drop everything from a malformed file).
 	if w := config.LastLoadWarning; w != nil {
 		b.WriteString(errStyle.Render("config file error: "+w.Err.Error()) + "\n")
-		b.WriteString(helpStyle.Render("  fix the file or correct values below; save here overwrites it") + "\n\n")
+		if w.BackupPath != "" {
+			b.WriteString(helpStyle.Render("  the original file was saved to "+w.BackupPath+" before being overwritten") + "\n\n")
+		} else {
+			b.WriteString(helpStyle.Render("  fix the file or correct values below; saving here backs up the original first") + "\n\n")
+		}
 	}
 
 	b.WriteString(sectionStyle.Render("Server"))
