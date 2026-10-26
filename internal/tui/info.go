@@ -209,7 +209,7 @@ func (m Model) infoModalBox() string {
 		if a := m.albumMeta; a != nil {
 			heading = headerStyle.Render(a.Title)
 			if a.Artist != "" {
-				heading += helpStyle.Render("  " + a.Artist)
+				heading += helpStyle.Render(" · " + a.Artist)
 			}
 		} else {
 			heading = headerStyle.Render("Album")

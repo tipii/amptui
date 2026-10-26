@@ -59,11 +59,13 @@ func (i albumItem) FilterValue() string { return i.album.Title }
 type albumActionItem struct{ tracks []media.Track }
 
 func (i albumActionItem) Title() string { return "▶  Play album" }
+
+// Description lines up under "Play album", past the "▶  " marker.
 func (i albumActionItem) Description() string {
 	if len(i.tracks) == 1 {
-		return "1 track"
+		return "   1 track"
 	}
-	return fmt.Sprintf("%d tracks", len(i.tracks))
+	return fmt.Sprintf("   %d tracks", len(i.tracks))
 }
 func (i albumActionItem) FilterValue() string { return "Play album" }
 
@@ -79,10 +81,28 @@ type trackItem struct {
 func (i trackItem) Title() string {
 	return fmt.Sprintf("%2d. %s", i.track.Index, i.track.Title)
 }
+
+// Description is the duration (and the disc, on a multi-disc album),
+// indented to line up under the title text past the "NN. " number. It
+// used to repeat the album name, which on the album's own track list
+// is the page heading.
 func (i trackItem) Description() string {
 	d := i.track.Duration.Round(1e9) // whole seconds
-	return fmt.Sprintf("%s · %02d:%02d", i.track.Album,
-		int(d.Minutes()), int(d.Seconds())%60)
+	out := fmt.Sprintf("%02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+	if i.track.Disc > 0 && multiDisc(i.tracks) {
+		out = fmt.Sprintf("disc %d · %s", i.track.Disc, out)
+	}
+	return "    " + out
+}
+
+// multiDisc reports whether an album's tracks span more than one disc.
+func multiDisc(tracks []media.Track) bool {
+	for _, t := range tracks {
+		if t.Disc > 1 {
+			return true
+		}
+	}
+	return false
 }
 func (i trackItem) FilterValue() string { return i.track.Title }
 

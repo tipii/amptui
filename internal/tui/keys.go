@@ -98,7 +98,7 @@ func NewKeyMap() KeyMap {
 		Mute:          key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		Repeat:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
 		Shuffle:       key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "shuffle")),
-		Enqueue:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "queue")),
+		Enqueue:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "add to queue")),
 		Download:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download")),
 		OpenDownloads: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "downloads")),
 

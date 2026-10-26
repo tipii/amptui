@@ -76,7 +76,7 @@ func TestQueueModalRenders(t *testing.T) {
 	if !strings.Contains(out, "╭") || !strings.Contains(out, "╰") {
 		t.Errorf("expected a rounded border in the modal view")
 	}
-	if !strings.Contains(out, "Queue · 3 track(s)") {
+	if !strings.Contains(out, "Queue · 3 tracks") {
 		t.Errorf("expected the modal title in the view")
 	}
 	// The browser list should still be visible behind the modal.
@@ -193,7 +193,7 @@ func TestSettingsScreenRenders(t *testing.T) {
 
 	out := m.View().Content
 	for _, want := range []string{
-		"Settings /",
+		"Settings",
 		"https://plex.example.dev",
 		"Token",                  // password field label (value masked by huh)
 		"Music",                  // default library value

@@ -28,26 +28,20 @@ const (
 	cardBorderCols  = 2
 )
 
-// gridLayout picks the column count and a per-card OUTER width so that
-// cols * outerW == terminal width exactly. All cards in a row are the
-// same size; adjacent cards share visual borders.
+// cardOuterW is a grid card's fixed outer width: the thumb plus one
+// column of padding each side, plus the border. Cards used to stretch to
+// fill the terminal exactly, so the thumb's padding swung from 4 columns
+// at 60 wide to none at 200, where artwork touched the border.
+const cardOuterW = gridThumbCellsW + 2 + cardBorderCols
+
+// cardGutter separates neighbouring cards.
+const cardGutter = 1
+
+// gridLayout picks how many fixed-width cards fit in width, and their
+// outer width (only narrower than cardOuterW when one doesn't fit).
 func gridLayout(width int) (cols, outerW int) {
-	cols = width / cardIdealOuterW
-	if cols < 1 {
-		cols = 1
-	}
-	outerW = width / cols
-	if outerW < cardMinOuterW {
-		cols = width / cardMinOuterW
-		if cols < 1 {
-			cols = 1
-		}
-		outerW = width / cols
-		if outerW < cardMinOuterW {
-			outerW = cardMinOuterW
-		}
-	}
-	return
+	cols = max((width+cardGutter)/(cardOuterW+cardGutter), 1)
+	return cols, min(cardOuterW, max(width, cardMinOuterW))
 }
 
 // gridCols returns just the column count for cursor-movement math.
@@ -272,6 +266,9 @@ func (m Model) gridBodyView() string {
 			style := normal
 			if idx == m.gridCursor {
 				style = cursor
+			}
+			if col > 0 {
+				cells = append(cells, strings.Repeat(" ", cardGutter))
 			}
 			cells = append(cells, style.Render(content))
 		}

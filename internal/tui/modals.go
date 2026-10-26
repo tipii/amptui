@@ -45,7 +45,7 @@ func (m Model) modalFrame(content string) string {
 // queueModalBox renders the bordered queue box. Positioning is handled by
 // the compositor in overlayBox.
 func (m Model) queueModalBox() string {
-	title := headerStyle.Render(fmt.Sprintf("Queue · %d track(s)", len(m.queue)))
+	title := headerStyle.Render("Queue" + countSuffix(len(m.queue), "track"))
 	body := m.queueList.View()
 	if len(m.queue) == 0 {
 		body = helpStyle.Render("queue is empty — press q on a track or album to add")
@@ -158,4 +158,16 @@ func (m Model) helpBodyContent(width int) string {
 		}
 	}
 	return b.String()
+}
+
+// countSuffix is " · 3 tracks" / " · 1 track" for a modal title, or ""
+// for none — the empty state says so in the body.
+func countSuffix(n int, noun string) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return " · 1 " + noun
+	}
+	return fmt.Sprintf(" · %d %ss", n, noun)
 }

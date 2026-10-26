@@ -269,12 +269,12 @@ func (s settingsModel) IsEditing() bool { return s.editing }
 // View renders the settings body. The caller composes header / now-playing
 // / footer around this. spin and stats are pulled from parent state since
 // the sub-model doesn't own the spinner or library snapshot.
-func (s settingsModel) View(bodyHeight int, statsBody string) string {
+func (s settingsModel) View(title string, bodyHeight int, statsBody string) string {
 	// The header and status notices stay pinned above the scrolling part:
 	// a save error or the relaunch warning must be seen even when the
 	// cursor is far down the page.
 	var head strings.Builder
-	head.WriteString(headerStyle.Render("amptui") + "  " + crumbStyle.Render("Settings /") + "\n\n")
+	head.WriteString(title + "\n\n")
 
 	// Surface config-file parse errors so the user sees why their on-disk
 	// values aren't taking effect (Load is lenient and would otherwise

@@ -442,7 +442,7 @@ func downloadFooterSummary(jobs []*downloadJob) string {
 func (m Model) downloadsModalBox() string {
 	mw, _ := m.modalSize()
 	innerW := mw - 4 // border (2) + horiz padding (2)
-	left := headerStyle.Render(fmt.Sprintf("Downloads · %d", len(m.downloadJobs)))
+	left := headerStyle.Render("Downloads" + countSuffix(len(m.downloadJobs), "job"))
 	right := helpStyle.Render(m.downloadQuality().Label())
 	pad := innerW - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 1 {
