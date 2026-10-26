@@ -179,11 +179,6 @@ type downloadTickMsg struct {
 // goroutine that owns the Model.
 type downloadPollMsg struct{}
 
-// downloadTimeoutPerTrack caps each track's GET. The per-job parent
-// context lives for downloadTimeoutPerTrack * (N+1) so a long album
-// doesn't get cut off halfway through.
-const downloadTimeoutPerTrack = 5 * time.Minute
-
 // downloadPollInterval is how often the in-flight byte count is re-read
 // while something is downloading. Fast enough that the bar moves and the
 // rate feels live, slow enough to stay off the render path's back — and
@@ -300,19 +295,40 @@ func (m Model) downloadQuality() media.DownloadQuality {
 // Update loop is free to mutate while the download runs.
 func (m Model) downloadTickCmd(jobID int, t media.Track) tea.Cmd {
 	client, folder, q, live := m.client, m.cfg.DownloadFolder, m.downloadQuality(), m.dl
+	multiDisc := m.albumIsMultiDisc(t)
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), downloadTimeoutPerTrack)
-		defer cancel()
-		hc := &http.Client{Timeout: downloadTimeoutPerTrack}
-		res, err := downloader.Download(ctx, hc, downloader.Request{
-			URL:      client.DownloadURL(t, q),
-			Track:    t,
-			Root:     folder,
-			Ext:      q.Ext(),
-			Progress: func(p downloader.Progress) { live.publish(jobID, p) },
+		// No overall timeout: the downloader abandons a transfer that
+		// stops receiving data, and a big hi-res file on a slow link
+		// legitimately takes long. (A fixed 5-minute cap made those
+		// fail every time, restarting from zero.)
+		res, err := downloader.Download(context.Background(), http.DefaultClient, downloader.Request{
+			URL:       client.DownloadURL(t, q),
+			Track:     t,
+			Root:      folder,
+			Ext:       q.Ext(),
+			MultiDisc: multiDisc,
+			Progress:  func(p downloader.Progress) { live.publish(jobID, p) },
 		})
 		return downloadTickMsg{jobID: jobID, res: res, err: err}
 	}
+}
+
+// albumIsMultiDisc reports whether t's album spans more than one disc,
+// in which case each disc downloads into its own "Disc N" folder. Asked
+// of the whole album, not t, so disc 1 lands in "Disc 1" too.
+func (m Model) albumIsMultiDisc(t media.Track) bool {
+	if t.Disc > 1 {
+		return true
+	}
+	if m.library == nil || t.AlbumRatingKey == "" {
+		return false
+	}
+	for _, at := range m.library.Tracks(t.AlbumRatingKey) {
+		if at.Disc > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // applyDownloadPoll folds the worker's latest byte count into its job and
@@ -340,7 +356,7 @@ func (m Model) applyDownloadTick(msg downloadTickMsg) (Model, tea.Cmd) {
 		return m, nil // job vanished — shouldn't happen, fail safe
 	}
 	if msg.err != nil {
-		job.errs = append(job.errs, msg.err.Error())
+		job.errs = append(job.errs, job.tracks[job.idx].Title+": "+msg.err.Error())
 	} else if msg.res.Skipped {
 		job.skipped++
 	} else {
@@ -470,10 +486,28 @@ func renderDownloadRow(j *downloadJob, width int) string {
 		pad = 1
 	}
 	head := left + strings.Repeat(" ", pad) + helpStyle.Render(frac)
-	if j.state != downloadRunning || j.curFile == "" {
-		return head
+	if j.state == downloadRunning && j.curFile != "" {
+		head += "\n" + renderDownloadDetail(j, width)
 	}
-	return head + "\n" + renderDownloadDetail(j, width)
+	return head + renderDownloadErrors(j, width)
+}
+
+// maxDownloadErrorLines is how many of a job's failures the modal lists
+// before summarizing the rest.
+const maxDownloadErrorLines = 3
+
+// renderDownloadErrors lists why a job's tracks failed, one per line
+// under the job. Only the count used to be shown anywhere.
+func renderDownloadErrors(j *downloadJob, width int) string {
+	var b strings.Builder
+	for i, e := range j.errs {
+		if i == maxDownloadErrorLines {
+			b.WriteString("\n" + downloadDetailIndent + helpStyle.Render(fmt.Sprintf("…and %d more", len(j.errs)-i)))
+			break
+		}
+		b.WriteString("\n" + downloadDetailIndent + errStyle.Render(trimToWidth(e, width-len(downloadDetailIndent))))
+	}
+	return b.String()
 }
 
 // downloadDetailIndent aligns the detail line under the job label, past

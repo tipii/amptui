@@ -221,3 +221,17 @@ func TestFooterKeepsStatusWhenHelpIsLong(t *testing.T) {
 		t.Errorf("status should be flush right, got %q", got)
 	}
 }
+
+// The downloads modal says why tracks failed, not just how many.
+func TestDownloadsModalListsErrors(t *testing.T) {
+	j := &downloadJob{label: "Album", state: downloadErrored, idx: 5,
+		tracks: make([]media.Track, 5),
+		errs:   []string{"One: GET …: 404 Not Found", "Two: e", "Three: e", "Four: e", "Five: e"}}
+	out := renderDownloadRow(j, 80)
+	if !strings.Contains(out, "One: GET …: 404 Not Found") {
+		t.Errorf("first error missing:\n%s", out)
+	}
+	if strings.Contains(out, "Four: e") || !strings.Contains(out, "and 2 more") {
+		t.Errorf("expected 3 errors then a summary:\n%s", out)
+	}
+}

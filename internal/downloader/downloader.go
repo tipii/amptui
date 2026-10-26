@@ -7,12 +7,15 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/tipii/amptui/internal/media"
 )
@@ -35,6 +38,11 @@ type Request struct {
 	Track media.Track
 	// Root is the download folder every file lands under.
 	Root string
+	// MultiDisc puts the track under a "Disc N" folder inside the album,
+	// so two discs' "01 Intro" don't collide. Set it for every track of
+	// an album with more than one disc — the caller knows the album, the
+	// downloader only sees one track.
+	MultiDisc bool
 	// Ext, when set (".mp3"), is the extension the caller knows this URL
 	// will produce because it asked the server to transcode. It names
 	// the file and narrows the already-have-it check to that one
@@ -71,6 +79,12 @@ type Progress struct {
 // rather than a truncated one under the real name.
 const partialSuffix = ".partial"
 
+// StallTimeout is how long a download may go without receiving a byte
+// (including waiting for the response) before it's abandoned. It bounds
+// a dead connection, not the transfer: a large hi-res file on a slow
+// link can take as long as it needs while data keeps arriving.
+var StallTimeout = 60 * time.Second
+
 // progressInterval is how many bytes accumulate between Progress calls:
 // small enough that a slow link still animates, large enough that a fast
 // one isn't spending its time in the callback.
@@ -81,12 +95,15 @@ const progressInterval = 64 << 10
 // is:
 //
 //	<root>/<artist>/<album>/<NN Title>.<ext>
+//	<root>/<artist>/<album>/Disc <N>/<NN Title>.<ext>   (req.MultiDisc)
 //
 // Artist / album / filename segments are sanitized. The extension is
 // req.Ext when the caller knows it, otherwise it's inferred from the
 // response's Content-Type. Existing files are kept (the caller can
 // surface that as "already downloaded"). Writes are atomic via a
-// .partial sidecar so a crash never leaves a truncated file.
+// .partial sidecar so a crash never leaves a truncated file, and a
+// .partial left by an interrupted original-quality download is resumed
+// with a Range request where the server supports it.
 func Download(ctx context.Context, hc *http.Client, req Request) (Result, error) {
 	if req.Root == "" {
 		return Result{}, fmt.Errorf("download folder not configured")
@@ -95,7 +112,10 @@ func Download(ctx context.Context, hc *http.Client, req Request) (Result, error)
 		return Result{}, fmt.Errorf("track %q has no stream URL", req.Track.Title)
 	}
 
-	dir := filepath.Join(req.Root, sanitize(orUnknown(req.Track.Artist)), sanitize(orUnknown(req.Track.Album)))
+	dir := filepath.Join(req.Root, sanitize(req.Track.Artist), sanitize(req.Track.Album))
+	if req.MultiDisc && req.Track.Disc > 0 {
+		dir = filepath.Join(dir, fmt.Sprintf("Disc %d", req.Track.Disc))
+	}
 	base := trackBasename(req.Track)
 
 	// Skip if a previously-downloaded copy is on disk, before spending a
@@ -104,16 +124,35 @@ func Download(ctx context.Context, hc *http.Client, req Request) (Result, error)
 		return Result{Path: existing, Skipped: true}, nil
 	}
 
+	// The stall timer cancels the request if no byte arrives for
+	// StallTimeout; every write to disk pushes it back.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stall := time.AfterFunc(StallTimeout, func() { cancel(errStalled) })
+	defer stall.Stop()
+
+	// Only an original can be resumed: a transcode is generated on the
+	// fly, so byte N of a retry isn't byte N of the first attempt.
+	var resumeFrom int64
+	resumePath := ""
+	if req.Ext == "" {
+		resumePath, resumeFrom = findPartial(dir, base)
+	}
+
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodGet, req.URL, nil)
 	if err != nil {
 		return Result{}, err
 	}
+	if resumeFrom > 0 {
+		hreq.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeFrom))
+	}
 	resp, err := hc.Do(hreq)
 	if err != nil {
-		return Result{}, media.RedactErr(err)
+		return Result{}, stalled(ctx, media.RedactErr(err))
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	resumed := resp.StatusCode == http.StatusPartialContent && contentRangeStart(resp) == resumeFrom
+	if resp.StatusCode != http.StatusOK && !resumed {
 		return Result{}, fmt.Errorf("GET %s: %s", media.RedactURL(req.URL), resp.Status)
 	}
 
@@ -126,12 +165,21 @@ func Download(ctx context.Context, hc *http.Client, req Request) (Result, error)
 		ext = extensionFromContentType(resp.Header.Get("Content-Type"))
 	}
 	dst := filepath.Join(dir, base+ext)
+	tmp := dst + partialSuffix
+	if resumed && resumePath != tmp {
+		resumed = false // the partial was for another format
+	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Result{}, err
 	}
-	tmp := dst + partialSuffix
-	f, err := os.Create(tmp)
+	var f *os.File
+	if resumed {
+		f, err = os.OpenFile(tmp, os.O_WRONLY|os.O_APPEND, 0o644)
+	} else {
+		f, err = os.Create(tmp)
+		resumeFrom = 0
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -140,23 +188,81 @@ func Download(ctx context.Context, hc *http.Client, req Request) (Result, error)
 	total := resp.ContentLength
 	if total < 0 {
 		total = 0
+	} else if resumed {
+		total += resumeFrom
 	}
-	pw := &progressWriter{w: f, fn: req.Progress, name: filepath.Base(dst), total: total}
+	pw := &progressWriter{w: f, fn: req.Progress, name: filepath.Base(dst), total: total,
+		written: resumeFrom, reported: resumeFrom, onWrite: func() { stall.Reset(StallTimeout) }}
 	pw.report() // publish the name and total before the first byte lands
 	if _, err := io.Copy(pw, resp.Body); err != nil {
+		// Keep the .partial: the next attempt resumes from it.
 		_ = f.Close()
-		_ = os.Remove(tmp)
-		return Result{}, err
+		return Result{}, stalled(ctx, err)
 	}
 	pw.report() // final count, which the interval may have skipped past
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
 		return Result{}, err
+	}
+	if err := f.Close(); err != nil {
+		return Result{}, err
+	}
+	if total > 0 && pw.written != total {
+		_ = os.Remove(tmp)
+		return Result{}, fmt.Errorf("short download: got %d of %d bytes", pw.written, total)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		return Result{}, err
 	}
 	return Result{Path: dst}, nil
+}
+
+// errStalled is the cancel cause the stall timer sets.
+var errStalled = errors.New("download stalled")
+
+// stalled rewrites a cancellation caused by the stall timer into an
+// error that says so (the parent context's own errors pass through).
+func stalled(ctx context.Context, err error) error {
+	if errors.Is(context.Cause(ctx), errStalled) {
+		return fmt.Errorf("%w: no data for %v", errStalled, StallTimeout)
+	}
+	return err
+}
+
+// findPartial returns a leftover "<base>.<ext>.partial" in dir and its
+// size, or ("", 0).
+func findPartial(dir, base string) (string, int64) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, partialSuffix) {
+			continue
+		}
+		if !isBasePlusExt(strings.TrimSuffix(name, partialSuffix), base) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Size() > 0 {
+			return filepath.Join(dir, name), info.Size()
+		}
+	}
+	return "", 0
+}
+
+// contentRangeStart parses the first byte offset of a 206's
+// Content-Range ("bytes 100-999/1000"), or -1.
+func contentRangeStart(resp *http.Response) int64 {
+	var start, end, size int64
+	cr := resp.Header.Get("Content-Range")
+	if _, err := fmt.Sscanf(cr, "bytes %d-%d/%d", &start, &end, &size); err == nil {
+		return start
+	}
+	if _, err := fmt.Sscanf(cr, "bytes %d-%d/*", &start, &end); err == nil {
+		return start
+	}
+	return -1
 }
 
 // progressWriter counts bytes on their way to the file and reports them
@@ -168,11 +274,15 @@ type progressWriter struct {
 	total    int64
 	written  int64
 	reported int64
+	onWrite  func() // called after every write; resets the stall timer
 }
 
 func (p *progressWriter) Write(b []byte) (int, error) {
 	n, err := p.w.Write(b)
 	p.written += int64(n)
+	if p.onWrite != nil {
+		p.onWrite()
+	}
 	if p.written-p.reported >= progressInterval {
 		p.report()
 	}
@@ -191,7 +301,7 @@ func (p *progressWriter) report() {
 // an index is available, otherwise just "Title". The extension is decided
 // by the caller's Request.Ext or the response's Content-Type.
 func trackBasename(t media.Track) string {
-	title := sanitize(orUnknown(t.Title))
+	title := sanitize(t.Title)
 	if t.Index > 0 {
 		return fmt.Sprintf("%02d %s", t.Index, title)
 	}
@@ -219,47 +329,86 @@ func findExisting(dir, base, ext string) string {
 	if err != nil {
 		return ""
 	}
-	prefix := base + "."
 	for _, e := range entries {
 		// A leftover .partial is not a download we have: the process was
-		// killed mid-copy, so the file is truncated. It matches the
-		// prefix, though, so without this it would look like a finished
-		// download and block every retry.
-		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) && !strings.HasSuffix(e.Name(), partialSuffix) {
+		// killed mid-copy, so the file is truncated.
+		if e.IsDir() || strings.HasSuffix(e.Name(), partialSuffix) || !isBasePlusExt(e.Name(), base) {
+			continue
+		}
+		// Neither is an empty file (a crash between create and write).
+		if info, err := e.Info(); err == nil && info.Size() > 0 {
 			return filepath.Join(dir, e.Name())
 		}
 	}
 	return ""
 }
 
-// orUnknown returns s unless empty, in which case "Unknown" — keeps the
-// path well-formed when a backend doesn't populate a field.
-func orUnknown(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "Unknown"
-	}
-	return s
+// isBasePlusExt reports whether name is base followed by exactly one
+// extension: "01 Intro.flac" for base "01 Intro", but not
+// "01 Intro. Reprise.flac", which a plain prefix match also accepted.
+func isBasePlusExt(name, base string) bool {
+	ext, ok := strings.CutPrefix(name, base+".")
+	return ok && ext != "" && !strings.ContainsAny(ext, ". ")
 }
 
-// sanitize strips characters that are illegal or awkward in filenames
-// across common filesystems, and trims surrounding whitespace and dots.
-// Multi-character runs are kept as single dashes for readability.
+// maxNameBytes caps a sanitized path segment, leaving room under the
+// common 255-byte NAME_MAX for "NN " in front and ".flac.partial" behind.
+const maxNameBytes = 200
+
+// sanitize turns s into a safe path segment: characters illegal or
+// awkward on common filesystems become dashes (runs collapse to one),
+// control characters are dropped, surrounding spaces and dots are
+// trimmed, the result is capped at maxNameBytes on a rune boundary, and
+// Windows device names get a leading underscore (download folders on
+// NTFS / exFAT / SMB refuse them). It never returns "" — an artist named
+// ".." used to collapse to nothing and put files one level up — and
+// returns "Unknown" for anything that sanitizes away.
 func sanitize(s string) string {
 	var b strings.Builder
 	prevDash := false
 	for _, r := range s {
-		switch r {
-		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', 0:
+		switch {
+		case strings.ContainsRune(`/\:*?"<>|`, r):
 			if !prevDash {
 				b.WriteRune('-')
 				prevDash = true
 			}
+		case r < 0x20 || r == 0x7f:
+			// control characters: dropped
 		default:
 			b.WriteRune(r)
 			prevDash = false
 		}
 	}
-	return strings.Trim(b.String(), " .")
+	out := strings.Trim(b.String(), " .")
+	if len(out) > maxNameBytes {
+		cut := maxNameBytes
+		for cut > 0 && !utf8.RuneStart(out[cut]) {
+			cut--
+		}
+		out = strings.TrimRight(out[:cut], " .")
+	}
+	if out == "" {
+		return "Unknown"
+	}
+	if isWindowsReserved(out) {
+		out = "_" + out
+	}
+	return out
+}
+
+// isWindowsReserved reports whether name (ignoring any extension) is a
+// DOS device name like CON or COM1.
+func isWindowsReserved(name string) bool {
+	stem, _, _ := strings.Cut(strings.ToUpper(name), ".")
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		return stem[3] >= '1' && stem[3] <= '9'
+	}
+	return false
 }
 
 // extensionFromContentType maps the common audio MIME types we'll see

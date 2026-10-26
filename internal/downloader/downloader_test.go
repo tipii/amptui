@@ -2,6 +2,8 @@ package downloader
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,21 +11,23 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/tipii/amptui/internal/media"
 )
 
 func TestExtensionFromContentType(t *testing.T) {
 	cases := map[string]string{
-		"audio/flac":                    ".flac",
-		"audio/x-flac":                  ".flac",
-		"audio/mpeg":                    ".mp3",
-		"audio/mpeg; charset=binary":    ".mp3",
-		"AUDIO/MP4":                     ".m4a",
-		"audio/ogg":                     ".ogg",
-		"audio/wav":                     ".wav",
-		"application/octet-stream":      ".audio",
-		"":                              ".audio",
+		"audio/flac":                 ".flac",
+		"audio/x-flac":               ".flac",
+		"audio/mpeg":                 ".mp3",
+		"audio/mpeg; charset=binary": ".mp3",
+		"AUDIO/MP4":                  ".m4a",
+		"audio/ogg":                  ".ogg",
+		"audio/wav":                  ".wav",
+		"application/octet-stream":   ".audio",
+		"":                           ".audio",
 	}
 	for ct, want := range cases {
 		if got := extensionFromContentType(ct); got != want {
@@ -34,12 +38,21 @@ func TestExtensionFromContentType(t *testing.T) {
 
 func TestSanitizeStripsPathSeparatorsAndCollapsesRuns(t *testing.T) {
 	cases := map[string]string{
-		"AC/DC":             "AC-DC",
-		"foo/bar\\baz":      "foo-bar-baz",
-		"a:b*c?d\"e<f>g|h":  "a-b-c-d-e-f-g-h",
-		" . trailing .  ":   "trailing",
-		"normal title":      "normal title",
-		"":                  "",
+		"AC/DC":            "AC-DC",
+		"foo/bar\\baz":     "foo-bar-baz",
+		"a:b*c?d\"e<f>g|h": "a-b-c-d-e-f-g-h",
+		" . trailing .  ":  "trailing",
+		"normal title":     "normal title",
+		// Names that sanitize away must not vanish: ".." as an artist
+		// used to land files one level up, "..." as a title made a
+		// hidden ".flac".
+		"":              "Unknown",
+		"..":            "Unknown",
+		" . ":           "Unknown",
+		"line\nbreak\t": "linebreak",
+		"CON":           "_CON",
+		"com1.txt":      "_com1.txt",
+		"Console":       "Console",
 	}
 	for in, want := range cases {
 		if got := sanitize(in); got != want {
@@ -336,5 +349,122 @@ func TestDownloadRetriesAfterInterruptedPartial(t *testing.T) {
 	}
 	if string(got) != body {
 		t.Errorf("file body = %q, want the complete %q", got, body)
+	}
+}
+
+func TestSanitizeCapsLengthOnRuneBoundary(t *testing.T) {
+	got := sanitize(strings.Repeat("ж", 300)) // 2 bytes per rune
+	if len(got) > maxNameBytes || !utf8.ValidString(got) {
+		t.Errorf("sanitize kept %d bytes (valid UTF-8: %v), cap is %d", len(got), utf8.ValidString(got), maxNameBytes)
+	}
+}
+
+func TestDownloadMultiDiscUsesDiscFolders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/flac")
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer srv.Close()
+	root := t.TempDir()
+	for _, disc := range []int{1, 2} {
+		tr := media.Track{Title: "Intro", Album: "A", Artist: "Ar", Index: 1, Disc: disc}
+		res, err := Download(context.Background(), http.DefaultClient, Request{URL: srv.URL, Track: tr, Root: root, MultiDisc: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(root, "Ar", "A", fmt.Sprintf("Disc %d", disc), "01 Intro.flac")
+		if res.Path != want || res.Skipped {
+			t.Errorf("disc %d: path %q skipped=%v, want %q", disc, res.Path, res.Skipped, want)
+		}
+	}
+}
+
+// "01 Intro" must not count as downloaded because "01 Intro. Reprise"
+// is, and an empty file left by a crash isn't a download either.
+func TestFindExistingMatchesExactly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "01 Intro. Reprise.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "02 Song.flac"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := findExisting(dir, "01 Intro", ""); got != "" {
+		t.Errorf("01 Intro matched %q", got)
+	}
+	if got := findExisting(dir, "02 Song", ""); got != "" {
+		t.Errorf("empty file matched: %q", got)
+	}
+	if got := findExisting(dir, "01 Intro. Reprise", ""); got == "" {
+		t.Error("exact match missed")
+	}
+}
+
+// An interrupted original download resumes from its .partial with a
+// Range request instead of starting over.
+func TestDownloadResumesPartial(t *testing.T) {
+	const body = "COMPLETE-FILE-BODY"
+	var gotRange string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("Range")
+		w.Header().Set("Content-Type", "audio/flac")
+		http.ServeContent(w, r, "", time.Time{}, strings.NewReader(body))
+	}))
+	defer srv.Close()
+	root := t.TempDir()
+	dir := filepath.Join(root, "Ar", "A")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "01 T.flac"+partialSuffix), []byte(body[:8]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var last Progress
+	tr := media.Track{Title: "T", Album: "A", Artist: "Ar", Index: 1}
+	res, err := Download(context.Background(), http.DefaultClient, Request{
+		URL: srv.URL, Track: tr, Root: root, Progress: func(p Progress) { last = p },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRange != "bytes=8-" {
+		t.Errorf("Range = %q, want bytes=8-", gotRange)
+	}
+	if got, _ := os.ReadFile(res.Path); string(got) != body {
+		t.Errorf("file = %q, want %q", got, body)
+	}
+	if last.Written != int64(len(body)) || last.Total != int64(len(body)) {
+		t.Errorf("final progress %+v, want %d/%d", last, len(body), len(body))
+	}
+}
+
+// A connection that stops delivering data is abandoned after
+// StallTimeout, keeping what arrived so the retry can resume — instead
+// of the old fixed 5-minute cap on the whole transfer.
+func TestDownloadAbandonsStalledTransfer(t *testing.T) {
+	old := StallTimeout
+	StallTimeout = 150 * time.Millisecond
+	defer func() { StallTimeout = old }()
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/flac")
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("some bytes"))
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	root := t.TempDir()
+	tr := media.Track{Title: "T", Album: "A", Artist: "Ar", Index: 1}
+	_, err := Download(context.Background(), http.DefaultClient, Request{URL: srv.URL, Track: tr, Root: root})
+	if !errors.Is(err, errStalled) {
+		t.Fatalf("err = %v, want a stall", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "Ar", "A", "01 T.flac"+partialSuffix)); string(b) != "some bytes" {
+		t.Errorf(".partial = %q, want the bytes received so far", b)
 	}
 }

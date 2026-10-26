@@ -146,10 +146,20 @@ first launch after upgrading re-syncs the library once to populate it.
 
 `d` queues whatever's under the cursor — a track, or a whole album — and
 `D` opens the downloads modal. Files land at
-`<download_folder>/<artist>/<album>/<NN Title>.<ext>`, written through a
-`.partial` sidecar so an interrupted download never leaves a truncated
-file behind. One track is fetched at a time; queue as many albums as you
-like and they drain in order.
+`<download_folder>/<artist>/<album>/<NN Title>.<ext>`; an album with more
+than one disc gets a folder per disc,
+`<download_folder>/<artist>/<album>/Disc <N>/<NN Title>.<ext>`, so each
+disc's track 1 doesn't collide with the others. One track is fetched at a
+time; queue as many albums as you like and they drain in order.
+
+Files are written through a `.partial` sidecar, so an interrupted download
+never leaves a truncated file under the real name. There's no time limit
+on a transfer — a large hi-res file on a slow link takes as long as it
+takes — but one that stops receiving data for a minute is abandoned, and
+for `original` downloads the next attempt resumes from the `.partial`
+where the server supports it. Names are made filesystem-safe (no path
+separators, control characters, or Windows device names like `CON`, and
+capped to fit `NAME_MAX`).
 
 The modal shows a line per job with its state and track count, and for
 the job in flight a second line naming the file being written, how far
@@ -162,8 +172,9 @@ Downloads · 2                                    MP3 320 kbps
    05 Tumbling Dice.mp3      ███████░░░░░░░  52%  1.2 MB/s
 ```
 
-The same job / rate summary appears in the status bar, so you can watch a
-download without keeping the modal open.
+If tracks fail, the reason for each (up to three per job) is listed under
+the job. The same job / rate summary appears in the status bar, so you can
+watch a download without keeping the modal open.
 
 **Quality presets.** *Download quality* picks what the server sends:
 
