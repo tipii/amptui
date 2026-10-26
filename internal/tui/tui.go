@@ -184,8 +184,9 @@ type Model struct {
 	// same fetched image so toggling between list / grid never refetches.
 	listPics map[string]*picture.Model
 	picMode  picture.PictureMode
-	// kittyResolved is set once the Kitty probe has answered.
-	kittyResolved bool
+	// kittyApplied is the Kitty capability applyKittyCapability last
+	// acted on (Unknown until the probe answers or times out).
+	kittyApplied picture.KittyCapability
 
 	// queue is the current playback queue; queueIdx is the playing track.
 	// On track end the UI advances through it, clearing nowPlaying when

@@ -47,12 +47,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Kitty mode until then and doesn't retry by itself, so every picture
 // made before the answer arrived — usually all of them — has to be
 // switched here, or artwork stays half-block for the whole session.
+//
+// It re-applies whenever the capability changes, not just the first
+// time: ntcharts gives the probe 250ms, and on a slow start (a cold
+// launch busy loading the library) the timeout can win — "unsupported",
+// so chafa — before the terminal's answer arrives and flips it to
+// supported. Acting only on the first verdict left Kitty terminals on
+// chafa for the session, depending on how the app happened to start.
 func (m *Model) applyKittyCapability() tea.Cmd {
-	if m.kittyResolved || picture.KittySupported() == picture.KittyCapabilityUnknown {
+	capability := picture.KittySupported()
+	if capability == picture.KittyCapabilityUnknown || capability == m.kittyApplied {
 		return nil
 	}
-	m.kittyResolved = true
-	if picture.KittySupported() != picture.KittyCapabilitySupported {
+	m.kittyApplied = capability
+	if capability != picture.KittyCapabilitySupported {
 		// No Kitty graphics: chafa, if installed, takes over from the
 		// half-blocks. Decided only now — every terminal starts out
 		// half-block until the probe answers — and the artwork already
@@ -68,6 +76,7 @@ func (m *Model) applyKittyCapability() tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	m.picMode = picture.PictureKitty
+	m.useChafa = false // in case the timeout's verdict had turned it on
 	cmds := []tea.Cmd{
 		m.applyPicMode(m.artistHeaderPic), m.applyPicMode(m.artistModalPic),
 		m.applyPicMode(m.albumHeaderPic), m.applyPicMode(m.albumModalPic),
