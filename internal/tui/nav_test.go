@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +173,39 @@ func TestPickingLibrarySwitchesCache(t *testing.T) {
 	}
 	if ai, ok := m.list.Items()[0].(artistItem); !ok || ai.artist.Title != "Narrator" {
 		t.Errorf("first artist = %v, want Narrator", m.list.Items()[0])
+	}
+}
+
+// The settings page is taller than a typical terminal. It must scroll
+// rather than push the now-playing block and footer off the bottom, and
+// the cache stats below the last field must still be reachable.
+func TestSettingsScrollsToKeepChromeVisible(t *testing.T) {
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t"}
+	m := New(cfg, nil, nil, nil, []media.MusicLibrary{{Key: "1", Title: "Music"}}, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = upd.(Model)
+	m.screen = screenSettings
+	m.nowPlaying = &media.Track{Artist: "Nirvana", Title: "Serve the Servants"}
+
+	check := func(when string) string {
+		t.Helper()
+		out := m.View().Content
+		lines := strings.Split(out, "\n")
+		if len(lines) != 30 {
+			t.Errorf("%s: view is %d rows, want 30", when, len(lines))
+		}
+		if !strings.Contains(strings.Join(lines[len(lines)-3:], "\n"), "Serve the Servants") {
+			t.Errorf("%s: now-playing not in the bottom rows:\n%s", when, out)
+		}
+		return out
+	}
+	check("top of page")
+	var out string
+	for range len(m.settings.fields) {
+		m = press(m, keyJ)
+		out = check("scrolled")
+	}
+	if !strings.Contains(out, "Library cache") {
+		t.Errorf("cache stats not reachable at the last field:\n%s", out)
 	}
 }

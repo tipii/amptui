@@ -171,7 +171,9 @@ func TestSettingsScreenRenders(t *testing.T) {
 		DefaultLibrary: "Music",
 	}
 	m := New(cfg, nil, nil, nil, libs, nil)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	// Tall enough for the whole page; the short-terminal case is
+	// TestSettingsScrollsToKeepChromeVisible.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 80})
 	m = updated.(Model)
 	m.library = &library.Library{
 		SchemaVersion: library.CacheSchemaVersion,
