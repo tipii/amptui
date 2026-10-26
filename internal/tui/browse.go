@@ -344,7 +344,7 @@ func (m Model) openLibrary(lib media.MusicLibrary) (tea.Model, tea.Cmd) {
 	m.libraryErr = nil
 	m.loading = true
 	m.librarySyncing = true
-	return m, tea.Batch(loadOrSyncLibrary(m.client, lib), m.dashboard.Load(m.client, lib.Key))
+	return m, tea.Batch(loadOrSyncLibrary(m.client, lib, m.syncProg), m.dashboard.Load(m.client, lib.Key))
 }
 
 // activeLibrary is the library the cache, dashboard and R act on: the

@@ -50,41 +50,44 @@ func (m trackMetadata) toTrack() media.Track {
 	return t
 }
 
-// libraryTracksPageSize bounds each /library/sections/{key}/all?type=10 page.
-const libraryTracksPageSize = 500
-
-// LibraryTracks fetches every track in a music library section, paginating
-// until the server returns a short page. The returned tracks carry full
+// LibraryTracks fetches every track in a music library section, a page
+// at a time (see media.FetchAll for the timeout / retry policy), until
+// the section's totalSize is reached. The returned tracks carry full
 // parent context (album+artist titles AND ratingKeys + year), so a caller
 // can derive artist and album entries by deduplication.
-func (c *Client) LibraryTracks(ctx context.Context, sectionKey string) ([]media.Track, error) {
-	var all []media.Track
-	start := 0
-	for {
+func (c *Client) LibraryTracks(ctx context.Context, sectionKey string, progress media.Progress) ([]media.Track, error) {
+	items, err := media.FetchAll(ctx, func(ctx context.Context, start int) ([]trackMetadata, int, error) {
 		var body struct {
 			MediaContainer struct {
-				Metadata []trackMetadata `json:"Metadata"`
+				TotalSize *int            `json:"totalSize"`
+				Metadata  []trackMetadata `json:"Metadata"`
 			} `json:"MediaContainer"`
 		}
 		path := fmt.Sprintf(
 			"/library/sections/%s/all?type=10&X-Plex-Container-Start=%d&X-Plex-Container-Size=%d",
-			url.PathEscape(sectionKey), start, libraryTracksPageSize,
+			url.PathEscape(sectionKey), start, media.PageSize,
 		)
-		if err := c.getJSON(ctx, path, &body); err != nil {
-			return nil, err
+		if err := c.getJSONWith(ctx, c.pageHTTP, path, &body); err != nil {
+			return nil, 0, err
 		}
-		page := body.MediaContainer.Metadata
-		for _, m := range page {
-			if m.Type != "track" {
-				continue
-			}
-			all = append(all, m.toTrack())
+		total := -1
+		if body.MediaContainer.TotalSize != nil {
+			total = *body.MediaContainer.TotalSize
 		}
-		if len(page) < libraryTracksPageSize {
-			return all, nil
-		}
-		start += libraryTracksPageSize
+		return body.MediaContainer.Metadata, total, nil
+	}, progress)
+	if err != nil {
+		return nil, err
 	}
+	// Filtered after paging, not per page: the offset has to advance by
+	// what the server returned, tracks or not.
+	tracks := make([]media.Track, 0, len(items))
+	for _, m := range items {
+		if m.Type == "track" {
+			tracks = append(tracks, m.toTrack())
+		}
+	}
+	return tracks, nil
 }
 
 // StreamURL builds an absolute, authenticated URL for a track's media part,

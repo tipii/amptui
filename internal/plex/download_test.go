@@ -2,9 +2,11 @@ package plex
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -119,5 +121,32 @@ func TestPlaybackReportingRequests(t *testing.T) {
 	if sc.URL.Path != "/:/scrobble" || sc.URL.Query().Get("key") != "42" ||
 		sc.URL.Query().Get("identifier") != "com.plexapp.plugins.library" {
 		t.Errorf("scrobble = %s", sc.URL)
+	}
+}
+
+// Library paging follows totalSize, reports progress, and doesn't put
+// the regular 15s client timeout on page requests.
+func TestLibraryTracksPagesByTotalSize(t *testing.T) {
+	const n = media.PageSize + 5
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
+		var items []string
+		for i := start; i < n && len(items) < media.PageSize; i++ {
+			items = append(items, fmt.Sprintf(`{"ratingKey":"%d","type":"track","title":"t%d"}`, i, i))
+		}
+		fmt.Fprintf(w, `{"MediaContainer":{"totalSize":%d,"Metadata":[%s]}}`, n, strings.Join(items, ","))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	if c.pageHTTP.Timeout != 0 {
+		t.Errorf("page client has a fixed %v timeout", c.pageHTTP.Timeout)
+	}
+	var last [2]int
+	tracks, err := c.LibraryTracks(context.Background(), "1", func(d, tot int) { last = [2]int{d, tot} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != n || last != [2]int{n, n} {
+		t.Errorf("got %d tracks, last progress %v; want %d, [%d %d]", len(tracks), last, n, n, n)
 	}
 }

@@ -315,7 +315,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
-			return m, syncLibrary(m.client, active)
+			return m, syncLibrary(m.client, active, m.syncProg)
 		case key.Matches(msg, k.ToggleView):
 			if !m.supportsGrid() {
 				return m, nil
@@ -386,7 +386,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// library the cache is for.
 		m.activeLib = &active
 		return m, tea.Batch(
-			loadOrSyncLibrary(m.client, active),
+			loadOrSyncLibrary(m.client, active, m.syncProg),
 			m.dashboard.Load(m.client, active.Key),
 		)
 
@@ -642,7 +642,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			active, _ := m.activeLibrary()
 			m.librarySyncing = true
 			m.libraryErr = nil
-			return m, tea.Batch(cmd, syncLibrary(m.client, active))
+			return m, tea.Batch(cmd, syncLibrary(m.client, active, m.syncProg))
 		}
 	case settingsOutcomePurgeImgs:
 		// Wipe disk, drop in-memory picture.Models, and tell the
