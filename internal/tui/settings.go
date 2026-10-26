@@ -63,6 +63,14 @@ const (
 type settingsField struct {
 	field   huh.Field
 	visible func(v *settingsValues) bool
+	// section groups fields under a heading; label, desc and value are
+	// what the compact (not being edited) row shows — the huh field
+	// renders only while it's being edited. Showing every select's full
+	// option list made the page twice the height of a terminal.
+	section string
+	label   string
+	desc    string
+	value   func(v *settingsValues) string
 }
 
 type settingsModel struct {
@@ -300,12 +308,18 @@ func (s settingsModel) View(title string, bodyHeight int, statsBody string) stri
 	}
 
 	var b strings.Builder
-	b.WriteString(sectionStyle.Render("Server"))
-	b.WriteString("\n")
 	cursorTop, cursorBottom, lastVisible := 0, 0, -1
+	section := ""
 	for i := range s.fields {
 		if !s.fieldVisible(i) {
 			continue
+		}
+		if sec := s.fields[i].section; sec != section {
+			if section != "" {
+				b.WriteString("\n")
+			}
+			b.WriteString(sectionStyle.Render(sec) + "\n")
+			section = sec
 		}
 		row := s.renderField(i, s.fields[i].field)
 		if i == s.cursor {
@@ -351,6 +365,9 @@ func (s settingsModel) renderField(i int, f huh.Field) string {
 	case i == s.cursor:
 		marker = npStyle.Render("▶ ")
 	}
+	if !(i == s.cursor && s.editing) {
+		return s.renderCompact(i, marker)
+	}
 	view := f.View()
 	lines := strings.Split(view, "\n")
 	for j, line := range lines {
@@ -361,6 +378,23 @@ func (s settingsModel) renderField(i int, f huh.Field) string {
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// settingsLabelW is the label column of a compact settings row.
+const settingsLabelW = 20
+
+// renderCompact is a field's row while it isn't being edited: label and
+// current value on one line, plus — on the selected row — its
+// description, wrapped to the screen (huh cut descriptions off at the
+// edge).
+func (s settingsModel) renderCompact(i int, marker string) string {
+	f := s.fields[i]
+	row := marker + textutil.PadRight(f.label, settingsLabelW) + f.value(s.values) + "\n"
+	if i == s.cursor && f.desc != "" {
+		w := max(s.size.Width-4, 20)
+		row += helpStyle.Width(w).PaddingLeft(2).Render(f.desc) + "\n"
+	}
+	return row
 }
 
 // buildSettingsFields wires up one huh Field per editable setting. The
@@ -375,50 +409,82 @@ func buildSettingsFields(v *settingsValues) []settingsField {
 	}
 	isPlex := func(v *settingsValues) bool { return v.Backend != "jellyfin" }
 	isJellyfin := func(v *settingsValues) bool { return v.Backend == "jellyfin" }
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
+	orNote := func(val, note string) string {
+		if val == "" {
+			return helpStyle.Render(note)
+		}
+		return val
+	}
+	secret := func(val string) string {
+		if val == "" {
+			return helpStyle.Render("not set")
+		}
+		return "••••••••"
+	}
+	const libDesc = "Section name or key. Leave empty to show the picker on startup."
+	const reportDesc = "Show in the server's Now Playing and count plays."
+	const folderDesc = "Where `d` saves tracks and albums. Empty disables downloads."
+	const qualityDesc = "What `d` asks the server for. Playback is always the original."
 	fields := []settingsField{
-		{field: huh.NewSelect[string]().Title("Backend").Height(3).Options(
-			huh.NewOption("plex", "plex"),
-			huh.NewOption("jellyfin", "jellyfin"),
-		).Value(&v.Backend)},
-		{field: huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL)},
-		{field: huh.NewInput().Title("Token (Plex)").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
+		{section: "Server", label: "Backend", value: func(v *settingsValues) string { return v.Backend },
+			field: huh.NewSelect[string]().Title("Backend").Height(3).Options(
+				huh.NewOption("plex", "plex"),
+				huh.NewOption("jellyfin", "jellyfin"),
+			).Value(&v.Backend)},
+		{section: "Server", label: "Server URL", value: func(v *settingsValues) string { return orNote(v.ServerURL, "not set") },
+			field: huh.NewInput().Title("Server URL").Value(&v.ServerURL).Validate(validateServerURL)},
+		{section: "Server", label: "Token", value: func(v *settingsValues) string { return secret(v.Token) },
+			field:   huh.NewInput().Title("Token (Plex)").EchoMode(huh.EchoModePassword).Value(&v.Token).Validate(validateToken),
 			visible: isPlex},
-		{field: huh.NewInput().Title("Username (Jellyfin)").Value(&v.Username),
+		{section: "Server", label: "Username", value: func(v *settingsValues) string { return orNote(v.Username, "not set") },
+			field:   huh.NewInput().Title("Username (Jellyfin)").Value(&v.Username),
 			visible: isJellyfin},
-		{field: huh.NewInput().Title("Password (Jellyfin)").EchoMode(huh.EchoModePassword).Value(&v.Password),
+		{section: "Server", label: "Password", value: func(v *settingsValues) string { return secret(v.Password) },
+			field:   huh.NewInput().Title("Password (Jellyfin)").EchoMode(huh.EchoModePassword).Value(&v.Password),
 			visible: isJellyfin},
-		{field: huh.NewInput().
-			Title("Default library").
-			Description("Section name or key. Leave empty to show the picker on startup.").
-			Value(&v.DefaultLibrary)},
-		{field: huh.NewSelect[string]().Title("Default view (Artists)").Height(3).Options(viewOpts...).Value(&v.ViewArtist)},
-		{field: huh.NewSelect[string]().Title("Default view (Albums)").Height(3).Options(viewOpts...).Value(&v.ViewAlbum)},
-		{field: huh.NewSelect[string]().Title("Home screen").Height(3).Options(
-			huh.NewOption("dashboard", "dashboard"),
-			huh.NewOption("library", "library"),
-		).Value(&v.Home)},
-		{field: huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
-			huh.NewOption("off", false),
-			huh.NewOption("on", true),
-		).Value(&v.Images)},
-		{field: huh.NewSelect[bool]().Title("Report playback").
-			Description("Show in the server's Now Playing and count plays.").Height(3).Options(
-			huh.NewOption("on", true),
-			huh.NewOption("off", false),
-		).Value(&v.ReportPlayback)},
-		{field: huh.NewInput().
-			Title("Download folder").
-			Description("Where `d` saves tracks and albums. Empty disables downloads.").
-			Value(&v.DownloadFolder)},
+		{section: "Browsing", label: "Default library", desc: libDesc,
+			value: func(v *settingsValues) string { return orNote(v.DefaultLibrary, "ask on startup") },
+			field: huh.NewInput().Title("Default library").Description(libDesc).Value(&v.DefaultLibrary)},
+		{section: "Browsing", label: "Artists view", value: func(v *settingsValues) string { return v.ViewArtist },
+			field: huh.NewSelect[string]().Title("Default view (Artists)").Height(3).Options(viewOpts...).Value(&v.ViewArtist)},
+		{section: "Browsing", label: "Albums view", value: func(v *settingsValues) string { return v.ViewAlbum },
+			field: huh.NewSelect[string]().Title("Default view (Albums)").Height(3).Options(viewOpts...).Value(&v.ViewAlbum)},
+		{section: "Browsing", label: "Home screen", value: func(v *settingsValues) string { return v.Home },
+			field: huh.NewSelect[string]().Title("Home screen").Height(3).Options(
+				huh.NewOption("dashboard", "dashboard"),
+				huh.NewOption("library", "library"),
+			).Value(&v.Home)},
+		{section: "Browsing", label: "Inline artwork", value: func(v *settingsValues) string { return onOff(v.Images) },
+			field: huh.NewSelect[bool]().Title("Inline artwork").Height(3).Options(
+				huh.NewOption("off", false),
+				huh.NewOption("on", true),
+			).Value(&v.Images)},
+		{section: "Playback", label: "Report playback", desc: reportDesc,
+			value: func(v *settingsValues) string { return onOff(v.ReportPlayback) },
+			field: huh.NewSelect[bool]().Title("Report playback").Description(reportDesc).Height(3).Options(
+				huh.NewOption("on", true),
+				huh.NewOption("off", false),
+			).Value(&v.ReportPlayback)},
+		{section: "Downloads", label: "Download folder", desc: folderDesc,
+			value: func(v *settingsValues) string { return orNote(v.DownloadFolder, "disabled") },
+			field: huh.NewInput().Title("Download folder").Description(folderDesc).Value(&v.DownloadFolder)},
 		// Height counts the whole block, so it has to cover the title and
 		// the description line on top of every option — one short and the
 		// last preset scrolls out of view.
-		{field: huh.NewSelect[string]().
-			Title("Download quality").
-			Description("What `d` asks the server for. Playback is always the original.").
-			Height(len(media.DownloadQualities) + 2).
-			Options(downloadQualityOptions()...).
-			Value(&v.DownloadQuality)},
+		{section: "Downloads", label: "Download quality", desc: qualityDesc,
+			value: func(v *settingsValues) string { return media.ParseDownloadQuality(v.DownloadQuality).Label() },
+			field: huh.NewSelect[string]().
+				Title("Download quality").
+				Description(qualityDesc).
+				Height(len(media.DownloadQualities) + 2).
+				Options(downloadQualityOptions()...).
+				Value(&v.DownloadQuality)},
 	}
 	km := huh.NewDefaultKeyMap()
 	for i := range fields {
@@ -537,7 +603,7 @@ func cacheStatsBody(lib *library.Library, ds *diskStats, syncing bool, libErr er
 	// behind the TUI, so this is the place users actually see why their
 	// play / enqueue keys are silently no-opping.
 	b.WriteString("\n")
-	b.WriteString(sectionStyle.Render("Playback"))
+	b.WriteString(sectionStyle.Render("Player"))
 	b.WriteString("\n")
 	if mpvReady {
 		b.WriteString(settingRow("mpv", "ready"))
@@ -592,8 +658,10 @@ func (ds *diskStats) refresh(lib *library.Library) {
 func (ds *diskStats) invalidate() { ds.at = time.Time{} }
 
 // settingRow formats one read-only "key: value" line.
+// settingRow is one read-only status line, its value in the same column
+// as the editable settings' values above it.
 func settingRow(key, value string) string {
-	const keyWidth = 24
+	const keyWidth = settingsLabelW
 	padded := key + strings.Repeat(" ", max(0, keyWidth-len(key)))
 	if key == "" {
 		padded = strings.Repeat(" ", keyWidth)

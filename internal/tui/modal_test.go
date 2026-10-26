@@ -197,10 +197,10 @@ func TestSettingsScreenRenders(t *testing.T) {
 	for _, want := range []string{
 		"Settings",
 		"https://plex.example.dev",
-		"Token",                  // password field label (value masked by huh)
-		"Music",                  // default library value
-		"1 artists",              // entry breakdown in cache stats
-		"Default view (Artists)", // huh select label
+		"Token",        // password field label (value masked)
+		"Music",        // default library value
+		"1 artists",    // entry breakdown in cache stats
+		"Artists view", // compact row label for the default view
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in settings view", want)
@@ -226,19 +226,19 @@ func settingsScreen(t *testing.T, cfg config.Config) string {
 // Jellyfin user/pass, and vice versa.
 func TestSettingsBackendFieldVisibility(t *testing.T) {
 	plex := settingsScreen(t, config.Config{Backend: "plex", ServerURL: "https://x", PlexToken: "t"})
-	if !strings.Contains(plex, "Token (Plex)") {
-		t.Error("plex backend should show the Token (Plex) field")
+	if !strings.Contains(plex, "Token") {
+		t.Error("plex backend should show the Token field")
 	}
-	if strings.Contains(plex, "(Jellyfin)") {
+	if strings.Contains(plex, "Username") || strings.Contains(plex, "Password") {
 		t.Error("plex backend should hide the Jellyfin credential fields")
 	}
 
 	jelly := settingsScreen(t, config.Config{Backend: "jellyfin", ServerURL: "https://x", JellyfinUsername: "u", JellyfinPassword: "p"})
-	if !strings.Contains(jelly, "Username (Jellyfin)") || !strings.Contains(jelly, "Password (Jellyfin)") {
+	if !strings.Contains(jelly, "Username") || !strings.Contains(jelly, "Password") {
 		t.Error("jellyfin backend should show the username/password fields")
 	}
-	if strings.Contains(jelly, "Token (Plex)") {
-		t.Error("jellyfin backend should hide the Token (Plex) field")
+	if strings.Contains(jelly, "Token") {
+		t.Error("jellyfin backend should hide the Token field")
 	}
 }
 

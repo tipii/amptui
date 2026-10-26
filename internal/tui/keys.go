@@ -185,8 +185,10 @@ func (k KeyMap) dashboardHelp() helpView {
 
 // settingsHelp is the help shown on the settings screen (navigation mode).
 func (k KeyMap) settingsHelp() helpView {
+	// Enter edits the highlighted setting here, not "open".
+	edit := key.NewBinding(key.WithKeys(k.Enter.Keys()...), key.WithHelp("enter", "edit"))
 	return helpView{
-		short: []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Refresh, k.PurgeImgs, k.Quit},
+		short: []key.Binding{k.Up, k.Down, edit, k.Back, k.Refresh, k.PurgeImgs, k.Quit},
 	}
 }
 
