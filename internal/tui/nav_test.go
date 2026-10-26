@@ -332,3 +332,35 @@ func TestSpinnerOnlyTicksWhileLoading(t *testing.T) {
 		t.Errorf("spinner not restarted for a load (metaLoading=%v spinning=%v)", m.metaLoading, m.spinning)
 	}
 }
+
+// Transport keys work from the queue modal and the settings screen, and
+// never fire while typing a filter.
+func TestPlaybackKeysEverywhere(t *testing.T) {
+	m := newQueueTestModel(t, map[string]string{"a": "5", "b": "5"})
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	model, _ := m.playTracks([]media.Track{{RatingKey: "a"}, {RatingKey: "b"}}, 0)
+	m = model.(Model)
+	m = syncUntil(t, m, "a to play", func(m Model) bool { return m.player.State().Position > 0 })
+
+	keyN := tea.KeyPressMsg{Code: 'n', Text: "n"}
+	m.openQueue()
+	m = press(m, keyN)
+	m = syncUntil(t, m, "next from the queue modal", func(m Model) bool { return playingKey(m) == "b" })
+
+	m.showQueue = false
+	m.screen = screenSettings
+	m = press(m, tea.KeyPressMsg{Code: 'p', Text: "p"})
+	m = syncUntil(t, m, "prev from settings", func(m Model) bool { return playingKey(m) == "a" })
+
+	m.screen = screenBrowser
+	m.list.SetItems([]list.Item{artistItem{artist: library.Artist{Title: "Nina", RatingKey: "ar1"}}})
+	m = typeText(press(m, keySlash), "n")
+	if m.list.FilterState() != list.Filtering {
+		t.Fatal("filter didn't open")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if m = m.syncFromPlayer(); playingKey(m) != "a" {
+		t.Errorf("typing n into a filter skipped to %q", playingKey(m))
+	}
+}

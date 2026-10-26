@@ -95,19 +95,25 @@ func (m Model) browserView() string {
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
 
-	var footerLeft string
+	b.WriteString(m.footerLine(m.footerLeft()))
+	return b.String()
+}
+
+// footerLeft is the footer's main text on every screen: loading, the
+// last error, or the key help for the current context. Errors used to
+// show only on the browser, so e.g. "playback unavailable" from a
+// dashboard enter, or a track mpv couldn't play, vanished silently.
+func (m Model) footerLeft() string {
 	switch {
-	case m.loading:
-		footerLeft = m.spinner.View() + "loading…"
+	case m.loading && m.screen == screenBrowser:
+		return m.spinner.View() + "loading…"
 	case m.err != nil:
-		footerLeft = errStyle.Render("error: " + m.err.Error())
+		return errStyle.Render("error: " + m.err.Error())
 	default:
 		// Auto-render from the active KeyMap context so the help line
 		// stays in sync with bindings without hand-maintained strings.
-		footerLeft = m.helpModel.View(m.currentHelp())
+		return m.helpModel.View(m.currentHelp())
 	}
-	b.WriteString(m.footerLine(footerLeft))
-	return b.String()
 }
 
 // dashboardScreen composes the dashboard sub-model's body with the
@@ -126,7 +132,7 @@ func (m Model) dashboardScreen() string {
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
-	b.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
+	b.WriteString(m.footerLine(m.footerLeft()))
 	return b.String()
 }
 
@@ -147,7 +153,7 @@ func (m Model) settingsScreen() string {
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")
-	b.WriteString(m.footerLine(m.helpModel.View(m.currentHelp())))
+	b.WriteString(m.footerLine(m.footerLeft()))
 	return b.String()
 }
 

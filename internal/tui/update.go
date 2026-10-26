@@ -34,6 +34,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return next, tea.Batch(cmd, next.spinner.Tick)
 }
 
+// handlePlaybackKey applies the transport keys (pause, next/prev, seek)
+// that work on every screen, reporting whether msg was one of them.
+func (m *Model) handlePlaybackKey(msg tea.KeyPressMsg) bool {
+	k := m.keymap
+	switch {
+	case key.Matches(msg, k.Pause):
+		if m.player != nil {
+			_ = m.player.TogglePause()
+		}
+	case key.Matches(msg, k.NextTrack):
+		m.playNext()
+	case key.Matches(msg, k.PrevTrack):
+		m.playPrev()
+	case key.Matches(msg, k.SeekBack):
+		m.seekBy(-10 * time.Second)
+	case key.Matches(msg, k.SeekForward):
+		m.seekBy(10 * time.Second)
+	default:
+		return false
+	}
+	return true
+}
+
 // needsSpinner reports whether any loading indicator is on screen.
 func (m Model) needsSpinner() bool {
 	return m.loading || m.librarySyncing || m.metaLoading ||
@@ -98,8 +121,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.search.IsOpen() {
 			return m.routeSearchKey(msg)
 		}
-		// The queue modal owns input while it is open.
+		// The queue modal owns input while it is open, playback keys
+		// aside — it's where you'd look while skipping around.
 		if m.showQueue {
+			if m.handlePlaybackKey(msg) {
+				m.rebuildQueueList()
+				return m, nil
+			}
 			switch {
 			case key.Matches(msg, k.Quit):
 				return m, tea.Quit
@@ -156,16 +184,30 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Settings screen owns its own input set; route there first.
+		// Playback keys work there too, except while a field is being
+		// edited (they're text then).
 		if m.screen == screenSettings {
+			if !m.settings.IsEditing() && m.handlePlaybackKey(msg) {
+				return m, nil
+			}
 			return m.routeSettingsKey(msg)
+		}
+		// Checked before the key is applied: while typing a filter, "n"
+		// and "p" are letters.
+		if m.list.FilterState() != list.Filtering && m.handlePlaybackKey(msg) {
+			return m, nil
 		}
 		// Dashboard screen has its own nav (cards + sections); route
 		// there before falling through to browser keys.
 		if m.screen == screenDashboard {
 			return m.routeDashboardKey(msg)
 		}
-		// Let the list own keys while it is filtering (typing a query).
+		// Let the list own keys while it is filtering (typing a query),
+		// except quit, which must always work.
 		if m.list.FilterState() == list.Filtering {
+			if key.Matches(msg, k.Quit) {
+				return m, tea.Quit
+			}
 			break
 		}
 		// Grid cursor navigation (only meaningful at supported levels).
@@ -202,6 +244,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, k.SwitchScreen):
 			m.screen = screenDashboard
+			m.err = nil // an error belongs to the screen it happened on
 			return m, nil
 		case key.Matches(msg, k.Info):
 			if body := m.infoModalContent(); body != "" {
@@ -243,6 +286,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, k.Settings):
 			m.settingsReturn = m.screen
 			m.screen = screenSettings
+			m.err = nil
 			return m, nil
 		case key.Matches(msg, k.Refresh):
 			if m.librarySyncing || len(m.libs) == 0 {
@@ -252,23 +296,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.librarySyncing = true
 			m.libraryErr = nil
 			return m, syncLibrary(m.client, active)
-		case key.Matches(msg, k.NextTrack):
-			m.playNext()
-			return m, nil
-		case key.Matches(msg, k.PrevTrack):
-			m.playPrev()
-			return m, nil
-		case key.Matches(msg, k.Pause):
-			if m.player != nil {
-				_ = m.player.TogglePause()
-			}
-			return m, nil
-		case key.Matches(msg, k.SeekBack):
-			m.seekBy(-10 * time.Second)
-			return m, nil
-		case key.Matches(msg, k.SeekForward):
-			m.seekBy(10 * time.Second)
-			return m, nil
+		case key.Matches(msg, k.Right):
+			// List view: → / ← open and go back, as documented (grid view
+			// took them above for cursor movement).
+			return m.drillDown()
+		case key.Matches(msg, k.Left):
+			return m.goBack()
 		}
 
 	case serverNameMsg:
@@ -566,6 +599,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch outcome {
 	case settingsOutcomeClose:
 		m.screen = m.settingsReturn
+		m.err = nil
 	case settingsOutcomeRefresh:
 		if !m.librarySyncing && len(m.libs) > 0 {
 			active, _ := m.activeLibrary()
@@ -740,9 +774,11 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.Settings):
 		m.settingsReturn = m.screen
 		m.screen = screenSettings
+		m.err = nil
 		return m, nil
 	case key.Matches(msg, k.SwitchScreen):
 		m.screen = screenBrowser
+		m.err = nil
 		return m, nil
 	case key.Matches(msg, k.OpenSearch):
 		var cmd tea.Cmd
@@ -759,23 +795,6 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		active, _ := m.activeLibrary()
 		return m, m.dashboard.Load(m.client, active.Key)
-	case key.Matches(msg, k.NextTrack):
-		m.playNext()
-		return m, nil
-	case key.Matches(msg, k.PrevTrack):
-		m.playPrev()
-		return m, nil
-	case key.Matches(msg, k.Pause):
-		if m.player != nil {
-			_ = m.player.TogglePause()
-		}
-		return m, nil
-	case key.Matches(msg, k.SeekBack):
-		m.seekBy(-10 * time.Second)
-		return m, nil
-	case key.Matches(msg, k.SeekForward):
-		m.seekBy(10 * time.Second)
-		return m, nil
 	}
 
 	// Anything not above belongs to the dashboard sub-model (nav +
