@@ -250,6 +250,9 @@ func (m Model) gridBodyView() string {
 				break
 			}
 			title, sub := gridCellTexts(items[idx])
+			if marked, ok := m.playing.playingTitle(items[idx]); ok {
+				title = marked
+			}
 			title = textutil.Truncate(title, innerW)
 			content := ""
 			if thumb := m.gridCardThumb(items[idx]); thumb != "" {

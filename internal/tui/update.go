@@ -31,6 +31,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return model, cmd
 	}
+	if next.playing != nil {
+		next.playing.set(next.nowPlaying)
+	}
 	cmds := []tea.Cmd{cmd, next.applyKittyCapability()}
 	if !next.spinning && next.needsSpinner() {
 		next.spinning = true

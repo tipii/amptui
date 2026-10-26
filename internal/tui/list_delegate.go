@@ -20,9 +20,10 @@ import (
 // gets the column (blank when that row has no thumb) so widths stay
 // aligned.
 type thumbDelegate struct {
-	inner  list.DefaultDelegate
-	thumbs map[string]*picture.Model
-	chafa  map[string]string
+	inner   list.DefaultDelegate
+	thumbs  map[string]*picture.Model
+	chafa   map[string]string
+	playing *playingKeys
 }
 
 // listThumbCellsW / H is the cell footprint of the thumbnail rendered
@@ -36,11 +37,12 @@ const (
 
 // chafa holds the Model's chafa renders (see chafa.go), shared by
 // reference like thumbs; it stays empty when chafa isn't in use.
-func newThumbDelegate(thumbs map[string]*picture.Model, chafa map[string]string) thumbDelegate {
+func newThumbDelegate(thumbs map[string]*picture.Model, chafa map[string]string, playing *playingKeys) thumbDelegate {
 	return thumbDelegate{
-		inner:  list.NewDefaultDelegate(),
-		thumbs: thumbs,
-		chafa:  chafa,
+		inner:   list.NewDefaultDelegate(),
+		thumbs:  thumbs,
+		chafa:   chafa,
+		playing: playing,
 	}
 }
 
@@ -51,6 +53,11 @@ func (d thumbDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 }
 
 func (d thumbDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if title, ok := d.playing.playingTitle(item); ok {
+		if di, isDefault := item.(list.DefaultItem); isDefault {
+			item = retitled{di, title}
+		}
+	}
 	if len(d.thumbs) == 0 {
 		d.inner.Render(w, m, index, item)
 		return

@@ -176,6 +176,9 @@ type Model struct {
 	// chafaID. See chafa.go.
 	useChafa bool
 	chafaOut map[string]string
+	// playing marks what's playing in lists and grids; shared with the
+	// list delegate.
+	playing *playingKeys
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
 	// same fetched image so toggling between list / grid never refetches.
@@ -270,7 +273,8 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	gridPics := map[string]*picture.Model{}
 	listPics := map[string]*picture.Model{}
 	chafaOut := map[string]string{}
-	l := list.New(items, newThumbDelegate(listPics, chafaOut), 0, 0)
+	playing := &playingKeys{}
+	l := list.New(items, newThumbDelegate(listPics, chafaOut, playing), 0, 0)
 	l.Title = "Libraries"
 	// Headings sit flush left in the accent color, with one blank line
 	// under them — the same as the grid's (which renders through these
@@ -332,6 +336,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 		gridPics:        gridPics,
 		artRequested:    map[string]bool{},
 		chafaOut:        chafaOut,
+		playing:         playing,
 		listPics:        listPics,
 		artistHeaderPic: newSizedPicture(headerThumbCellsW, headerThumbCellsH),
 		artistModalPic:  newSizedPicture(modalThumbCellsW, modalThumbCellsH),

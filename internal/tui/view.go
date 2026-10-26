@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/NimbleMarkets/ntcharts/v2/picture"
 )
 
 // View is the Bubble Tea render entry point. It picks the active screen,
@@ -214,6 +216,12 @@ func (m Model) overlayBox(background, box string) string {
 		y = 0
 	}
 
+	// Dim what's behind the modal so it reads as the focus. Not with Kitty
+	// images: they're encoded in the text's colors, which dimming (by
+	// re-rendering the background as plain faint text) would strip.
+	if m.picMode != picture.PictureKitty {
+		background = lipgloss.NewStyle().Faint(true).Render(ansi.Strip(background))
+	}
 	bg := lipgloss.NewLayer(background)
 	fg := lipgloss.NewLayer(box).X(x).Y(y).Z(1)
 	return lipgloss.NewCompositor(bg, fg).Render()

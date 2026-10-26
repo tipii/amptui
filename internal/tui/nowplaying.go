@@ -49,8 +49,12 @@ func (m Model) nowPlayingLine() string {
 			bufPct = clampFraction(float64(s.CacheTime) / float64(t.Duration))
 		}
 	}
-	line := npStyle.Render(fmt.Sprintf("♪ %s — %s%s%s",
-		t.Artist, t.Title, clock, status))
+	head := fmt.Sprintf("♪ %s — %s", t.Artist, t.Title)
+	line := npStyle.Render(head + clock + status)
+	// The album too, when the line has room for it.
+	if album := " · " + t.Album; t.Album != "" && lipgloss.Width(head+album+clock+status) <= m.width {
+		line = npStyle.Render(head) + helpStyle.Render(album) + npStyle.Render(clock+status)
+	}
 	bar := ""
 	if t.Duration > 0 {
 		bar = m.progressBar(playPct, bufPct)
