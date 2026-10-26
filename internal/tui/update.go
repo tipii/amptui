@@ -51,11 +51,27 @@ func (m *Model) handlePlaybackKey(msg tea.KeyPressMsg) bool {
 		m.seekBy(-10 * time.Second)
 	case key.Matches(msg, k.SeekForward):
 		m.seekBy(10 * time.Second)
+	case key.Matches(msg, k.VolumeUp):
+		if m.player != nil {
+			_ = m.player.AddVolume(volumeStep)
+		}
+	case key.Matches(msg, k.VolumeDown):
+		if m.player != nil {
+			_ = m.player.AddVolume(-volumeStep)
+		}
+	case key.Matches(msg, k.Mute):
+		if m.player != nil {
+			_ = m.player.SetMuted(!m.player.State().Muted)
+		}
 	default:
 		return false
 	}
 	return true
 }
+
+// volumeStep is how much one press of + / - changes the volume, in
+// percentage points.
+const volumeStep = 5
 
 // needsSpinner reports whether any loading indicator is on screen.
 func (m Model) needsSpinner() bool {

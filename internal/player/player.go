@@ -55,6 +55,10 @@ type State struct {
 	// on each one so a caller can show every failure exactly once.
 	LastError string
 	ErrorSeq  int
+	// Volume is mpv's volume, 0–100 (mpv allows up to 130 with
+	// softvol; amptui caps at 100). Muted is independent of it.
+	Volume float64
+	Muted  bool
 	// Dead is true once mpv exited or its socket broke.
 	Dead bool
 }
@@ -150,16 +154,23 @@ func (p *Player) start() error {
 	p.writeMu.Unlock()
 
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	vol, muted := p.state.Volume, p.state.Muted
+	restoreVol := p.state.Dead // a restart after a crash keeps the old level
+	p.state = State{PlaylistPos: -1, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError, Volume: 100}
 	p.lastEnd = ""
 	p.stateMu.Unlock()
 
 	go p.readLoop(conn)
+	if restoreVol {
+		_ = p.command("set_property", "volume", vol)
+		_ = p.command("set_property", "mute", muted)
+	}
 
 	// Ask mpv to push updates for the properties we surface in State().
 	for i, prop := range []string{
 		"time-pos", "duration", "pause", "idle-active",
 		"playlist-pos", "paused-for-cache", "demuxer-cache-time",
+		"volume", "mute",
 	} {
 		_ = p.command("observe_property", i+1, prop)
 	}
@@ -294,7 +305,8 @@ func (p *Player) TogglePause() error {
 // Stop clears the playlist and stops playback.
 func (p *Player) Stop() error {
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, Idle: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	p.state = State{PlaylistPos: -1, Idle: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError,
+		Volume: p.state.Volume, Muted: p.state.Muted}
 	p.stateMu.Unlock()
 	return p.command("stop")
 }
@@ -302,6 +314,25 @@ func (p *Player) Stop() error {
 // Seek moves the playback position by delta (negative seeks backward).
 func (p *Player) Seek(delta time.Duration) error {
 	return p.command("seek", delta.Seconds(), "relative")
+}
+
+// SetVolume sets the volume, clamped to 0–100.
+func (p *Player) SetVolume(v float64) error {
+	return p.command("set_property", "volume", min(max(v, 0), 100))
+}
+
+// AddVolume changes the volume by delta, clamped to 0–100, unmuting —
+// turning it up while muted should be audible.
+func (p *Player) AddVolume(delta float64) error {
+	if err := p.SetMuted(false); err != nil {
+		return err
+	}
+	return p.SetVolume(p.State().Volume + delta)
+}
+
+// SetMuted mutes or unmutes without touching the volume level.
+func (p *Player) SetMuted(muted bool) error {
+	return p.command("set_property", "mute", muted)
 }
 
 // SeekTo moves the playback position to pos within the current track.
@@ -429,7 +460,8 @@ func (p *Player) readLoop(conn net.Conn) {
 		return
 	}
 	p.stateMu.Lock()
-	p.state = State{PlaylistPos: -1, Idle: true, Dead: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError}
+	p.state = State{PlaylistPos: -1, Idle: true, Dead: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError,
+		Volume: p.state.Volume, Muted: p.state.Muted}
 	p.stateMu.Unlock()
 	p.notify()
 }
@@ -502,6 +534,14 @@ func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 			p.state.CacheTime = seconds(*secs)
 		} else {
 			p.state.CacheTime = 0
+		}
+	case "volume":
+		if v := decode[float64](data); v != nil {
+			p.state.Volume = *v
+		}
+	case "mute":
+		if v := decode[bool](data); v != nil {
+			p.state.Muted = *v
 		}
 	}
 }

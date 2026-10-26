@@ -27,6 +27,12 @@ func (m Model) nowPlayingLine() string {
 		if s.Paused {
 			status = " [paused]"
 		}
+		switch {
+		case s.Muted:
+			status += "  muted"
+		case s.Volume < 100:
+			status += fmt.Sprintf("  vol %.0f%%", s.Volume)
+		}
 		if t.Duration > 0 {
 			playPct = clampFraction(float64(s.Position) / float64(t.Duration))
 			bufPct = clampFraction(float64(s.CacheTime) / float64(t.Duration))

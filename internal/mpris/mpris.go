@@ -49,6 +49,8 @@ const (
 	// SetPosition moves to the absolute Command.Position. The server
 	// has already checked that the request targets the current track.
 	SetPosition
+	// SetVolume sets the volume to Command.Volume (0–1).
+	SetVolume
 	Quit
 )
 
@@ -57,6 +59,7 @@ type Command struct {
 	Kind     CommandKind
 	Offset   time.Duration
 	Position time.Duration
+	Volume   float64
 }
 
 // PlaybackState mirrors MPRIS's PlaybackStatus values.
@@ -88,6 +91,8 @@ type Status struct {
 	Track   *Track
 	CanNext bool
 	CanPrev bool
+	// Volume is 0–1 (MPRIS reports a muted player as 0).
+	Volume float64
 }
 
 // Server is a registered MPRIS player on the session bus.
@@ -247,7 +252,7 @@ func (s *Server) playerProps(st Status) map[string]dbus.Variant {
 		"Rate":           dbus.MakeVariant(1.0),
 		"MinimumRate":    dbus.MakeVariant(1.0),
 		"MaximumRate":    dbus.MakeVariant(1.0),
-		"Volume":         dbus.MakeVariant(1.0),
+		"Volume":         dbus.MakeVariant(st.Volume),
 		"CanGoNext":      dbus.MakeVariant(st.CanNext),
 		"CanGoPrevious":  dbus.MakeVariant(st.CanPrev),
 		"CanPlay":        dbus.MakeVariant(loaded),
@@ -344,9 +349,20 @@ func (o propsObj) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error) {
 	return out, nil
 }
 
-// Set rejects every write: rate, volume, shuffle and loop aren't
-// controllable from outside (yet).
-func (o propsObj) Set(iface, name string, _ dbus.Variant) *dbus.Error {
+// Set handles the writable Player properties by queueing a command; the
+// new value is published back through Update once it's applied.
+func (o propsObj) Set(iface, name string, v dbus.Variant) *dbus.Error {
+	if iface == ifacePlayer {
+		switch name {
+		case "Volume":
+			vol, ok := v.Value().(float64)
+			if !ok {
+				return dbus.NewError("org.freedesktop.DBus.Error.InvalidArgs", []any{"Volume must be a double"})
+			}
+			o.s.send(Command{Kind: SetVolume, Volume: min(max(vol, 0), 1)})
+			return nil
+		}
+	}
 	return dbus.NewError("org.freedesktop.DBus.Error.PropertyReadOnly",
 		[]any{fmt.Sprintf("%s.%s is read-only", iface, name)})
 }
@@ -379,7 +395,7 @@ const introspectXML = `<node>
     <property name="PlaybackStatus" type="s" access="read"/>
     <property name="Rate" type="d" access="read"/>
     <property name="Metadata" type="a{sv}" access="read"/>
-    <property name="Volume" type="d" access="read"/>
+    <property name="Volume" type="d" access="readwrite"/>
     <property name="Position" type="x" access="read"/>
     <property name="MinimumRate" type="d" access="read"/>
     <property name="MaximumRate" type="d" access="read"/>

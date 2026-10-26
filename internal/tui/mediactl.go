@@ -60,8 +60,16 @@ func waitPlayerChange(p *player.Player) tea.Cmd {
 
 // applyMediaCommand performs a bus request against the player.
 func (m Model) applyMediaCommand(c mpris.Command) (tea.Model, tea.Cmd) {
-	if c.Kind == mpris.Quit {
+	switch c.Kind {
+	case mpris.Quit:
 		return m, tea.Quit
+	case mpris.SetVolume:
+		// Works with nothing playing too, unlike the transport commands.
+		if m.player != nil {
+			_ = m.player.SetMuted(false)
+			_ = m.player.SetVolume(c.Volume * 100)
+		}
+		return m, waitMediaCommand(m.mpris)
 	}
 	if m.player == nil || m.nowPlaying == nil {
 		return m, waitMediaCommand(m.mpris)
@@ -133,7 +141,14 @@ func (m *Model) publishMedia() tea.Cmd {
 	if m.mpris == nil {
 		return nil
 	}
-	st := mpris.Status{State: mpris.Stopped}
+	st := mpris.Status{State: mpris.Stopped, Volume: 1}
+	if m.player != nil {
+		if ps := m.player.State(); ps.Muted {
+			st.Volume = 0
+		} else {
+			st.Volume = ps.Volume / 100
+		}
+	}
 	var cmd tea.Cmd
 	if t := m.nowPlaying; t != nil && m.player != nil {
 		ps := m.player.State()

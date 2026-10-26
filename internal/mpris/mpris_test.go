@@ -136,3 +136,21 @@ func TestTrackPath(t *testing.T) {
 		}
 	}
 }
+
+func TestVolumeIsWritable(t *testing.T) {
+	s, obj := newTestPair(t)
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Volume", dbus.MakeVariant(0.4)).Err; err != nil {
+		t.Fatal(err)
+	}
+	if got := recv(t, s); got.Kind != SetVolume || got.Volume != 0.4 {
+		t.Errorf("Set Volume: got %+v", got)
+	}
+	if err := obj.Call(ifaceProps+".Set", 0, ifacePlayer, "Rate", dbus.MakeVariant(2.0)).Err; err == nil {
+		t.Error("Rate should stay read-only")
+	}
+	s.Update(Status{Volume: 0.4})
+	var vol float64
+	if err := obj.Call(ifaceProps+".Get", 0, ifacePlayer, "Volume").Store(&vol); err != nil || vol != 0.4 {
+		t.Errorf("Volume = %v, %v", vol, err)
+	}
+}
