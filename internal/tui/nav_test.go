@@ -249,3 +249,68 @@ func TestJumpToAlbumFromDashboard(t *testing.T) {
 		t.Errorf("headers point at artist %q / album %q, want ar2 / al2", m.curArtistKey, m.curAlbumKey)
 	}
 }
+
+// Esc while editing a settings field puts the old value back (it used to
+// save whatever had been typed), and nothing is committed.
+func TestSettingsEscCancelsEdit(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // in case anything saves
+	cfg := config.Config{ServerURL: "https://keep.example", PlexToken: "t"}
+	m := New(cfg, nil, nil, nil, []media.MusicLibrary{{Key: "1", Title: "Music"}}, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	m.screen = screenSettings
+
+	m = press(m, keyJ)     // Backend → Server URL
+	m = press(m, keyEnter) // edit
+	m = typeText(m, "/typo")
+	if m.settings.values.ServerURL != "https://keep.example/typo" {
+		t.Fatalf("typing didn't reach the bound value: %q", m.settings.values.ServerURL)
+	}
+	m = press(m, keyEsc)
+	if got := m.settings.values.ServerURL; got != "https://keep.example" {
+		t.Errorf("after esc ServerURL = %q, want the original", got)
+	}
+	if m.cfg.ServerURL != "https://keep.example" {
+		t.Errorf("esc committed %q to the config", m.cfg.ServerURL)
+	}
+	if m.settings.editing {
+		t.Error("still editing after esc")
+	}
+	if out := m.View().Content; strings.Contains(out, "/typo") {
+		t.Error("rebuilt field still shows the abandoned text")
+	}
+}
+
+// Closing settings returns to the screen it was opened from.
+func TestSettingsReturnsToDashboard(t *testing.T) {
+	cfg := config.Config{ServerURL: "https://x", PlexToken: "t", Home: "dashboard"}
+	m := New(cfg, nil, nil, nil, []media.MusicLibrary{{Key: "1", Title: "Music"}}, nil)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = upd.(Model)
+	m = press(m, tea.KeyPressMsg{Code: ',', Text: ","})
+	if m.screen != screenSettings {
+		t.Fatalf("screen = %v, want settings", m.screen)
+	}
+	m = press(m, keyEsc)
+	if m.screen != screenDashboard {
+		t.Errorf("screen after closing settings = %v, want dashboard", m.screen)
+	}
+}
+
+// A finished download's summary leaves the footer after a while, so it
+// no longer hides the sync spinner and library errors for good.
+func TestDownloadStatusExpires(t *testing.T) {
+	m := Model{width: 100, librarySyncing: true}
+	m.setDownloadStatus("downloaded 12")
+	if !strings.Contains(m.footerLine("help"), "downloaded 12") {
+		t.Fatal("fresh status not shown")
+	}
+	m.downloadStatusAt = time.Now().Add(-downloadStatusLinger - time.Second)
+	if got := m.footerLine("help"); strings.Contains(got, "downloaded 12") || !strings.Contains(got, "syncing library") {
+		t.Errorf("expired status still shown / sync hidden: %q", got)
+	}
+	m.downloadJobs = []*downloadJob{{state: downloadRunning}}
+	if !strings.Contains(m.footerLine("help"), "downloaded 12") {
+		t.Error("status hidden while a download is running")
+	}
+}

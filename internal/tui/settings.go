@@ -75,6 +75,12 @@ type settingsModel struct {
 	// relaunch is set once the user changes a connection setting under a
 	// running client; the View then shows a persistent relaunch notice.
 	relaunch bool
+	// before is the bound values as they were when editing started, so
+	// esc can put them back (huh writes into them on every keystroke).
+	before settingsValues
+	// size is the last window size, replayed into a field rebuilt on
+	// cancel so it lays out like its siblings.
+	size tea.WindowSizeMsg
 }
 
 // fieldVisible reports whether the field at index i should be shown given
@@ -156,6 +162,7 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 			return s, nil, settingsOutcomeNone
 		}
 		s.editing = true
+		s.before = *s.values
 		return s, s.fields[s.cursor].field.Focus(), settingsOutcomeNone
 	case key.Matches(msg, km.Refresh):
 		return s, nil, settingsOutcomeRefresh
@@ -166,9 +173,9 @@ func (s settingsModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel,
 }
 
 // handleEditKey processes a keystroke while a field is focused. Most
-// keys forward to the huh field; InputEnter / InputBack commit (the
-// bound value is already up-to-date) and exit edit mode. Commit is
-// refused while the field's own validation is failing.
+// keys forward to the huh field; InputEnter commits (the bound value is
+// already up-to-date) and exits edit mode, refused while the field's own
+// validation is failing; InputBack cancels, restoring the old value.
 func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsModel, tea.Cmd, settingsOutcome) {
 	if key.Matches(msg, km.Quit) {
 		return s, tea.Quit, settingsOutcomeNone
@@ -179,10 +186,29 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 		s.fields[s.cursor].field = f
 	}
 
+	// Esc abandons the edit: restore the values from before it began and
+	// rebuild the field, whose own widget state (typed text, highlighted
+	// option) would otherwise still show the abandoned input.
+	if key.Matches(msg, km.InputBack) {
+		*s.values = s.before
+		f := buildSettingsFields(s.values)[s.cursor].field
+		if sized, _ := f.Update(s.size); sized != nil {
+			if hf, ok := sized.(huh.Field); ok {
+				f = hf
+			}
+		}
+		s.fields[s.cursor].field = f
+		s.editing = false
+		if !s.fieldVisible(s.cursor) {
+			s.cursor = s.nextVisible(s.cursor, -1)
+		}
+		return s, nil, settingsOutcomeNone
+	}
+
 	// Input* bindings (arrows / enter / esc only) so vim-letter aliases
 	// on Enter/Back don't trigger commit when the user types "l" or "h"
 	// into the field they're editing.
-	if key.Matches(msg, km.InputEnter) || key.Matches(msg, km.InputBack) {
+	if key.Matches(msg, km.InputEnter) {
 		if s.fields[s.cursor].field.Error() != nil {
 			return s, cmd, settingsOutcomeNone
 		}
@@ -203,6 +229,9 @@ func (s settingsModel) handleEditKey(msg tea.KeyPressMsg, km KeyMap) (settingsMo
 // cmds) to every field so each can advance its internal state. Safe to
 // call from any context — fields ignore msgs they don't care about.
 func (s settingsModel) ForwardMsg(msg tea.Msg) (settingsModel, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		s.size = ws
+	}
 	var cmds []tea.Cmd
 	for i, f := range s.fields {
 		updated, c := f.field.Update(msg)

@@ -196,7 +196,7 @@ func TestDownloadQualityComesFromConfig(t *testing.T) {
 // status, so a help line that doesn't fit must be the thing that gives
 // way — otherwise the number the user is watching is the first casualty.
 func TestFooterKeepsStatusWhenHelpIsLong(t *testing.T) {
-	m := Model{width: 80, downloadStatus: "downloading Album (2/9) · 1.2 MB/s"}
+	m := Model{width: 80, downloadStatus: "downloading Album (2/9) · 1.2 MB/s", downloadStatusAt: time.Now()}
 	help := "? help • s search • enter open • tab dash/lib • Q queue • i info • n next • p prev • ctrl+q quit"
 	got := m.footerLine(help)
 

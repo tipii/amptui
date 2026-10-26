@@ -221,6 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openSortModal()
 			return m, nil
 		case key.Matches(msg, k.Settings):
+			m.settingsReturn = m.screen
 			m.screen = screenSettings
 			return m, nil
 		case key.Matches(msg, k.Refresh):
@@ -538,7 +539,7 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.settings, cmd, outcome = m.settings.HandleKey(msg, m.keymap)
 	switch outcome {
 	case settingsOutcomeClose:
-		m.screen = screenBrowser
+		m.screen = m.settingsReturn
 	case settingsOutcomeRefresh:
 		if !m.librarySyncing && len(m.libs) > 0 {
 			active, _ := m.activeLibrary()
@@ -552,8 +553,11 @@ func (m Model) routeSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the terminal step the registry would still serve the old
 		// images on the next placement under the same kittyID.
 		_ = imgcache.Purge()
-		m.gridPics = map[string]*picture.Model{}
-		m.listPics = map[string]*picture.Model{}
+		// Cleared in place: the list delegate holds the listPics map
+		// itself, so a fresh map would leave it drawing the purged
+		// pictures and never see new ones.
+		clear(m.gridPics)
+		clear(m.listPics)
 		return m, tea.Batch(cmd, tea.Raw("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	case settingsOutcomeCommit:
 		// Pull the new values from the sub-model, apply runtime effects
@@ -697,6 +701,7 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = true
 		return m, nil
 	case key.Matches(msg, k.Settings):
+		m.settingsReturn = m.screen
 		m.screen = screenSettings
 		return m, nil
 	case key.Matches(msg, k.SwitchScreen):

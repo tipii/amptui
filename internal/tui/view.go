@@ -160,7 +160,7 @@ const footerGap = 2
 func (m Model) footerLine(left string) string {
 	right := ""
 	switch {
-	case m.downloadStatus != "":
+	case m.downloadStatusVisible():
 		if m.downloadErr {
 			right = errStyle.Render(m.downloadStatus)
 		} else {

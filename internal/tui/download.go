@@ -16,6 +16,34 @@ import (
 	"github.com/tipii/amptui/internal/textutil"
 )
 
+// downloadStatusLinger is how long a download hint or summary stays in
+// the footer once nothing is downloading. It used to stay forever, and
+// since it takes the footer's right slot it hid the sync spinner and
+// library errors for the rest of the session.
+const downloadStatusLinger = 8 * time.Second
+
+// setDownloadStatus sets the footer's download line and restarts its
+// linger timer.
+func (m *Model) setDownloadStatus(s string) {
+	m.downloadStatus = s
+	m.downloadStatusAt = time.Now()
+}
+
+// downloadStatusVisible reports whether the footer should still show
+// the download line: always while a job is queued or running, then for
+// downloadStatusLinger after the last update.
+func (m Model) downloadStatusVisible() bool {
+	if m.downloadStatus == "" {
+		return false
+	}
+	for _, j := range m.downloadJobs {
+		if j.state == downloadQueued || j.state == downloadRunning {
+			return true
+		}
+	}
+	return time.Since(m.downloadStatusAt) < downloadStatusLinger
+}
+
 // downloadState is the lifecycle of one downloadJob.
 type downloadState int
 
@@ -172,7 +200,7 @@ func downloadPollCmd() tea.Cmd {
 // the worker. Empty folder / unsupported selection flash a footer hint.
 func (m Model) handleDownload() (Model, tea.Cmd) {
 	if m.cfg.DownloadFolder == "" {
-		m.downloadStatus = "set a download folder in settings (,)"
+		m.setDownloadStatus("set a download folder in settings (,)")
 		m.downloadErr = true
 		return m, nil
 	}
@@ -181,7 +209,7 @@ func (m Model) handleDownload() (Model, tea.Cmd) {
 	}
 	tracks, label := m.downloadSelection()
 	if len(tracks) == 0 {
-		m.downloadStatus = "press d on a track or album"
+		m.setDownloadStatus("press d on a track or album")
 		m.downloadErr = true
 		return m, nil
 	}
@@ -195,7 +223,7 @@ func (m Model) handleDownload() (Model, tea.Cmd) {
 	}
 	m.downloadJobs = append(m.downloadJobs, job)
 	m.downloadErr = false
-	m.downloadStatus = fmt.Sprintf("queued %s (%d)", label, len(tracks))
+	m.setDownloadStatus(fmt.Sprintf("queued %s (%d)", label, len(tracks)))
 	// If nothing's running, start the worker now. If something is, the
 	// existing worker's downloadTickMsg handler will pick this job up
 	// when it falls idle.
@@ -243,7 +271,7 @@ func (m Model) startNextDownloadJob() (Model, tea.Cmd) {
 	for _, j := range m.downloadJobs {
 		if j.state == downloadQueued {
 			j.state = downloadRunning
-			m.downloadStatus = fmt.Sprintf("downloading %s (1/%d)", j.label, j.total())
+			m.setDownloadStatus(fmt.Sprintf("downloading %s (1/%d)", j.label, j.total()))
 			m.downloadErr = false
 			cmds := []tea.Cmd{m.downloadTickCmd(j.id, j.tracks[0])}
 			// One poll loop serves every job — a second would double the
@@ -293,7 +321,7 @@ func (m Model) applyDownloadPoll() (Model, tea.Cmd) {
 	jobID, p := m.dl.snapshot()
 	if job := m.downloadJob(jobID); job != nil && job.state == downloadRunning {
 		job.observe(p, time.Now())
-		m.downloadStatus = job.statusLine()
+		m.setDownloadStatus(job.statusLine())
 		m.downloadErr = false
 	}
 	if !m.anyDownloadRunning() {
@@ -322,7 +350,7 @@ func (m Model) applyDownloadTick(msg downloadTickMsg) (Model, tea.Cmd) {
 
 	// More tracks in this job? Tick again.
 	if job.idx < job.total() {
-		m.downloadStatus = job.statusLine()
+		m.setDownloadStatus(job.statusLine())
 		return m, m.downloadTickCmd(job.id, job.tracks[job.idx])
 	}
 
@@ -340,7 +368,7 @@ func (m Model) applyDownloadTick(msg downloadTickMsg) (Model, tea.Cmd) {
 	}
 
 	// Nothing else queued — settle the footer with a brief summary.
-	m.downloadStatus = downloadFooterSummary(m.downloadJobs)
+	m.setDownloadStatus(downloadFooterSummary(m.downloadJobs))
 	m.downloadErr = anyDownloadErrors(m.downloadJobs)
 	return m, nil
 }

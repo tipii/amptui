@@ -100,11 +100,15 @@ type Model struct {
 	nextDownloadJobID int
 	showDownloads     bool
 	downloadStatus    string
+	downloadStatusAt  time.Time
 	downloadErr       bool
 	dl                *liveDownload
 	downloadPolling   bool
 
 	screen screen
+	// settingsReturn is the screen settings goes back to on close —
+	// where it was opened from.
+	settingsReturn screen
 
 	// settings is the sub-model that owns the settings screen state and
 	// its huh fields. The parent forwards key/window-size msgs into it and
@@ -336,6 +340,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 	if cfg.Home == "dashboard" {
 		m.screen = screenDashboard
 	}
+	m.settingsReturn = m.screen
 
 	// If the config is missing/invalid (no server URL or token), there's
 	// nothing to browse — open straight into settings so the user can
