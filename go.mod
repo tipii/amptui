@@ -10,6 +10,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/NimbleMarkets/ntcharts/v2 v2.8.0
 	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/sahilm/fuzzy v0.1.3
 )
 

@@ -13,6 +13,7 @@ import (
 	"github.com/tipii/amptui/internal/backend"
 	"github.com/tipii/amptui/internal/config"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/mpris"
 	"github.com/tipii/amptui/internal/player"
 	"github.com/tipii/amptui/internal/tui"
 )
@@ -71,7 +72,21 @@ func run() error {
 		defer p.Close()
 	}
 
-	prog := tea.NewProgram(tui.New(cfg, client, p, playerErr, libs, defaultLib))
+	// OS media controls (media keys, playerctl, bar widgets) over MPRIS.
+	// Also best-effort: no session bus just means no desktop integration.
+	var osc *mpris.Server
+	if p != nil {
+		var err error
+		osc, err = mpris.New(func() time.Duration { return p.State().Position })
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "warning: media controls disabled:", err)
+		} else {
+			defer osc.Close()
+		}
+	}
+
+	model := tui.New(cfg, client, p, playerErr, libs, defaultLib).WithMediaControls(osc)
+	prog := tea.NewProgram(model)
 	_, err := prog.Run()
 	return err
 }

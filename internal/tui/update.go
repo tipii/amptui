@@ -16,6 +16,7 @@ import (
 	"github.com/tipii/amptui/internal/backend"
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/mpris"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -238,14 +239,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, k.SeekBack):
-			if m.player != nil {
-				_ = m.player.Seek(-10 * time.Second)
-			}
+			m.seekBy(-10 * time.Second)
 			return m, nil
 		case key.Matches(msg, k.SeekForward):
-			if m.player != nil {
-				_ = m.player.Seek(10 * time.Second)
-			}
+			m.seekBy(10 * time.Second)
 			return m, nil
 		}
 
@@ -422,7 +419,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildQueueList()
 			m.queueList.Select(idx)
 		}
-		return m, tick()
+		// publishMedia mutates m, so call it before m is copied into the
+		// return values (Go doesn't order the two).
+		pub := m.publishMedia()
+		return m, tea.Batch(tick(), pub)
+
+	case playerChangedMsg:
+		// Same reconcile as the tick, just sooner: a track change or
+		// pause reaches the screen and the desktop without a 1s lag.
+		m = m.syncFromPlayer()
+		if m.showQueue {
+			idx := m.queueList.Index()
+			m.rebuildQueueList()
+			m.queueList.Select(idx)
+		}
+		pub := m.publishMedia()
+		return m, tea.Batch(waitPlayerChange(m.player), pub)
+
+	case mediaCommandMsg:
+		return m.applyMediaCommand(mpris.Command(msg))
+
+	case mediaArtMsg:
+		pub := m.publishMedia()
+		return m, pub
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -683,14 +702,10 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case key.Matches(msg, k.SeekBack):
-		if m.player != nil {
-			_ = m.player.Seek(-10 * time.Second)
-		}
+		m.seekBy(-10 * time.Second)
 		return m, nil
 	case key.Matches(msg, k.SeekForward):
-		if m.player != nil {
-			_ = m.player.Seek(10 * time.Second)
-		}
+		m.seekBy(10 * time.Second)
 		return m, nil
 	}
 

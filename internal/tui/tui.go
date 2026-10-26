@@ -13,6 +13,7 @@
 //   - sortmodal.go  per-level browse ordering + the `o` sort modal
 //   - browse.go     drill-down navigation and async Plex fetches
 //   - queue.go      playback queue delegated to mpv
+//   - mediactl.go   OS media controls (MPRIS) wiring
 //   - download.go   the download worker, its progress poll, and the D-modal
 //   - grid.go       artist/album grid rendering
 //   - theme.go      colors + styles
@@ -38,6 +39,7 @@ import (
 	"github.com/tipii/amptui/internal/imgcache"
 	"github.com/tipii/amptui/internal/library"
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/mpris"
 	"github.com/tipii/amptui/internal/player"
 )
 
@@ -63,6 +65,13 @@ type Model struct {
 	playerErr error
 	client    media.Backend
 	player    *player.Player // may be nil if mpv is unavailable
+
+	// mpris publishes playback to the desktop and relays its media keys
+	// (see mediactl.go); nil without a session bus. mediaArtKey is the
+	// album whose cover was last fetched for it, so a failed fetch
+	// isn't retried every tick.
+	mpris       *mpris.Server
+	mediaArtKey string
 
 	// keymap is the single source of truth for keybindings; Update routes
 	// via key.Matches against it and helpModel renders footer/help-modal
@@ -330,7 +339,7 @@ func New(cfg config.Config, client media.Backend, p *player.Player, playerErr er
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, tick()}
+	cmds := []tea.Cmd{m.spinner.Tick, tick(), waitMediaCommand(m.mpris), waitPlayerChange(m.player)}
 	cmds = append(cmds, m.settings.Init())
 	// Ask the terminal for its real cell-pixel dims so the Kitty
 	// path renders at the right scale. picture.Models receive the
