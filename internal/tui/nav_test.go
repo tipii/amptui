@@ -209,3 +209,43 @@ func TestSettingsScrollsToKeepChromeVisible(t *testing.T) {
 		t.Errorf("cache stats not reachable at the last field:\n%s", out)
 	}
 }
+
+// A slow metadata or artwork reply for an artist the user already left
+// must not land on the one now on screen.
+func TestStaleArtistRepliesDropped(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m = press(m, keyEnter) // Abba
+	m = press(m, keyEsc)
+	m = press(press(m, keyJ), keyEnter) // Beck
+	if m.curArtistKey != "ar2" {
+		t.Fatalf("curArtistKey = %q, want ar2", m.curArtistKey)
+	}
+
+	upd, _ := m.Update(artistMetaMsg{key: "ar1", meta: &media.ArtistMetadata{Title: "Abba"}})
+	m = upd.(Model)
+	if m.artistMeta != nil {
+		t.Errorf("Abba's metadata replaced Beck's: %+v", m.artistMeta)
+	}
+	upd, _ = m.Update(artistMetaMsg{key: "ar2", meta: &media.ArtistMetadata{Title: "Beck"}})
+	m = upd.(Model)
+	if m.artistMeta == nil || m.artistMeta.Title != "Beck" {
+		t.Errorf("Beck's own metadata not applied: %+v", m.artistMeta)
+	}
+}
+
+// Jumping to an album from search sets up its artist too (so back shows
+// the right artist header), and leaves the dashboard if that's where
+// the search was opened.
+func TestJumpToAlbumFromDashboard(t *testing.T) {
+	m := newArtistsModel(t, config.Config{})
+	m = press(m, keyEnter) // browse Abba first
+	m.screen = screenDashboard
+
+	m, _ = m.jumpToAlbum("al2") // Odelay, by Beck
+	if m.screen != screenBrowser {
+		t.Errorf("screen = %v, want browser", m.screen)
+	}
+	if m.curArtistKey != "ar2" || m.curAlbumKey != "al2" {
+		t.Errorf("headers point at artist %q / album %q, want ar2 / al2", m.curArtistKey, m.curAlbumKey)
+	}
+}

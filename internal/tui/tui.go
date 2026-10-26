@@ -141,6 +141,11 @@ type Model struct {
 	artistMeta  *media.ArtistMetadata
 	albumMeta   *media.AlbumMetadata
 	metaLoading bool
+	// curArtistKey / curAlbumKey are what the headers currently show
+	// (set by showArtist / showAlbum); async replies for anything else
+	// are dropped.
+	curArtistKey string
+	curAlbumKey  string
 
 	// Inline-artwork state. Each surface (artist/album hero header,
 	// info modal, grid card, list row) owns a picture.Model — a
@@ -149,10 +154,10 @@ type Model struct {
 	// Ghostty redraw bug we hit when emitting Kitty sequences
 	// ourselves. picMode is detected once at startup; surfaces fall
 	// back to half-block on terminals without Kitty support.
-	artistHeaderPic picture.Model
-	artistModalPic  picture.Model
-	albumHeaderPic  picture.Model
-	albumModalPic   picture.Model
+	artistHeaderPic *picture.Model
+	artistModalPic  *picture.Model
+	albumHeaderPic  *picture.Model
+	albumModalPic   *picture.Model
 	gridPics        map[string]*picture.Model
 	// listPics holds the small list-view variant of the same thumb,
 	// sized for one bubbles/list row. Built alongside gridPics from the
@@ -406,20 +411,20 @@ func kittyIDFor(parts ...string) int {
 // instantly without a "stale image" flicker from a randomly-reused
 // kittyID. role disambiguates the multiple surfaces a single item
 // can have (e.g. "artist-header" vs. "artist-modal").
-func newKeyedPicture(role, ratingKey string, cols, rows int) picture.Model {
+func newKeyedPicture(role, ratingKey string, cols, rows int) *picture.Model {
 	p := picture.NewWithConfig(picture.Config{KittyID: kittyIDFor(role, ratingKey)})
 	p.SetSize(cols, rows)
-	return p
+	return &p
 }
 
 // newSizedPicture returns a picture.Model pre-sized to the given cell
 // rectangle with a unique Kitty image ID. Used for the placeholder
 // instances New() builds at startup; per-item surfaces are
 // reconstructed on drill-down via newKeyedPicture.
-func newSizedPicture(cols, rows int) picture.Model {
+func newSizedPicture(cols, rows int) *picture.Model {
 	p := picture.NewWithConfig(picture.Config{KittyID: nextPictureID()})
 	p.SetSize(cols, rows)
-	return p
+	return &p
 }
 
 // pictureModeFromProtocol maps the imgcache-side terminal protocol

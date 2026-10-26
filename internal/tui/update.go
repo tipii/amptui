@@ -341,14 +341,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// jumps), so meta arrival no longer needs to chain a thumb
 		// fetch — usually the image is already in the picture.Model by
 		// the time the metadata JSON returns.
+		if msg.key != m.curArtistKey {
+			return m, nil
+		}
 		m.metaLoading = false
 		m.artistMeta = msg.meta
 		return m, nil
 	case albumMetaMsg:
+		if msg.key != m.curAlbumKey {
+			return m, nil
+		}
 		m.metaLoading = false
 		m.albumMeta = msg.meta
 		return m, nil
 	case thumbReadyMsg:
+		// Header / modal artwork for an artist or album no longer on
+		// screen would land on (or clear) the current one's.
+		if (msg.kind == "artist" && msg.key != m.curArtistKey) ||
+			(msg.kind == "album" && msg.key != m.curAlbumKey) {
+			return m, nil
+		}
 		if msg.err != nil || msg.img == nil {
 			// No artwork for this item — clear any stale image left on
 			// the header from the previous artist/album so we don't show
@@ -376,8 +388,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.kind == "artist":
 			cmds = append(cmds,
-				m.applyPicMode(&m.artistHeaderPic),
-				m.applyPicMode(&m.artistModalPic),
+				m.applyPicMode(m.artistHeaderPic),
+				m.applyPicMode(m.artistModalPic),
 				m.artistHeaderPic.SetImage(msg.img),
 				m.artistModalPic.SetImage(msg.img),
 			)
@@ -388,8 +400,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.SetSize(m.width, m.listHeight())
 		case msg.kind == "album":
 			cmds = append(cmds,
-				m.applyPicMode(&m.albumHeaderPic),
-				m.applyPicMode(&m.albumModalPic),
+				m.applyPicMode(m.albumHeaderPic),
+				m.applyPicMode(m.albumModalPic),
 				m.albumHeaderPic.SetImage(msg.img),
 				m.albumModalPic.SetImage(msg.img),
 			)
