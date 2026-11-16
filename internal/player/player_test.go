@@ -226,3 +226,70 @@ func TestRearrangeNeverReportsTransientPosition(t *testing.T) {
 		}
 	}
 }
+
+// loadedPlayer is a Player as loadList leaves it after asking mpv to
+// start index 2 of a fresh list, its loadfile answered with entry id 3.
+func loadedPlayer() *Player {
+	p := &Player{changes: make(chan struct{}, 1), loadIndex: 2, loadReq: 7}
+	p.state.PlaylistPos = 2
+	p.applyReply(7, json.RawMessage(`{"playlist_entry_id":3}`))
+	return p
+}
+
+// Starting up, mpv runs commands before it sets its playlist up, which
+// points it back at the first entry: a slow start played entry 0 of a
+// list loaded at index 2. The player moves it to the right entry and
+// drops the wrong one's reports meanwhile, so neither the UI nor a
+// restored position ever sees it.
+func TestLoadCorrectsWrongStart(t *testing.T) {
+	p := loadedPlayer()
+	if p.loadEntryID != 3 {
+		t.Fatalf("entry id from the loadfile answer = %d", p.loadEntryID)
+	}
+	if fix := p.applyStartFile(1); fix != 2 {
+		t.Fatalf("mpv started entry id 1 (index 0): correction = %d, want 2", fix)
+	}
+	p.applyPropertyChange("playlist-pos", json.RawMessage("0"))
+	p.applyPropertyChange("duration", json.RawMessage("30"))
+	p.applyPropertyChange("time-pos", json.RawMessage("0.5"))
+	p.applyEndFile("stop", "")
+	if st := p.State(); st.PlaylistPos != 2 || st.Duration != 0 || st.Position != 0 {
+		t.Errorf("the wrong entry's reports were applied: %+v", st)
+	}
+	if fix := p.applyStartFile(3); fix != -1 {
+		t.Errorf("the right entry starting asked for another correction: %d", fix)
+	}
+	p.applyPropertyChange("duration", json.RawMessage("30"))
+	if p.State().Duration != 30*time.Second {
+		t.Error("reports after the right entry started are dropped")
+	}
+}
+
+// The right entry starting is left alone, as are later files starting
+// (gapless advance) and anything after a command moved the playhead.
+func TestLoadRightStartIsLeftAlone(t *testing.T) {
+	p := loadedPlayer()
+	if fix := p.applyStartFile(3); fix != -1 {
+		t.Errorf("right entry: correction %d", fix)
+	}
+	if fix := p.applyStartFile(4); fix != -1 {
+		t.Errorf("next entry after the checked one: correction %d", fix)
+	}
+
+	p = loadedPlayer()
+	_ = p.Next() // no mpv: the command fails, but the check is dropped first
+	if fix := p.applyStartFile(4); fix != -1 {
+		t.Errorf("a file starting after next was corrected back: %d", fix)
+	}
+
+	// Before mpv answered the loadfile, a starting file is from before the
+	// load; it doesn't use up the check.
+	p = &Player{changes: make(chan struct{}, 1), loadIndex: 2, loadReq: 7}
+	if fix := p.applyStartFile(9); fix != -1 {
+		t.Errorf("a file from before the load: correction %d", fix)
+	}
+	p.applyReply(7, json.RawMessage(`{"playlist_entry_id":3}`))
+	if fix := p.applyStartFile(1); fix != 2 {
+		t.Errorf("wrong entry after the answer: correction %d, want 2", fix)
+	}
+}
