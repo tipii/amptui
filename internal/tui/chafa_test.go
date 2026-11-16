@@ -32,7 +32,10 @@ func TestChafaRendersReplaceHalfBlocks(t *testing.T) {
 	if _, ok := m.chafaOut[cardID]; !ok {
 		t.Fatal("card render not requested")
 	}
-	halfBlock := m.gridCardThumb(artistItem{artist: m.library.Artists()[0]})
+	cardThumb := func(m Model) string {
+		return m.thumbText("ar1", m.gridPics["ar1"], gridThumbCellsW, gridThumbCellsH)
+	}
+	halfBlock := cardThumb(m)
 	if halfBlock == "" {
 		t.Fatal("no fallback picture before the chafa render lands")
 	}
@@ -42,7 +45,7 @@ func TestChafaRendersReplaceHalfBlocks(t *testing.T) {
 	m = upd.(Model)
 	upd, _ = m.Update(chafaReadyMsg{id: rowID, out: "RRRR\nRRRR"})
 	m = upd.(Model)
-	if got := m.gridCardThumb(artistItem{artist: m.library.Artists()[0]}); got != card {
+	if got := cardThumb(m); got != card {
 		t.Errorf("card shows %q, want the chafa render", got)
 	}
 

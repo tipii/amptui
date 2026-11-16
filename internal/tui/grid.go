@@ -243,10 +243,6 @@ func (m Model) gridBodyView() string {
 	// under the last full row.
 	drawEnd := min(scrollTop+(m.gridCardsHeight()+cardRenderedH-1)/cardRenderedH, totalRows)
 
-	normal := cardStyle.Width(outerW)
-	cursor := cardCursorStyle.Width(outerW)
-	innerW := outerW - cardBorderCols
-
 	var b strings.Builder
 	// Same heading style and gap as the list view's title.
 	b.WriteString(m.list.Styles.TitleBar.Render(m.list.Styles.Title.Render(m.list.Title)))
@@ -264,27 +260,10 @@ func (m Model) gridBodyView() string {
 			if marked, ok := m.playing.playingTitle(items[idx]); ok {
 				title = marked
 			}
-			title = textutil.Truncate(title, innerW)
-			content := ""
-			if thumb := m.gridCardThumb(items[idx]); thumb != "" {
-				content = thumb + "\n"
-			} else if m.cfg.Images {
-				// Same footprint as artwork, so a card without any (or
-				// whose artwork hasn't arrived) lines up with its row.
-				content = artPlaceholder(gridThumbCellsW, gridThumbCellsH) + "\n"
-			}
-			content += title
-			if sub != "" {
-				content += "\n" + helpStyle.Render(textutil.Truncate(sub, innerW))
-			}
-			style := normal
-			if idx == m.gridCursor {
-				style = cursor
-			}
 			if col > 0 {
 				cells = append(cells, strings.Repeat(" ", cardGutter))
 			}
-			cells = append(cells, style.Render(content))
+			cells = append(cells, m.artCard(gridItemKey(items[idx]), title, sub, idx == m.gridCursor, outerW))
 		}
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 	}
@@ -302,25 +281,43 @@ func (m Model) gridBodyView() string {
 	return lipgloss.NewStyle().Height(m.listHeight()).Render(b.String())
 }
 
-// gridCardThumb returns the rendered thumbnail block for one grid
-// card, or "" when artwork is off / not yet fetched / not applicable.
-// picture.Model caches its own glyph render so this is a cheap lookup.
-func (m Model) gridCardThumb(it interface{ FilterValue() string }) string {
-	if !m.cfg.Images {
-		return ""
-	}
-	var key string
+// gridItemKey is the RatingKey whose artwork a grid item shows.
+func gridItemKey(it interface{ FilterValue() string }) string {
 	switch v := it.(type) {
 	case artistItem:
-		key = v.artist.RatingKey
+		return v.artist.RatingKey
 	case albumItem:
-		key = v.album.RatingKey
+		return v.album.RatingKey
 	}
-	pic, ok := m.gridPics[key]
-	if !ok || pic == nil {
-		return ""
+	return ""
+}
+
+// artCard renders one fixed-size card, in the library grid or on the
+// dashboard: the artwork, the title and a dimmed subtitle. With artwork
+// on, a card whose artwork is missing (or hasn't arrived) gets a
+// placeholder in its footprint, so it lines up with its row.
+func (m Model) artCard(artKey, title, sub string, selected bool, outerW int) string {
+	innerW := outerW - cardBorderCols
+	content := ""
+	if m.cfg.Images {
+		thumb := ""
+		if pic := m.gridPics[artKey]; artKey != "" && pic != nil {
+			thumb = m.thumbText(artKey, pic, gridThumbCellsW, gridThumbCellsH)
+		}
+		if thumb == "" {
+			thumb = artPlaceholder(gridThumbCellsW, gridThumbCellsH)
+		}
+		content = thumb + "\n"
 	}
-	return m.thumbText(key, pic, gridThumbCellsW, gridThumbCellsH)
+	content += textutil.Truncate(title, innerW)
+	if sub != "" {
+		content += "\n" + helpStyle.Render(textutil.Truncate(sub, innerW))
+	}
+	style := cardStyle
+	if selected {
+		style = cardCursorStyle
+	}
+	return style.Width(outerW).Render(content)
 }
 
 // gridCellTexts returns the (title, subtitle) shown inside a grid card.
