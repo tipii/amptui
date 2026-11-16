@@ -401,4 +401,4 @@ internal/tui/      Bubble Tea drill-down browser
 
 ## License
 
-MIT
+MIT: see [LICENSE](LICENSE).
