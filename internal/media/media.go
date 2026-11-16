@@ -12,6 +12,7 @@ package media
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -85,14 +86,40 @@ type AlbumMetadata struct {
 	Styles    []string
 }
 
-// RecentlyAddedAlbum is one entry on the Recently-Added dashboard tile.
-type RecentlyAddedAlbum struct {
+// AlbumSummary is an album as a dashboard row shows it: enough to draw
+// a card and open the album, plus the listening stats the row is about
+// (zero where a feed doesn't have them).
+type AlbumSummary struct {
 	RatingKey string
 	Title     string
 	Artist    string
 	Year      int
 	AddedAt   time.Time
+
+	Plays      int       // how many times its tracks were played
+	LastPlayed time.Time // the latest play of any of its tracks
 }
+
+// AlbumOrder is the order PlayedAlbums returns albums in.
+type AlbumOrder int
+
+const (
+	ByLastPlayed AlbumOrder = iota // most recently played first
+	ByPlays                        // most played first
+)
+
+// Play is one listen in the server's play history.
+type Play struct {
+	At       time.Time
+	AlbumKey string
+	Album    string
+	Artist   string
+}
+
+// ErrNoHistory is PlayHistory's answer from a server that keeps no
+// play-by-play history (Jellyfin keeps only per-track counts and the
+// last play).
+var ErrNoHistory = errors.New("the server keeps no play history")
 
 // Playlist is an audio playlist on the server.
 type Playlist struct {
@@ -103,6 +130,10 @@ type Playlist struct {
 	Duration  time.Duration
 	UpdatedAt time.Time
 	Smart     bool
+	// Art is the key ArtworkURL takes for the playlist's cover: its
+	// RatingKey on Jellyfin, the server path of its collage on Plex.
+	// Empty when it has none.
+	Art string
 }
 
 // Backend is the server abstraction amptui drives. Plex and Jellyfin
@@ -124,8 +155,16 @@ type Backend interface {
 	AlbumMetadata(ctx context.Context, ratingKey string) (*AlbumMetadata, error)
 
 	// Dashboard feeds.
-	RecentlyAddedAlbums(ctx context.Context, libraryKey string, limit int) ([]RecentlyAddedAlbum, error)
-	RecentlyPlayedTracks(ctx context.Context, libraryKey string, limit int) ([]Track, error)
+	RecentlyAddedAlbums(ctx context.Context, libraryKey string, limit int) ([]AlbumSummary, error)
+	// PlayedAlbums returns up to limit albums the user has played, in
+	// order, with their Plays and LastPlayed.
+	PlayedAlbums(ctx context.Context, libraryKey string, order AlbumOrder, limit int) ([]AlbumSummary, error)
+	// UnplayedAlbums returns up to limit albums the user has never
+	// played, in random order, and how many there are in all.
+	UnplayedAlbums(ctx context.Context, libraryKey string, limit int) ([]AlbumSummary, int, error)
+	// PlayHistory returns the user's plays since a time, newest first,
+	// or ErrNoHistory if the server doesn't keep them.
+	PlayHistory(ctx context.Context, libraryKey string, since time.Time) ([]Play, error)
 	AudioPlaylists(ctx context.Context, limit int) ([]Playlist, error)
 	PlaylistTracks(ctx context.Context, ratingKey string) ([]Track, error)
 

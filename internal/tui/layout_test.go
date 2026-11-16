@@ -32,7 +32,8 @@ func TestHelpBodyFitsWidth(t *testing.T) {
 	}
 }
 
-// The dashboard scrolls by whole sections and says what's cut off.
+// The dashboard scrolls by sections, fills the height and says what's
+// out of view.
 func TestScrollToSection(t *testing.T) {
 	// Three 5-line sections separated by a blank line.
 	var lines []string
@@ -66,13 +67,11 @@ func TestScrollToSection(t *testing.T) {
 	if !strings.Contains(strings.Join(view, "|"), "B4") || strings.Contains(strings.Join(view, "|"), "C0") {
 		t.Errorf("A selected, room for A+B: %q", view)
 	}
-	// Room for section A and part of B: B is left out whole, not cut.
+	// Room for section A and part of B: B fills the rest, cut off, rather
+	// than leaving blank rows.
 	view = strings.Split(scrollToSection(content, 9, starts, 0, 4), "\n")
-	for _, l := range view {
-		if strings.HasPrefix(l, "B") {
-			t.Errorf("section B partly shown: %q", view)
-			break
-		}
+	if len(view) != 9 || view[6] != "B0" || view[7] != "B1" {
+		t.Errorf("A selected, room for A and part of B: %q", view)
 	}
 }
 

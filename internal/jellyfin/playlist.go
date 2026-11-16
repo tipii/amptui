@@ -42,6 +42,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]media.Playlis
 			Duration:  ticksToDuration(it.RunTimeTicks),
 			UpdatedAt: it.DateCreated,
 			Smart:     false,
+			Art:       it.primaryImage(),
 		})
 	}
 	return out, nil

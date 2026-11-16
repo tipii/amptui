@@ -138,10 +138,8 @@ func (m Model) fitHelp(h helpView) string {
 	return ansi.Truncate(out, m.width, "")
 }
 
-// dashboardScreen composes the dashboard sub-model's body with the
-// shared chrome (header + now-playing line + footer). All three tiles
-// render their loading / error / data states inside the sub-model;
-// the parent just wraps it.
+// dashboardScreen composes the dashboard's body with the shared chrome
+// (header + now-playing line + footer).
 func (m Model) dashboardScreen() string {
 	var b strings.Builder
 	b.WriteString(m.titleBar("Dashboard"))
@@ -149,7 +147,7 @@ func (m Model) dashboardScreen() string {
 	// Dashboard renders its title + spacer outside the sub-model body,
 	// matching the browser layout, so the body itself gets exactly
 	// listHeight rows.
-	b.WriteString(fitRows(m.dashboard.View(m.width, m.bodyHeight(), m.spinner), m.bodyHeight()))
+	b.WriteString(fitRows(m.dashboardBody(m.width, m.bodyHeight()), m.bodyHeight()))
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")

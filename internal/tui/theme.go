@@ -18,6 +18,9 @@ type Theme struct {
 	Muted      color.Color // subdued surfaces (idle card borders)
 	Error      color.Color // error / failure foreground
 	NowPlaying color.Color // currently-playing track indicator
+	// Heat shades the listening heatmap's days, from no plays to the
+	// most, ending on the accent.
+	Heat [5]color.Color
 
 	// Styles — pre-built compositions.
 	Header  lipgloss.Style // bold accent text (titles)
@@ -52,6 +55,10 @@ func NewTheme() Theme {
 		Muted:      muted,
 		Error:      errC,
 		NowPlaying: np,
+		Heat: [5]color.Color{
+			lipgloss.Color("237"), lipgloss.Color("90"), lipgloss.Color("127"),
+			lipgloss.Color("170"), accent,
+		},
 
 		Header:  lipgloss.NewStyle().Bold(true).Foreground(accent),
 		Crumb:   lipgloss.NewStyle().Faint(true),
@@ -87,4 +94,5 @@ var (
 	modalStyle      = theme.Modal
 	cardStyle       = theme.Card
 	cardCursorStyle = theme.CardSel
+	heatShades      = theme.Heat
 )
