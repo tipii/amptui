@@ -19,7 +19,7 @@ LDFLAGS := -X github.com/tipii/amptui/internal/version.Version=$(VERSION)
 # Override for a system-wide install: make install BINDIR=/usr/local/bin
 BINDIR ?= $(HOME)/.local/bin
 
-.PHONY: build run install uninstall test vet tidy clean help
+.PHONY: build run install uninstall test vet tidy notices snapshot clean help
 
 build: ## Build the amptui binary
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
@@ -46,8 +46,14 @@ vet: ## Run go vet on all packages
 tidy: ## Run go mod tidy
 	go mod tidy
 
-clean: ## Remove the built binary
-	rm -f $(BINARY)
+notices: ## Write THIRD_PARTY_NOTICES (the dependencies' licenses)
+	go run ./scripts/notices > THIRD_PARTY_NOTICES
+
+snapshot: ## Build the release archives and packages locally into dist/ (needs goreleaser)
+	goreleaser release --snapshot --clean
+
+clean: ## Remove the built binary and release output
+	rm -rf $(BINARY) dist THIRD_PARTY_NOTICES
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-8s %s\n", $$1, $$2}' $(MAKEFILE_LIST)

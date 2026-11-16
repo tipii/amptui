@@ -1,0 +1,31 @@
+name: Release
+
+# Pushing a tag like v0.4.0 builds the archives, .deb / .rpm / .apk
+# packages and checksums, and attaches them to a draft GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install mpv
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mpv
+      - run: go test ./...
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
