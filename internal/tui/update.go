@@ -35,6 +35,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.playing.set(next.nowPlaying)
 	}
 	cmds := []tea.Cmd{cmd, next.applyKittyCapability()}
+	if next.screen == screenDashboard {
+		// The cards in view (and what's playing) may have changed:
+		// after a fetch, a move, a resize, a track change.
+		cmds = append(cmds, next.dashArtFetches())
+	}
 	if !next.spinning && next.needsSpinner() {
 		next.spinning = true
 		cmds = append(cmds, next.spinner.Tick)
@@ -143,6 +148,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.dashboard.SetWidth(msg.Width)
 		// A different height can change how many card rows fit.
 		m.ensureCursorVisible()
 		m.list.SetSize(msg.Width, m.listHeight())
@@ -583,20 +589,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chafaOut[msg.id] = msg.out
 		return m, nil
 
-	case dashboardPlaysMsg:
-		m.dashboard.ApplyPlays(msg)
+	case dashAlbumsMsg:
+		m.dashboard.ApplyAlbums(msg)
 		return m, nil
-	case dashboardAddedMsg:
-		m.dashboard.ApplyAdded(msg)
+	case dashHistoryMsg:
+		m.dashboard.ApplyHistory(msg)
 		return m, nil
-	case dashboardPlaylistsMsg:
+	case dashPlaylistsMsg:
 		m.dashboard.ApplyPlaylists(msg)
 		return m, nil
 
 	case playlistTracksMsg:
-		// User pressed enter on a playlist tile; tracks just arrived —
-		// play them.
-		if msg.err != nil || len(msg.tracks) == 0 {
+		// A dashboard playlist's tracks, asked for with enter (play
+		// them) or q (queue them).
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		if msg.enqueue {
+			m.enqueue(msg.tracks...)
 			return m, nil
 		}
 		return m.playTracks(msg.tracks, 0)
@@ -855,16 +866,20 @@ func (m Model) routeSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // playlistTracksMsg arrives after the parent fires fetchPlaylistTracks
 // in response to a dashboard playlist tile being activated.
 type playlistTracksMsg struct {
-	tracks []media.Track
-	err    error
+	tracks  []media.Track
+	enqueue bool // add them to the queue rather than play them
+	err     error
 }
 
-func fetchPlaylistTracks(client media.Backend, ratingKey string) tea.Cmd {
+func fetchPlaylistTracks(client media.Backend, ratingKey string, enqueue bool) tea.Cmd {
+	if client == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
 		defer cancel()
 		tracks, err := client.PlaylistTracks(ctx, ratingKey)
-		return playlistTracksMsg{tracks: tracks, err: err}
+		return playlistTracksMsg{tracks: tracks, enqueue: enqueue, err: err}
 	}
 }
 
@@ -900,8 +915,8 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.GoToPlaying):
 		return m.goToNowPlaying()
 	case key.Matches(msg, k.Refresh):
-		// Re-fetch the three dashboard tiles. Only meaningful when we
-		// have a client + a library to query against.
+		// Re-fetch the dashboard (new unplayed picks too). Only
+		// meaningful with a client and a library to query.
 		if m.client == nil || len(m.libs) == 0 {
 			return m, nil
 		}
@@ -909,34 +924,34 @@ func (m Model) routeDashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.dashboard.Load(m.client, active.Key)
 	}
 
-	// Anything not above belongs to the dashboard sub-model (nav +
-	// enter). Outcomes touch parent state.
-	var (
-		cmd     tea.Cmd
-		outcome dashboardOutcome
-	)
-	m.dashboard, cmd, outcome = m.dashboard.HandleKey(msg, m.keymap)
+	// Anything not above belongs to the dashboard sub-model (nav,
+	// enter, q). Outcomes touch parent state.
+	var outcome dashboardOutcome
+	m.dashboard, outcome = m.dashboard.HandleKey(msg, m.keymap)
+	card, _ := m.dashboard.Selected()
 	switch outcome {
-	case dashOutcomePlayTrack:
-		if t, ok := m.dashboard.SelectedTrack(); ok {
-			// Carry on through the rest of its album, as starting a track
-			// from the browser does, rather than stopping after one.
-			tracks, start := m.albumContext(t)
-			model, pcmd := m.playTracks(tracks, start)
-			return model, tea.Batch(cmd, pcmd)
-		}
+	case dashOutcomeGoToPlaying:
+		return m.goToNowPlaying()
 	case dashOutcomeOpenAlbum:
-		if a, ok := m.dashboard.SelectedAlbum(); ok {
-			// Jump the browser to this album's tracks (same pattern as
-			// jumpToAlbum from search) and switch to the browser screen.
-			model, jcmd := m.jumpToAlbum(a.RatingKey)
-			model.screen = screenBrowser
-			return model, tea.Batch(cmd, jcmd)
+		// The album's tracks in the browser, as a search jump does.
+		model, cmd := m.jumpToAlbum(card.key)
+		model.screen = screenBrowser
+		return model, cmd
+	case dashOutcomePlayPlaylist:
+		return m, fetchPlaylistTracks(m.client, card.key, false)
+	case dashOutcomeEnqueue:
+		if card.playlist {
+			return m, fetchPlaylistTracks(m.client, card.key, true)
 		}
-	case dashOutcomeOpenPlaylist:
-		if p, ok := m.dashboard.SelectedPlaylist(); ok {
-			return m, tea.Batch(cmd, fetchPlaylistTracks(m.client, p.RatingKey))
+		var tracks []media.Track
+		if m.library != nil {
+			tracks = m.library.Tracks(card.key)
 		}
+		if len(tracks) == 0 {
+			m.err = errors.New("that album isn't in the library cache yet")
+			return m, nil
+		}
+		m.enqueue(tracks...)
 	}
-	return m, cmd
+	return m, nil
 }

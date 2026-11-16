@@ -72,6 +72,11 @@ type Client struct {
 	mu     sync.Mutex
 	token  string
 	userID string
+
+	// played memoizes playedTracks briefly: a dashboard load asks for it
+	// three times at once (played albums both ways, unplayed albums).
+	playedMu sync.Mutex
+	played   playedCache
 }
 
 // New returns a Jellyfin client for serverURL authenticating as the given

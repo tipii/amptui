@@ -186,7 +186,7 @@ func (k KeyMap) infoModalHelp() helpView {
 // dashboardHelp is the help shown on the home dashboard screen.
 func (k KeyMap) dashboardHelp() helpView {
 	return helpView{
-		short: []key.Binding{k.Help, moveKeys, k.Enter, k.Pause, k.NextTrack, k.SwitchScreen, k.OpenSearch, k.Refresh, k.Quit},
+		short: []key.Binding{k.Help, moveKeys, k.Enter, k.Enqueue, k.Pause, k.NextTrack, k.SwitchScreen, k.OpenSearch, k.Refresh, k.Quit},
 	}
 }
 

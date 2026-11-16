@@ -21,7 +21,7 @@ const artworkSize = 512
 const maxImageBytes = 16 << 20
 
 // ArtworkURL returns a URL for an item's default thumb, looked up by
-// ratingKey, scaled by Plex's photo transcoder to fit artworkSize. The
+// ratingKey (or a server path to an image, as a playlist's Art), scaled by Plex's photo transcoder to fit artworkSize. The
 // direct /library/metadata/<key>/thumb returns the original upload —
 // often several MB — which made browsing a grid over a slow link mostly
 // a matter of downloading wallpapers.
@@ -34,7 +34,11 @@ func (c *Client) ArtworkURL(ratingKey string) string {
 	q.Set("height", fmt.Sprint(artworkSize))
 	q.Set("minSize", "1") // fill the box, don't letterbox inside it
 	q.Set("upscale", "0") // small originals stay small
-	q.Set("url", "/library/metadata/"+url.PathEscape(ratingKey)+"/thumb")
+	thumb := "/library/metadata/" + url.PathEscape(ratingKey) + "/thumb"
+	if strings.HasPrefix(ratingKey, "/") {
+		thumb = ratingKey // a server path already: a playlist's collage
+	}
+	q.Set("url", thumb)
 	q.Set("X-Plex-Token", c.token)
 	return c.serverURL + "/photo/:/transcode?" + q.Encode()
 }

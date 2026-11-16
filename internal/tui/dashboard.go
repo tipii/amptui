@@ -1,419 +1,472 @@
 package tui
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	"strings"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/tipii/amptui/internal/media"
 	"github.com/tipii/amptui/internal/textutil"
 )
 
-// dashboardSection is one of the three horizontal tiles on the home screen.
-type dashboardSection int
+// The dashboard is the home screen: a band with what's playing beside the
+// listening activity and library numbers, then rows of album and
+// playlist cards fed live from the server. Rendering is in dashview.go.
+
+// dashRow is one row of cards.
+type dashRow int
 
 const (
-	sectionRecentPlays dashboardSection = iota
-	sectionRecentlyAdded
-	sectionRecentPlaylists
-	dashboardSectionCount
+	rowJumpBackIn dashRow = iota
+	rowRecentlyAdded
+	rowMostPlayed
+	rowRediscover
+	rowUnplayed
+	rowPlaylists
+	dashRowCount
 )
 
-// dashboard tile sizing — outer width of one card and how many we ever
-// load per section (browsing more than this on a dashboard tile isn't
-// the point; users should switch to the library screen for depth).
 const (
-	dashCardOuterW   = 28
-	dashCardOuterH   = 5
+	// dashFetchLimit is how many cards a row loads: browsing further
+	// than that is what the library screen is for.
 	dashFetchLimit   = 24
 	dashFetchTimeout = 15 * time.Second
+	// dashHistoryTimeout bounds the history fetch, which pages.
+	dashHistoryTimeout = 2 * time.Minute
+	// dashHeatWeeks is how far back the activity heatmap (and so the
+	// history fetch) goes: a year, when the width allows; a narrower
+	// terminal shows fewer weeks.
+	dashHeatWeeks = 52
+	// dashMostPlayedDays is the window of the Most played row.
+	dashMostPlayedDays = 30
+	// dashRediscoverAfter is how long an album must have gone unplayed
+	// to be suggested again.
+	dashRediscoverAfter = 90 * 24 * time.Hour
+	// dashPlayedPool is how many of the most-played albums are fetched
+	// for Rediscover to pick from.
+	dashPlayedPool = 200
 )
 
-// dashboardOutcome is what the dashboard sub-model asks its parent to do
-// after handling a key.
+// dashFeed is one of the album feeds the rows are built from.
+type dashFeed int
+
+const (
+	feedRecent   dashFeed = iota // played albums, latest first
+	feedAdded                    // recently added albums
+	feedByPlays                  // played albums, most played first
+	feedUnplayed                 // random never-played albums
+)
+
+// dashboardOutcome is what the dashboard asks its parent to do after a
+// key, since it touches state the parent owns (player, browser).
 type dashboardOutcome int
 
 const (
 	dashOutcomeNone         dashboardOutcome = iota
-	dashOutcomePlayTrack                     // selected: media.Track
-	dashOutcomeOpenAlbum                     // selected: media.RecentlyAddedAlbum
-	dashOutcomeOpenPlaylist                  // selected: media.Playlist
+	dashOutcomeGoToPlaying                   // enter on the band
+	dashOutcomeOpenAlbum                     // enter on an album card
+	dashOutcomePlayPlaylist                  // enter on a playlist card
+	dashOutcomeEnqueue                       // q on a card
 )
 
-// Messages from the per-section background fetches.
+// Messages from the background fetches.
 type (
-	dashboardPlaysMsg struct {
-		tracks []media.Track
+	dashAlbumsMsg struct {
+		feed   dashFeed
+		albums []media.AlbumSummary
+		total  int // feedUnplayed: how many albums were never played
 		err    error
 	}
-	dashboardAddedMsg struct {
-		albums []media.RecentlyAddedAlbum
-		err    error
+	dashHistoryMsg struct {
+		plays []media.Play
+		err   error
 	}
-	dashboardPlaylistsMsg struct {
+	dashPlaylistsMsg struct {
 		playlists []media.Playlist
 		err       error
 	}
 )
 
-// dashboardModel owns the home screen: three horizontal tiles of recent
-// data, a section cursor (which tile is focused), and a per-section
-// item cursor (which card within the tile is focused). It does not own
-// playback or the library cache — those are parent-state and reached
-// via outcomes.
-type dashboardModel struct {
-	plays     []media.Track
-	added     []media.RecentlyAddedAlbum
-	playlists []media.Playlist
-
-	playsErr     error
-	addedErr     error
-	playlistsErr error
-
-	loaded  [dashboardSectionCount]bool
-	cursors [dashboardSectionCount]int
-	section dashboardSection
+// dashCard is one card in a row.
+type dashCard struct {
+	key      string // album or playlist RatingKey: what enter opens
+	art      string // artwork key ("" when there's none)
+	title    string
+	sub      string
+	playlist bool
 }
 
-func newDashboardModel() dashboardModel { return dashboardModel{} }
+// dashRowState is a row's cards and where its cursor is.
+type dashRowState struct {
+	cards  []dashCard
+	loaded bool
+	err    error
+	cursor int
+	offset int // first card in view
+}
 
-// Loading reports whether any tile is still waiting on its fetch (a
-// failed fetch also counts as loaded — it shows its error instead).
+// dashboardModel owns the dashboard's data and cursor. Playback, the
+// library cache and the artwork belong to the parent, which renders the
+// band and the cards.
+type dashboardModel struct {
+	rows [dashRowCount]dashRowState
+
+	// history holds the plays of the last dashHeatWeeks weeks, for the
+	// heatmap and Most played; noHistory when the server keeps none.
+	history       []media.Play
+	historyLoaded bool
+	historyErr    error
+	noHistory     bool
+
+	// byPlays are the most-played albums: Rediscover's pool, and Most
+	// played itself on a server without history.
+	byPlays       []media.AlbumSummary
+	byPlaysLoaded bool
+	byPlaysErr    error
+
+	unplayedTotal int // albums never played; -1 until known
+
+	focus int // 0 is the band; 1+r is row r
+	cols  int // cards per row at the current width
+	now   func() time.Time
+}
+
+func newDashboardModel() dashboardModel {
+	return dashboardModel{focus: 1 + int(rowJumpBackIn), cols: 1, unplayedTotal: -1, now: time.Now}
+}
+
+// Loading reports whether anything is still waiting on its fetch (a
+// failed fetch counts as loaded: it shows its error instead).
 func (d dashboardModel) Loading() bool {
-	for _, loaded := range d.loaded {
-		if !loaded {
+	if !d.historyLoaded {
+		return true
+	}
+	for _, r := range d.rows {
+		if !r.loaded {
 			return true
 		}
 	}
 	return false
 }
 
-// Load returns a tea.Cmd that fans out the three section fetches in
-// parallel; results arrive as dashboard*Msg values.
-func (d dashboardModel) Load(client media.Backend, sectionKey string) tea.Cmd {
-	if client == nil || sectionKey == "" {
+// Load fans out the dashboard's fetches; results arrive as dash*Msg.
+// What's on screen stays until they do, so a refresh doesn't flash
+// empty rows.
+func (d dashboardModel) Load(client media.Backend, libraryKey string) tea.Cmd {
+	if client == nil || libraryKey == "" {
 		return nil
 	}
+	albums := func(feed dashFeed, fetch func(ctx context.Context) ([]media.AlbumSummary, int, error)) tea.Cmd {
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
+			defer cancel()
+			a, total, err := fetch(ctx)
+			return dashAlbumsMsg{feed: feed, albums: a, total: total, err: err}
+		}
+	}
+	noTotal := func(a []media.AlbumSummary, err error) ([]media.AlbumSummary, int, error) { return a, 0, err }
+	since := d.now().AddDate(0, 0, -7*dashHeatWeeks)
 	return tea.Batch(
-		fetchRecentPlays(client, sectionKey),
-		fetchRecentlyAdded(client, sectionKey),
-		fetchRecentPlaylists(client),
+		albums(feedRecent, func(ctx context.Context) ([]media.AlbumSummary, int, error) {
+			return noTotal(client.PlayedAlbums(ctx, libraryKey, media.ByLastPlayed, dashFetchLimit))
+		}),
+		albums(feedAdded, func(ctx context.Context) ([]media.AlbumSummary, int, error) {
+			return noTotal(client.RecentlyAddedAlbums(ctx, libraryKey, dashFetchLimit))
+		}),
+		albums(feedByPlays, func(ctx context.Context) ([]media.AlbumSummary, int, error) {
+			return noTotal(client.PlayedAlbums(ctx, libraryKey, media.ByPlays, dashPlayedPool))
+		}),
+		albums(feedUnplayed, func(ctx context.Context) ([]media.AlbumSummary, int, error) {
+			return client.UnplayedAlbums(ctx, libraryKey, dashFetchLimit)
+		}),
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), dashHistoryTimeout)
+			defer cancel()
+			plays, err := client.PlayHistory(ctx, libraryKey, since)
+			return dashHistoryMsg{plays: plays, err: err}
+		},
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
+			defer cancel()
+			ps, err := client.AudioPlaylists(ctx, dashFetchLimit)
+			return dashPlaylistsMsg{playlists: ps, err: err}
+		},
 	)
 }
 
-func fetchRecentPlays(client media.Backend, sectionKey string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
-		defer cancel()
-		tracks, err := client.RecentlyPlayedTracks(ctx, sectionKey, dashFetchLimit)
-		return dashboardPlaysMsg{tracks: tracks, err: err}
-	}
-}
-
-func fetchRecentlyAdded(client media.Backend, sectionKey string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
-		defer cancel()
-		albums, err := client.RecentlyAddedAlbums(ctx, sectionKey, dashFetchLimit)
-		return dashboardAddedMsg{albums: albums, err: err}
-	}
-}
-
-func fetchRecentPlaylists(client media.Backend) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), dashFetchTimeout)
-		defer cancel()
-		ps, err := client.AudioPlaylists(ctx, dashFetchLimit)
-		return dashboardPlaylistsMsg{playlists: ps, err: err}
-	}
-}
-
-// ApplyPlays / ApplyAdded / ApplyPlaylists fold the async result into
-// the model. Kept as methods so the parent can do them on msg receipt
-// without poking at internals.
-func (d *dashboardModel) ApplyPlays(m dashboardPlaysMsg) {
-	d.plays, d.playsErr = m.tracks, m.err
-	d.loaded[sectionRecentPlays] = true
-	d.clampCursor(sectionRecentPlays)
-}
-
-func (d *dashboardModel) ApplyAdded(m dashboardAddedMsg) {
-	d.added, d.addedErr = m.albums, m.err
-	d.loaded[sectionRecentlyAdded] = true
-	d.clampCursor(sectionRecentlyAdded)
-}
-
-func (d *dashboardModel) ApplyPlaylists(m dashboardPlaylistsMsg) {
-	d.playlists, d.playlistsErr = m.playlists, m.err
-	d.loaded[sectionRecentPlaylists] = true
-	d.clampCursor(sectionRecentPlaylists)
-}
-
-func (d *dashboardModel) clampCursor(s dashboardSection) {
-	n := d.sectionLen(s)
-	if n == 0 {
-		d.cursors[s] = 0
-		return
-	}
-	if d.cursors[s] >= n {
-		d.cursors[s] = n - 1
-	}
-}
-
-func (d dashboardModel) sectionLen(s dashboardSection) int {
-	switch s {
-	case sectionRecentPlays:
-		return len(d.plays)
-	case sectionRecentlyAdded:
-		return len(d.added)
-	case sectionRecentPlaylists:
-		return len(d.playlists)
-	}
-	return 0
-}
-
-// HandleKey routes a keypress. Outcomes that need parent state (play,
-// drill) come back to the parent; nav within the dashboard is handled
-// here.
-func (d dashboardModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (dashboardModel, tea.Cmd, dashboardOutcome) {
-	switch {
-	case key.Matches(msg, km.Up):
-		if d.section > 0 {
-			d.section--
+// ApplyAlbums / ApplyHistory / ApplyPlaylists fold a fetch's result in.
+func (d *dashboardModel) ApplyAlbums(msg dashAlbumsMsg) {
+	switch msg.feed {
+	case feedRecent:
+		d.setRow(rowJumpBackIn, albumCards(msg.albums, func(a media.AlbumSummary) string { return a.Artist }), msg.err)
+	case feedAdded:
+		d.setRow(rowRecentlyAdded, albumCards(msg.albums, artistAndYear), msg.err)
+	case feedByPlays:
+		d.byPlays, d.byPlaysErr, d.byPlaysLoaded = msg.albums, msg.err, true
+		d.derive()
+	case feedUnplayed:
+		if msg.err == nil {
+			d.unplayedTotal = msg.total
 		}
-		return d, nil, dashOutcomeNone
-	case key.Matches(msg, km.Down):
-		if d.section < dashboardSectionCount-1 {
-			d.section++
-		}
-		return d, nil, dashOutcomeNone
-	case key.Matches(msg, km.Left):
-		if d.cursors[d.section] > 0 {
-			d.cursors[d.section]--
-		}
-		return d, nil, dashOutcomeNone
-	case key.Matches(msg, km.Right):
-		if d.cursors[d.section]+1 < d.sectionLen(d.section) {
-			d.cursors[d.section]++
-		}
-		return d, nil, dashOutcomeNone
-	case key.Matches(msg, km.Enter):
-		switch d.section {
-		case sectionRecentPlays:
-			if len(d.plays) > 0 {
-				return d, nil, dashOutcomePlayTrack
-			}
-		case sectionRecentlyAdded:
-			if len(d.added) > 0 {
-				return d, nil, dashOutcomeOpenAlbum
-			}
-		case sectionRecentPlaylists:
-			if len(d.playlists) > 0 {
-				return d, nil, dashOutcomeOpenPlaylist
-			}
-		}
+		d.setRow(rowUnplayed, albumCards(msg.albums, artistAndYear), msg.err)
 	}
-	return d, nil, dashOutcomeNone
 }
 
-// SelectedTrack / SelectedAlbum / SelectedPlaylist return the item under
-// the cursor for the section that produced the outcome, or zero values
-// if there isn't one.
-func (d dashboardModel) SelectedTrack() (media.Track, bool) {
-	if c := d.cursors[sectionRecentPlays]; c < len(d.plays) {
-		return d.plays[c], true
+func (d *dashboardModel) ApplyHistory(msg dashHistoryMsg) {
+	d.history, d.historyErr, d.historyLoaded = msg.plays, msg.err, true
+	d.noHistory = errors.Is(msg.err, media.ErrNoHistory)
+	if d.noHistory {
+		d.historyErr = nil
 	}
-	return media.Track{}, false
+	d.derive()
 }
 
-func (d dashboardModel) SelectedAlbum() (media.RecentlyAddedAlbum, bool) {
-	if c := d.cursors[sectionRecentlyAdded]; c < len(d.added) {
-		return d.added[c], true
-	}
-	return media.RecentlyAddedAlbum{}, false
-}
-
-func (d dashboardModel) SelectedPlaylist() (media.Playlist, bool) {
-	if c := d.cursors[sectionRecentPlaylists]; c < len(d.playlists) {
-		return d.playlists[c], true
-	}
-	return media.Playlist{}, false
-}
-
-// View renders the dashboard body. width is the terminal width, height
-// is the rows available for the dashboard body (caller composes header
-// / now-playing / footer around this). sp is forwarded for inline
-// loading spinners.
-func (d dashboardModel) View(width, height int, sp spinner.Model) string {
-	tiles := []struct {
-		title  string
-		body   string
-		loaded bool
-		err    error
-	}{
-		{title: "Recently played", body: d.renderPlays(width), loaded: d.loaded[sectionRecentPlays], err: d.playsErr},
-		{title: "Recently added", body: d.renderAdded(width), loaded: d.loaded[sectionRecentlyAdded], err: d.addedErr},
-		{title: "Recent playlists", body: d.renderPlaylists(width), loaded: d.loaded[sectionRecentPlaylists], err: d.playlistsErr},
-	}
-	var b strings.Builder
-	starts := make([]int, len(tiles)) // first line of each section
-	activeBottom := 0
-	for i, t := range tiles {
-		starts[i] = strings.Count(b.String(), "\n")
-		marker := "  "
-		if dashboardSection(i) == d.section {
-			marker = npStyle.Render("▶ ")
-		}
-		b.WriteString(marker + sectionStyle.Render(t.title) + "\n")
-		switch {
-		case t.err != nil:
-			b.WriteString(dashIndent(errStyle.Render("error: " + t.err.Error())))
-		case !t.loaded:
-			b.WriteString(dashIndent(helpStyle.Render(sp.View() + "loading…")))
-		default:
-			b.WriteString(t.body)
-		}
-		if dashboardSection(i) == d.section {
-			activeBottom = strings.Count(b.String(), "\n")
-		}
-		if i < len(tiles)-1 {
-			b.WriteString("\n\n")
-		}
-	}
-	return lipgloss.NewStyle().Height(height).Render(scrollToSection(b.String(), height, starts, int(d.section), activeBottom))
-}
-
-// scrollToSection fits content into height rows when it's taller: the
-// window starts at a section's first line (never mid-card), as high as
-// it can while still showing the selected section through its last
-// line, bottom, and the last row says what's cut off. Short terminals
-// used to lose the last section's cards silently.
-func scrollToSection(content string, height int, starts []int, active, bottom int) string {
-	lines := strings.Split(content, "\n")
-	if len(lines) <= height || height < 2 {
-		return content
-	}
-	avail := height - 1 // the hint line
-	offset := starts[active]
-	for _, st := range starts[:active+1] {
-		if bottom-st < avail {
-			offset = st
-			break
-		}
-	}
-	end := min(offset+avail, len(lines))
-	// Don't end on half a section either: stop before the first one
-	// below the selected section that doesn't fit whole.
-	if end < len(lines) {
-		for k, st := range starts {
-			last := len(lines) - 1 // this section's last line
-			if k+1 < len(starts) {
-				last = starts[k+1] - 2 // before the blank separator
-			}
-			if st > bottom && st > offset && last >= end {
-				end = st - 1 // and the blank line before it
-				break
-			}
-		}
-	}
-	view := append([]string(nil), lines[offset:end]...)
-	above, below := offset > 0, end < len(lines)
-	hint := "↓ more below"
-	switch {
-	case above && below:
-		hint = "↑↓ more"
-	case above:
-		hint = "↑ more above"
-	}
-	return strings.Join(append(view, helpStyle.Render("  "+hint)), "\n")
-}
-
-func (d dashboardModel) renderPlays(width int) string {
-	if len(d.plays) == 0 {
-		return dashIndent(helpStyle.Render("(nothing yet)"))
-	}
-	return d.renderRow(width, sectionRecentPlays, len(d.plays), func(i int) (string, string) {
-		t := d.plays[i]
-		return t.Title, t.Artist
-	})
-}
-
-func (d dashboardModel) renderAdded(width int) string {
-	if len(d.added) == 0 {
-		return dashIndent(helpStyle.Render("(none)"))
-	}
-	return d.renderRow(width, sectionRecentlyAdded, len(d.added), func(i int) (string, string) {
-		a := d.added[i]
-		sub := a.Artist
-		if a.Year > 0 {
-			sub = fmt.Sprintf("%s · %d", a.Artist, a.Year)
-		}
-		return a.Title, sub
-	})
-}
-
-func (d dashboardModel) renderPlaylists(width int) string {
-	if len(d.playlists) == 0 {
-		return dashIndent(helpStyle.Render("(no playlists)"))
-	}
-	return d.renderRow(width, sectionRecentPlaylists, len(d.playlists), func(i int) (string, string) {
-		p := d.playlists[i]
-		sub := fmt.Sprintf("%d tracks", p.LeafCount)
+func (d *dashboardModel) ApplyPlaylists(msg dashPlaylistsMsg) {
+	cards := make([]dashCard, 0, len(msg.playlists))
+	for _, p := range msg.playlists {
+		sub := countPhrase(p.LeafCount, "track")
 		if p.Smart {
 			sub = "smart · " + sub
 		}
 		// Plex's default playlists (e.g. "❤️ Tracks") embed glyphs that
-		// lipgloss measures wrong; safeText drops them so the card
+		// lipgloss measures wrong; SafeText drops them so the card
 		// borders stay aligned.
-		return textutil.SafeText(p.Title), sub
+		cards = append(cards, dashCard{key: p.RatingKey, art: p.Art, title: textutil.SafeText(p.Title), sub: sub, playlist: true})
+	}
+	d.setRow(rowPlaylists, cards, msg.err)
+}
+
+// derive builds the rows that come from more than one feed: Most played
+// (from the history, or the play counts where there's none) and
+// Rediscover (well-played albums gone quiet).
+func (d *dashboardModel) derive() {
+	now := d.now()
+	switch {
+	case d.historyLoaded && !d.noHistory:
+		top := mostPlayedAlbums(d.history, now.AddDate(0, 0, -dashMostPlayedDays), dashFetchLimit)
+		d.setRow(rowMostPlayed, albumCards(top, playsAndArtist), d.historyErr)
+	case d.historyLoaded && d.byPlaysLoaded:
+		top := d.byPlays[:min(dashFetchLimit, len(d.byPlays))]
+		d.setRow(rowMostPlayed, albumCards(top, playsAndArtist), d.byPlaysErr)
+	}
+	if d.byPlaysLoaded {
+		quiet := rediscoverAlbums(d.byPlays, now.Add(-dashRediscoverAfter), dashFetchLimit)
+		d.setRow(rowRediscover, albumCards(quiet, func(a media.AlbumSummary) string { return a.Artist }), d.byPlaysErr)
+	}
+}
+
+func (d *dashboardModel) setRow(r dashRow, cards []dashCard, err error) {
+	s := &d.rows[r]
+	s.cards, s.err, s.loaded = cards, err, true
+	s.cursor = min(s.cursor, max(len(cards)-1, 0))
+	d.keepInView(r)
+	d.fixFocus()
+}
+
+// mostPlayedAlbums counts the plays since a time per album, most played
+// first (the more recent first on a tie).
+func mostPlayedAlbums(plays []media.Play, since time.Time, limit int) []media.AlbumSummary {
+	var out []media.AlbumSummary
+	at := map[string]int{}
+	for _, p := range plays {
+		if p.AlbumKey == "" || p.At.Before(since) {
+			continue
+		}
+		i, ok := at[p.AlbumKey]
+		if !ok {
+			i = len(out)
+			at[p.AlbumKey] = i
+			out = append(out, media.AlbumSummary{RatingKey: p.AlbumKey, Title: p.Album, Artist: p.Artist})
+		}
+		out[i].Plays++
+		if p.At.After(out[i].LastPlayed) {
+			out[i].LastPlayed = p.At
+		}
+	}
+	slices.SortStableFunc(out, func(a, b media.AlbumSummary) int {
+		if n := cmp.Compare(b.Plays, a.Plays); n != 0 {
+			return n
+		}
+		return b.LastPlayed.Compare(a.LastPlayed)
 	})
+	return out[:min(limit, len(out))]
 }
 
-// renderRow lays out a horizontal strip of cards. Only the cards that
-// fit in the visible window are rendered; the cursor stays in view by
-// shifting the window when it would fall off either edge. Card titles
-// are pre-sanitized by safeText at the call site so lipgloss's width
-// measurement is correct here — see widthsafe.go for context.
-func (d dashboardModel) renderRow(width int, s dashboardSection, n int, item func(i int) (title, sub string)) string {
-	avail := width - 4 // 2-char indent each side
-	cols := avail / dashCardOuterW
-	if cols < 1 {
-		cols = 1
-	}
-	cursor := d.cursors[s]
-	start := 0
-	if cursor >= cols {
-		start = cursor - cols + 1
-	}
-	end := start + cols
-	if end > n {
-		end = n
-	}
-	cells := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		title, sub := item(i)
-		card := title
-		if sub != "" {
-			card += "\n" + helpStyle.Render(sub)
+// rediscoverAlbums picks, from albums in most-played order, those last
+// played before a time.
+func rediscoverAlbums(byPlays []media.AlbumSummary, before time.Time, limit int) []media.AlbumSummary {
+	var out []media.AlbumSummary
+	for _, a := range byPlays {
+		if len(out) == limit {
+			break
 		}
-		style := cardStyle
-		if i == cursor && d.section == s {
-			style = cardCursorStyle
+		if !a.LastPlayed.IsZero() && a.LastPlayed.Before(before) {
+			out = append(out, a)
 		}
-		cells = append(cells, style.Width(dashCardOuterW).Height(dashCardOuterH).Render(card))
 	}
-	return dashIndent(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+	return out
 }
 
-// dashIndent pads every line of s by the dashboard's gutter width.
-// PaddingLeft applies to all rows (where prepending "  " would only
-// indent the first line of a multi-line block).
-func dashIndent(s string) string {
-	return lipgloss.NewStyle().PaddingLeft(2).Render(s)
+func albumCards(albums []media.AlbumSummary, sub func(media.AlbumSummary) string) []dashCard {
+	cards := make([]dashCard, 0, len(albums))
+	for _, a := range albums {
+		cards = append(cards, dashCard{key: a.RatingKey, art: a.RatingKey, title: a.Title, sub: sub(a)})
+	}
+	return cards
+}
+
+func artistAndYear(a media.AlbumSummary) string {
+	if a.Year > 0 {
+		return fmt.Sprintf("%s · %d", a.Artist, a.Year)
+	}
+	return a.Artist
+}
+
+func playsAndArtist(a media.AlbumSummary) string {
+	return countPhrase(a.Plays, "play") + " · " + a.Artist
+}
+
+// rowTitle is a row's heading and the note after it.
+func (d dashboardModel) rowTitle(r dashRow) (title, note string) {
+	switch r {
+	case rowJumpBackIn:
+		return "Jump back in", ""
+	case rowRecentlyAdded:
+		return "Recently added", ""
+	case rowMostPlayed:
+		if d.noHistory {
+			return "Most played", "all time"
+		}
+		return "Most played", fmt.Sprintf("last %d days", dashMostPlayedDays)
+	case rowRediscover:
+		return "Rediscover", "not played in 3 months"
+	case rowUnplayed:
+		return "Unplayed picks", "never played · R for new picks"
+	case rowPlaylists:
+		return "Playlists", ""
+	}
+	return "", ""
+}
+
+// rowVisible: a row that loaded empty is left out (nothing to show in
+// Rediscover yet, no playlists…); loading and failed rows show.
+func (d dashboardModel) rowVisible(r dashRow) bool {
+	s := d.rows[r]
+	return !s.loaded || s.err != nil || len(s.cards) > 0
+}
+
+// sections are the focusable sections in screen order: the band (0),
+// then the visible rows (1+row).
+func (d dashboardModel) sections() []int {
+	out := []int{0}
+	for r := range dashRowCount {
+		if d.rowVisible(r) {
+			out = append(out, 1+int(r))
+		}
+	}
+	return out
+}
+
+// fixFocus moves the focus off a row that turned out empty: to the next
+// row down, else up.
+func (d *dashboardModel) fixFocus() {
+	secs := d.sections()
+	if slices.Contains(secs, d.focus) {
+		return
+	}
+	for _, s := range secs {
+		if s > d.focus {
+			d.focus = s
+			return
+		}
+	}
+	d.focus = secs[len(secs)-1]
+}
+
+// SetWidth tells the dashboard its width, which sets how many cards a
+// row shows.
+func (d *dashboardModel) SetWidth(width int) {
+	d.cols = gridCols(width - dashIndentW)
+	for r := range dashRowCount {
+		d.keepInView(r)
+	}
+}
+
+// keepInView scrolls a row just enough to show its cursor.
+func (d *dashboardModel) keepInView(r dashRow) {
+	s := &d.rows[r]
+	cols := max(d.cols, 1)
+	if s.cursor < s.offset {
+		s.offset = s.cursor
+	}
+	if s.cursor >= s.offset+cols {
+		s.offset = s.cursor - cols + 1
+	}
+	s.offset = max(min(s.offset, len(s.cards)-cols), 0)
+}
+
+// focusedRow is the row under focus, if the focus is on one.
+func (d dashboardModel) focusedRow() (dashRow, bool) {
+	if d.focus <= 0 {
+		return 0, false
+	}
+	return dashRow(d.focus - 1), true
+}
+
+// HandleKey moves around the dashboard; what enter / q mean comes back
+// as an outcome for the parent.
+func (d dashboardModel) HandleKey(msg tea.KeyPressMsg, km KeyMap) (dashboardModel, dashboardOutcome) {
+	secs := d.sections()
+	at := max(slices.Index(secs, d.focus), 0)
+	row, onRow := d.focusedRow()
+	switch {
+	case key.Matches(msg, km.Up):
+		d.focus = secs[max(at-1, 0)]
+	case key.Matches(msg, km.Down):
+		d.focus = secs[min(at+1, len(secs)-1)]
+	case key.Matches(msg, km.Left):
+		if onRow && d.rows[row].cursor > 0 {
+			d.rows[row].cursor--
+			d.keepInView(row)
+		}
+	case key.Matches(msg, km.Right):
+		if onRow && d.rows[row].cursor+1 < len(d.rows[row].cards) {
+			d.rows[row].cursor++
+			d.keepInView(row)
+		}
+	case key.Matches(msg, km.Enter):
+		if !onRow {
+			return d, dashOutcomeGoToPlaying
+		}
+		if c, ok := d.Selected(); ok {
+			if c.playlist {
+				return d, dashOutcomePlayPlaylist
+			}
+			return d, dashOutcomeOpenAlbum
+		}
+	case key.Matches(msg, km.Enqueue):
+		if _, ok := d.Selected(); ok {
+			return d, dashOutcomeEnqueue
+		}
+	}
+	return d, dashOutcomeNone
+}
+
+// Selected is the card under the cursor of the focused row.
+func (d dashboardModel) Selected() (dashCard, bool) {
+	r, ok := d.focusedRow()
+	if !ok {
+		return dashCard{}, false
+	}
+	s := d.rows[r]
+	if s.cursor >= len(s.cards) {
+		return dashCard{}, false
+	}
+	return s.cards[s.cursor], true
 }

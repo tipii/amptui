@@ -13,24 +13,30 @@ import (
 // make — tracks, albums, artists, playlists, views. Fields absent for a
 // given item type stay zero.
 type itemDTO struct {
-	Id                string    `json:"Id"`
-	Name              string    `json:"Name"`
-	Type              string    `json:"Type"`
-	CollectionType    string    `json:"CollectionType"`
-	Album             string    `json:"Album"`
-	AlbumId           string    `json:"AlbumId"`
-	AlbumArtist       string    `json:"AlbumArtist"`
-	AlbumArtists      []nameID  `json:"AlbumArtists"`
-	ArtistItems       []nameID  `json:"ArtistItems"`
-	IndexNumber       int       `json:"IndexNumber"`
-	ParentIndexNumber int       `json:"ParentIndexNumber"` // disc number
-	ProductionYear    int       `json:"ProductionYear"`
-	RunTimeTicks      int64     `json:"RunTimeTicks"`
-	Overview          string    `json:"Overview"`
-	Genres            []string  `json:"Genres"`
-	Studios           []nameID  `json:"Studios"`
-	ChildCount        int       `json:"ChildCount"`
-	DateCreated       time.Time `json:"DateCreated"`
+	Id                string            `json:"Id"`
+	Name              string            `json:"Name"`
+	Type              string            `json:"Type"`
+	CollectionType    string            `json:"CollectionType"`
+	Album             string            `json:"Album"`
+	AlbumId           string            `json:"AlbumId"`
+	AlbumArtist       string            `json:"AlbumArtist"`
+	AlbumArtists      []nameID          `json:"AlbumArtists"`
+	ArtistItems       []nameID          `json:"ArtistItems"`
+	IndexNumber       int               `json:"IndexNumber"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"` // disc number
+	ProductionYear    int               `json:"ProductionYear"`
+	RunTimeTicks      int64             `json:"RunTimeTicks"`
+	Overview          string            `json:"Overview"`
+	Genres            []string          `json:"Genres"`
+	Studios           []nameID          `json:"Studios"`
+	ChildCount        int               `json:"ChildCount"`
+	DateCreated       time.Time         `json:"DateCreated"`
+	ImageTags         map[string]string `json:"ImageTags"`
+	UserData          struct {
+		PlayCount      int       `json:"PlayCount"`
+		LastPlayedDate time.Time `json:"LastPlayedDate"`
+		Played         bool      `json:"Played"`
+	} `json:"UserData"`
 }
 
 // albumArtist resolves the parent artist's name and id, preferring the

@@ -115,14 +115,31 @@ func (m Model) footerLeft() string {
 	default:
 		// Auto-render from the active KeyMap context so the help line
 		// stays in sync with bindings without hand-maintained strings.
-		return m.helpModel.View(m.currentHelp())
+		return m.fitHelp(m.currentHelp())
 	}
 }
 
-// dashboardScreen composes the dashboard sub-model's body with the
-// shared chrome (header + now-playing line + footer). All three tiles
-// render their loading / error / data states inside the sub-model;
-// the parent just wraps it.
+// fitHelp is the short help line, at most the terminal's width. bubbles'
+// help cuts the line short with "…", but keeps the item that overflows
+// when there's no room left for the "…" either; this drops items until
+// it fits.
+func (m Model) fitHelp(h helpView) string {
+	out := m.helpModel.View(h)
+	if m.width <= 0 || lipgloss.Width(out) <= m.width {
+		return out
+	}
+	tail := " " + m.helpModel.Styles.Ellipsis.Render(m.helpModel.Ellipsis)
+	for n := len(h.short) - 1; n > 0; n-- {
+		out = m.helpModel.ShortHelpView(h.short[:n]) + tail
+		if lipgloss.Width(out) <= m.width {
+			return out
+		}
+	}
+	return ansi.Truncate(out, m.width, "")
+}
+
+// dashboardScreen composes the dashboard's body with the shared chrome
+// (header + now-playing line + footer).
 func (m Model) dashboardScreen() string {
 	var b strings.Builder
 	b.WriteString(m.titleBar("Dashboard"))
@@ -130,7 +147,7 @@ func (m Model) dashboardScreen() string {
 	// Dashboard renders its title + spacer outside the sub-model body,
 	// matching the browser layout, so the body itself gets exactly
 	// listHeight rows.
-	b.WriteString(fitRows(m.dashboard.View(m.width, m.bodyHeight(), m.spinner), m.bodyHeight()))
+	b.WriteString(fitRows(m.dashboardBody(m.width, m.bodyHeight()), m.bodyHeight()))
 	b.WriteString("\n")
 	b.WriteString(m.nowPlayingLine())
 	b.WriteString("\n")

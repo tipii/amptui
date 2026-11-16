@@ -135,6 +135,9 @@ func (m *Model) trimThumbs() {
 		return
 	}
 	keep := map[string]bool{}
+	for _, key := range m.dashArtKeys(1) {
+		keep[key] = true
+	}
 	for _, it := range m.visibleItems() {
 		switch v := it.(type) {
 		case artistItem:

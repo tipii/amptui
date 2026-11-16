@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/url"
@@ -23,6 +24,8 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]media.Playlis
 				UpdatedAt    int64  `json:"updatedAt"`
 				Smart        bool   `json:"smart"`
 				PlaylistType string `json:"playlistType"`
+				Composite    string `json:"composite"` // collage of its albums' covers
+				Thumb        string `json:"thumb"`     // one set by hand, if any
 			} `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
@@ -45,6 +48,7 @@ func (c *Client) AudioPlaylists(ctx context.Context, limit int) ([]media.Playlis
 			Duration:  time.Duration(m.Duration) * time.Millisecond,
 			UpdatedAt: unixOrZero(m.UpdatedAt),
 			Smart:     m.Smart,
+			Art:       cmp.Or(m.Thumb, m.Composite),
 		})
 	}
 	return out, nil

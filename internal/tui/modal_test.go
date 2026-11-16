@@ -629,9 +629,8 @@ func TestArtistGridRenders(t *testing.T) {
 	t.Log("\n" + out)
 }
 
-// TestDashboardRenders covers the home screen showing the three section
-// headers and the cursor marker. Tile bodies show "loading…" since no
-// background fetch resolves in this test.
+// TestDashboardRenders covers the home screen showing its sections while
+// they load: no background fetch resolves in this test.
 func TestDashboardRenders(t *testing.T) {
 	libs := []media.MusicLibrary{{Key: "1", Title: "Music"}}
 	cfg := config.Config{ServerURL: "https://x", PlexToken: "t", Home: "dashboard"}
@@ -646,9 +645,12 @@ func TestDashboardRenders(t *testing.T) {
 	out := m.View().Content
 	for _, want := range []string{
 		"Dashboard",
-		"Recently played",
+		"Now playing",
+		"Listening",
+		"Jump back in",
 		"Recently added",
-		"Recent playlists",
+		"Unplayed picks",
+		"Playlists",
 		"loading…",
 	} {
 		if !strings.Contains(out, want) {
