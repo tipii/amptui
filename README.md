@@ -16,7 +16,7 @@ Working today:
 - [x] Connect to a Plex server (manual token auth) or a Jellyfin server (username/password)
 - [x] Browse: libraries → artists → albums → tracks (list or grid)
 - [x] Plex-style sorting per level (`o`) — title, year, date added, duration, counts — remembered across launches
-- [x] Dashboard home with recent plays, recently added, recent playlists
+- [x] Dashboard home: what's playing and what's next, a listening heatmap and the library's numbers, then cover-art rows — jump back in, recently added, most played, rediscover, unplayed picks, playlists
 - [x] Play via mpv: pause/resume, seek, next/prev, volume/mute, repeat, shuffle, queue with auto-advance
 - [x] Queue and position restored (paused) on the next launch
 - [x] OS media controls (Linux, MPRIS): media keys, `playerctl`, and bar / notification widgets show what's playing and drive it
@@ -28,11 +28,10 @@ Working today:
 - [x] Editable settings screen, in-app keybindings modal (`?`)
 - [x] Pluggable backend — Plex or Jellyfin, selected by config, behind one `media.Backend` interface
 - [x] Library cache (`internal/library`) as single source of truth — browse + search read from it; the server is only touched during sync or info fetches
-- [x] Playback reporting: shows in the server's Now Playing, counts plays (feeds "Recent plays")
+- [x] Playback reporting: shows in the server's Now Playing, counts plays (feeds the dashboard)
 
 ## Roadmap
 
-- **Dashboard improvements** — richer tiles, more sections, better layout.
 - **Playlist management** — create, edit, and reorder playlists from the TUI
   (today they're browse + play only).
 - **Music visualizer screen** — an audio-reactive view while a track plays.
@@ -244,8 +243,9 @@ cache** section there shows the current path, file count, and disk size.
 By default amptui tells the server what it's playing, the way official
 clients do: it appears in Plex's / Jellyfin's Now Playing (with progress
 and pause state), and a track counts as played once you're 90% through
-it — its play count and last-played time update, so the dashboard's
-*Recent plays* includes what you play in amptui. Plex gets timeline
+it — its play count and last-played time update, so the dashboard
+(*Jump back in*, *Most played*, the listening heatmap) includes what you
+play in amptui. Plex gets timeline
 updates plus an explicit scrobble (its timeline alone doesn't count the
 play); Jellyfin gets session start / progress / stop reports and marks
 the play itself. Turn it off with **Report playback** in settings
@@ -322,6 +322,20 @@ Press `?` in the app for an in-TUI keybindings modal.
 | `?`                   | Open / close the keybindings modal           |
 | `R`                   | Re-sync the library cache from the server          |
 | `ctrl+c` / `ctrl+q`   | Quit                                         |
+
+**On the dashboard:**
+
+| Key                   | Action                                       |
+| --------------------- | -------------------------------------------- |
+| `↑` / `↓`             | Move between the rows (and the Now playing band at the top) |
+| `←` / `→`             | Move along a row                             |
+| `enter`               | Open the album / play the playlist; on Now playing, go to the playing album |
+| `q`                   | Add the album or playlist to the queue       |
+| `R`                   | Refresh the dashboard (new unplayed picks)   |
+
+The listening heatmap needs the server's play history, which Plex keeps
+and Jellyfin doesn't: on Jellyfin the band shows the library's numbers
+alone, and *Most played* counts all time instead of the last 30 days.
 
 **Inside the queue modal:**
 
