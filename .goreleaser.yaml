@@ -1,0 +1,89 @@
+# Release builds: run by .github/workflows/release.yml when a v* tag is
+# pushed, or locally with `make snapshot` (into dist/, nothing published).
+# Docs: https://goreleaser.com
+version: 2
+project_name: amptui
+
+before:
+  hooks:
+    - go mod download
+    # The dependencies' licenses, shipped next to the binary.
+    - sh -c "go run ./scripts/notices > THIRD_PARTY_NOTICES"
+
+builds:
+  - id: amptui
+    main: ./cmd/amptui
+    binary: amptui
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/tipii/amptui/internal/version.Version={{ .Version }}
+    # Reproducible: the same commit builds the same bytes.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    # amptui-v0.4.0-linux-amd64.tar.gz, as v0.3.0's were named.
+    name_template: "{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - README.md
+      - LICENSE
+      - THIRD_PARTY_NOTICES
+      - config.example.toml
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+nfpms:
+  - id: packages
+    package_name: amptui
+    file_name_template: "{{ .ConventionalFileName }}"
+    formats: [deb, rpm, apk]
+    vendor: Théo Palhol
+    maintainer: Théo Palhol <45461179+tipii@users.noreply.github.com>
+    homepage: https://github.com/tipii/amptui
+    description: |-
+      Terminal music client for Plex and Jellyfin.
+      Browse and search your library, play through mpv, with cover art,
+      a queue, downloads and desktop media controls.
+    license: MIT
+    section: sound
+    bindir: /usr/bin
+    dependencies:
+      - mpv
+    recommends:
+      - chafa # cover art on terminals without Kitty graphics
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/amptui/copyright
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/licenses/amptui/LICENSE
+        packager: rpm
+      - src: LICENSE
+        dst: /usr/share/licenses/amptui/LICENSE
+        packager: apk
+      - src: THIRD_PARTY_NOTICES
+        dst: /usr/share/doc/amptui/THIRD_PARTY_NOTICES
+      - src: README.md
+        dst: /usr/share/doc/amptui/README.md
+      - src: config.example.toml
+        dst: /usr/share/doc/amptui/config.example.toml
+
+release:
+  # Created as a draft: write the notes (the commit list below is a
+  # starting point), then publish it by hand.
+  draft: true
+  name_template: "{{ .Tag }}"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "

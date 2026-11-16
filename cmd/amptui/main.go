@@ -1,8 +1,9 @@
-// Command amptui is a terminal Plex music client.
+// Command amptui is a terminal music client for Plex and Jellyfin.
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -17,13 +18,40 @@ import (
 	"github.com/tipii/amptui/internal/mpris"
 	"github.com/tipii/amptui/internal/player"
 	"github.com/tipii/amptui/internal/tui"
+	"github.com/tipii/amptui/internal/version"
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Usage = usage
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("amptui", version.String())
+		return
+	}
+	if flag.NArg() > 0 {
+		usage()
+		os.Exit(2)
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func usage() {
+	path, err := config.Path()
+	if err != nil {
+		path = "~/.config/amptui/config.toml"
+	}
+	fmt.Fprintf(flag.CommandLine.Output(), `amptui %s — a terminal music client for Plex and Jellyfin
+
+Usage: amptui [--version]
+
+Settings live in %s, editable in the app
+(press , for settings and ? for the keys). Playback needs mpv on PATH.
+`, version.String(), path)
+	flag.PrintDefaults()
 }
 
 func run() error {

@@ -3,3 +3,5 @@
 *.out
 *.test
 config.toml
+# Generated at release time (make notices).
+/THIRD_PARTY_NOTICES

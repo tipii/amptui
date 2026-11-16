@@ -38,10 +38,33 @@ Working today:
 
 ## Requirements
 
-- Go 1.26.8+
 - [mpv](https://mpv.io/) on your `PATH` (playback is disabled gracefully if missing)
 - A music library on either a Plex Media Server (with an `X-Plex-Token`) or a
   Jellyfin server (with a username + password)
+- Optional: [chafa](https://hpjansson.org/chafa/), for sharper cover art on
+  terminals without Kitty graphics
+- To build from source: Go 1.26.8+
+
+## Install
+
+Each [release](https://github.com/tipii/amptui/releases) has packages for
+Linux (amd64 and arm64), which pull in mpv, and archives for Linux and macOS:
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./amptui_<version>_amd64.deb
+# Fedora / RHEL / openSUSE
+sudo dnf install ./amptui-<version>-1.x86_64.rpm
+# Alpine
+sudo apk add --allow-untrusted ./amptui_<version>_x86_64.apk
+# Anything else: the binary is in the archive
+tar xzf amptui-v<version>-linux-amd64.tar.gz
+install -m 0755 amptui-v<version>-linux-amd64/amptui ~/.local/bin/
+```
+
+With Go: `go install github.com/tipii/amptui/cmd/amptui@latest`.
+
+`amptui --version` prints the installed version.
 
 ## Build
 
@@ -60,6 +83,15 @@ versioned Go toolchain directory, so the binary drops off `PATH` as soon as
 the Go version changes.
 
 Without `make`: `go build -o amptui ./cmd/amptui && ./amptui`, or `go run ./cmd/amptui`.
+
+### Releasing
+
+Push a tag (`git tag -a v0.4.0 -m … && git push origin v0.4.0`) and the
+release workflow tests it, builds the archives, the `.deb` / `.rpm` / `.apk`
+packages and `SHA256SUMS`, and attaches them to a **draft** release. Write
+the notes there, then publish it. `make snapshot` runs the same build
+locally into `dist/` (it needs [GoReleaser](https://goreleaser.com)), and CI
+runs it on every pull request.
 
 ## Configuration
 
@@ -391,14 +423,20 @@ is retried a few times before the sync gives up with the error.
 ```
 cmd/amptui/        entrypoint: config → connect → launch UI
 internal/config/   TOML + env config loading
+internal/media/    backend-neutral types and the Backend interface
 internal/plex/     Plex HTTP client (hand-written, no SDK)
+internal/jellyfin/ Jellyfin HTTP client
 internal/player/   mpv subprocess driven over its JSON IPC socket
 internal/mpris/    MPRIS D-Bus server: OS media keys + now-playing metadata
 internal/library/  on-disk cache for a music section (browse + search read from here)
 internal/imgcache/ on-disk thumbnail bytes + terminal-protocol detection
-internal/tui/      Bubble Tea drill-down browser
+internal/tui/      Bubble Tea UI: dashboard, browser, modals, settings
+internal/version/  the version --version prints and the servers are told
+scripts/notices/   writes THIRD_PARTY_NOTICES for releases
 ```
 
 ## License
 
-MIT
+MIT: see [LICENSE](LICENSE). Release archives and packages also include
+`THIRD_PARTY_NOTICES`, the licenses of the Go modules compiled in (MIT,
+BSD and one MPL-2.0).
