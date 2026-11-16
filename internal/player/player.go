@@ -100,6 +100,16 @@ type Player struct {
 	// a safety net, until settleUntil.
 	settleReq   int
 	settleUntil time.Time
+	// loadIndex is the entry the last load asked mpv to start (-1 once
+	// checked, or when a command moved the playhead since); loadReq the
+	// request that appended it and loadEntryID its playlist entry id,
+	// from mpv's answer. discarding: mpv started a different entry and is
+	// being moved to the right one, so the wrong one's reports are
+	// dropped until it does. See loadList.
+	loadIndex   int
+	loadReq     int
+	loadEntryID int64
+	discarding  bool
 
 	extraArgs []string // reused on restart
 	repeat    Repeat   // re-applied on restart; guarded by writeMu
@@ -117,7 +127,7 @@ func New(extraArgs ...string) (*Player, error) {
 	if _, err := exec.LookPath("mpv"); err != nil {
 		return nil, fmt.Errorf("mpv not found on PATH: %w", err)
 	}
-	p := &Player{changes: make(chan struct{}, 1), extraArgs: extraArgs}
+	p := &Player{changes: make(chan struct{}, 1), extraArgs: extraArgs, loadIndex: -1}
 	if err := p.start(); err != nil {
 		return nil, err
 	}
@@ -264,30 +274,41 @@ func (p *Player) loadList(urls []string, start int, paused bool) error {
 	if start < 0 || start >= len(urls) {
 		start = 0
 	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	// stop empties the playlist and idles mpv; appending then builds the
 	// new list without auto-playing, so setting playlist-pos lands on
 	// exactly the entry we want with no index-0 glitch. The stop's
 	// end-file carries reason "stop", so it never reads as Exhausted.
-	if err := p.command("stop"); err != nil {
+	if err := p.writeLocked("stop"); err != nil {
 		return err
 	}
-	for _, u := range urls {
-		if err := p.command("loadfile", u, "append"); err != nil {
+	startReq := 0
+	for i, u := range urls {
+		if err := p.writeLocked("loadfile", u, "append"); err != nil {
 			return err
 		}
+		if i == start {
+			startReq = p.reqID
+		}
 	}
-	if err := p.command("set_property", "pause", paused); err != nil {
+	if err := p.writeLocked("set_property", "pause", paused); err != nil {
 		return err
 	}
-	if err := p.command("set_property", "playlist-pos", start); err != nil {
-		return err
-	}
+	// mpv can still start the list's first entry: while it is starting
+	// up it runs commands as they come, then sets the playlist up, which
+	// points it back at the first entry. A slow start (a cold launch
+	// restoring the last session) played the first track of the queue
+	// instead of the saved one. So the entry that starts is checked
+	// against the one asked for (applyStartFile), by the id mpv gives it
+	// in its answer to the loadfile (applyReply).
 	p.stateMu.Lock()
 	p.state.PlaylistPos = start
 	p.state.Position, p.state.Duration, p.state.CacheTime = 0, 0, 0
 	p.state.Paused, p.state.Exhausted = paused, false
+	p.loadIndex, p.loadReq, p.loadEntryID, p.discarding = start, startReq, 0, false
 	p.stateMu.Unlock()
-	return nil
+	return p.writeLocked("set_property", "playlist-pos", start)
 }
 
 // Append adds url to the end of mpv's playlist. If mpv is idle (empty
@@ -300,14 +321,25 @@ func (p *Player) Append(url string) error {
 	return p.command("loadfile", url, "append-play")
 }
 
+// forgetLoad stops checking which entry the last load starts: after a
+// command that moves the playhead itself, another entry starting is
+// expected.
+func (p *Player) forgetLoad() {
+	p.stateMu.Lock()
+	p.loadIndex, p.loadReq, p.loadEntryID, p.discarding = -1, 0, 0, false
+	p.stateMu.Unlock()
+}
+
 // PlayIndex jumps playback to playlist entry i.
 func (p *Player) PlayIndex(i int) error {
+	p.forgetLoad()
 	return p.command("set_property", "playlist-pos", i)
 }
 
 // RemoveIndex drops playlist entry i. mpv handles the case where i is
 // the currently-playing entry (advances to the next).
 func (p *Player) RemoveIndex(i int) error {
+	p.forgetLoad()
 	return p.command("playlist-remove", i)
 }
 
@@ -319,12 +351,20 @@ func (p *Player) MoveIndex(from, to int) error {
 	if to > from {
 		dst = to + 1
 	}
+	p.forgetLoad()
 	return p.command("playlist-move", from, dst)
 }
 
 // Next / Prev step through the playlist.
-func (p *Player) Next() error { return p.command("playlist-next") }
-func (p *Player) Prev() error { return p.command("playlist-prev") }
+func (p *Player) Next() error {
+	p.forgetLoad()
+	return p.command("playlist-next")
+}
+
+func (p *Player) Prev() error {
+	p.forgetLoad()
+	return p.command("playlist-prev")
+}
 
 // SetPaused pauses or resumes playback.
 func (p *Player) SetPaused(paused bool) error {
@@ -338,6 +378,7 @@ func (p *Player) TogglePause() error {
 
 // Stop clears the playlist and stops playback.
 func (p *Player) Stop() error {
+	p.forgetLoad()
 	p.stateMu.Lock()
 	p.state = State{PlaylistPos: -1, Idle: true, ErrorSeq: p.state.ErrorSeq, LastError: p.state.LastError,
 		Volume: p.state.Volume, Muted: p.state.Muted}
@@ -401,6 +442,7 @@ func (p *Player) Rearrange(before, after []string) error {
 	// track change: the UI and the server reports briefly showed the
 	// queue's first track, and a "next" in that window skipped from the
 	// wrong place. So the position is pinned to where it ends up.
+	p.forgetLoad()
 	p.stateMu.Lock()
 	p.settleReq, p.settleUntil = 0, time.Now().Add(settleTimeout)
 	p.state.PlaylistPos = len(before)
@@ -445,11 +487,22 @@ func (p *Player) querySettled() error {
 	return p.writeLocked("get_property", "playlist-pos")
 }
 
-// applyReply handles mpv's answer to a command. Only the Rearrange
-// settling query is of interest; other replies are ignored.
+// applyReply handles mpv's answer to a command. Of interest are the
+// loadfile of the entry a load starts (its playlist entry id) and the
+// Rearrange settling query; other replies are ignored.
 func (p *Player) applyReply(id int, data json.RawMessage) {
 	p.stateMu.Lock()
 	defer p.stateMu.Unlock()
+	if id != 0 && id == p.loadReq {
+		var r struct {
+			ID int64 `json:"playlist_entry_id"`
+		}
+		if json.Unmarshal(data, &r) == nil {
+			p.loadEntryID = r.ID
+		}
+		p.loadReq = 0
+		return
+	}
 	if id == 0 || id != p.settleReq {
 		return
 	}
@@ -559,6 +612,7 @@ func (p *Player) readLoop(conn net.Conn) {
 			Reason    string          `json:"reason"`
 			FileError string          `json:"file_error"`
 			RequestID int             `json:"request_id"`
+			EntryID   int64           `json:"playlist_entry_id"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			continue
@@ -571,10 +625,9 @@ func (p *Player) readLoop(conn net.Conn) {
 		case "end-file":
 			p.applyEndFile(msg.Reason, msg.FileError)
 		case "start-file":
-			p.stateMu.Lock()
-			p.state.Exhausted = false
-			p.lastEnd = ""
-			p.stateMu.Unlock()
+			if fix := p.applyStartFile(msg.EntryID); fix >= 0 {
+				_ = p.command("set_property", "playlist-pos", fix)
+			}
 		}
 	}
 
@@ -594,8 +647,38 @@ func (p *Player) readLoop(conn net.Conn) {
 	p.notify()
 }
 
+// applyStartFile notes a file starting, and checks it's the one the
+// last load asked for (see loadList). It returns the index to move mpv
+// to when it isn't, else -1. The first file to start after a load is
+// the one checked; one starting before mpv answered the load's
+// loadfile is from before it, and isn't.
+func (p *Player) applyStartFile(id int64) int {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	p.state.Exhausted = false
+	p.lastEnd = ""
+	if p.discarding {
+		p.discarding = false // the right entry, moved to
+		return -1
+	}
+	if p.loadIndex < 0 || p.loadEntryID == 0 {
+		return -1
+	}
+	want := p.loadIndex
+	p.loadIndex = -1
+	if id == p.loadEntryID {
+		return -1
+	}
+	p.discarding = true
+	return want
+}
+
 func (p *Player) applyEndFile(reason, fileError string) {
 	p.stateMu.Lock()
+	if p.discarding {
+		p.stateMu.Unlock()
+		return // the wrong entry, ended to start the right one
+	}
 	p.lastEnd = reason
 	if reason == "error" {
 		if fileError == "" {
@@ -613,6 +696,13 @@ func (p *Player) applyEndFile(reason, fileError string) {
 func (p *Player) applyPropertyChange(name string, data json.RawMessage) {
 	p.stateMu.Lock()
 	defer p.stateMu.Unlock()
+
+	if p.discarding {
+		switch name {
+		case "playlist-pos", "time-pos", "duration", "demuxer-cache-time":
+			return // the wrong entry's (see applyStartFile)
+		}
+	}
 
 	// time-pos and demuxer-cache-time stream many times a second; only
 	// the discrete properties are worth waking the UI for.
