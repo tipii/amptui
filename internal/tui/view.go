@@ -115,8 +115,27 @@ func (m Model) footerLeft() string {
 	default:
 		// Auto-render from the active KeyMap context so the help line
 		// stays in sync with bindings without hand-maintained strings.
-		return m.helpModel.View(m.currentHelp())
+		return m.fitHelp(m.currentHelp())
 	}
+}
+
+// fitHelp is the short help line, at most the terminal's width. bubbles'
+// help cuts the line short with "…", but keeps the item that overflows
+// when there's no room left for the "…" either; this drops items until
+// it fits.
+func (m Model) fitHelp(h helpView) string {
+	out := m.helpModel.View(h)
+	if m.width <= 0 || lipgloss.Width(out) <= m.width {
+		return out
+	}
+	tail := " " + m.helpModel.Styles.Ellipsis.Render(m.helpModel.Ellipsis)
+	for n := len(h.short) - 1; n > 0; n-- {
+		out = m.helpModel.ShortHelpView(h.short[:n]) + tail
+		if lipgloss.Width(out) <= m.width {
+			return out
+		}
+	}
+	return ansi.Truncate(out, m.width, "")
 }
 
 // dashboardScreen composes the dashboard sub-model's body with the
