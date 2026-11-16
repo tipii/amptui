@@ -1,6 +1,12 @@
 BINARY := amptui
 PKG    := ./cmd/amptui
 
+# The version --version prints and the servers are told: the nearest tag
+# plus commits since it (v0.3.0-4-gabc1234-dirty). Release builds stamp it
+# the same way, through GoReleaser.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+LDFLAGS := -X github.com/tipii/amptui/internal/version.Version=$(VERSION)
+
 # Where `make install` puts the binary. ~/.local/bin is the XDG location for
 # user binaries and is already on PATH on most distros.
 #
@@ -16,7 +22,7 @@ BINDIR ?= $(HOME)/.local/bin
 .PHONY: build run install uninstall test vet tidy clean help
 
 build: ## Build the amptui binary
-	go build -o $(BINARY) $(PKG)
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 
 install: build ## Install amptui to $(BINDIR) (default ~/.local/bin)
 	@mkdir -p $(BINDIR)

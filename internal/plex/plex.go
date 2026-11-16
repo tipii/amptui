@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/version"
 )
 
 // clientIdentifier is sent as X-Plex-Client-Identifier. Plex uses it to
@@ -95,6 +96,7 @@ func (c *Client) setHeaders(req *http.Request) {
 	req.Header.Set("X-Plex-Token", c.token)
 	req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
 	req.Header.Set("X-Plex-Product", "amptui")
+	req.Header.Set("X-Plex-Version", version.String())
 	req.Header.Set("X-Plex-Device-Name", deviceName)
 	req.Header.Set("X-Plex-Platform", runtime.GOOS)
 }

@@ -27,13 +27,11 @@ import (
 	"time"
 
 	"github.com/tipii/amptui/internal/media"
+	"github.com/tipii/amptui/internal/version"
 )
 
 // clientName identifies amptui to Jellyfin.
-const (
-	clientName = "amptui"
-	version    = "0.2"
-)
+const clientName = "amptui"
 
 // deviceIDFor derives the DeviceId amptui reports: stable for one
 // machine + OS user + server, so relaunches reuse a single session entry
@@ -97,7 +95,7 @@ func New(serverURL, username, password string) *Client {
 // only once we have one (the auth request itself sends it empty).
 func (c *Client) authValue(token string) string {
 	v := fmt.Sprintf(`MediaBrowser Client=%q, Device=%q, DeviceId=%q, Version=%q`,
-		clientName, clientName, c.deviceID, version)
+		clientName, clientName, c.deviceID, version.String())
 	if token != "" {
 		v += fmt.Sprintf(`, Token=%q`, token)
 	}
